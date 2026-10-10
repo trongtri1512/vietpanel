@@ -2,7 +2,6 @@ services:
   license-server:
     build: .
     image: vietpanel/license-server:latest
-    container_name: vietpanel-license
     restart: unless-stopped
     ports:
       - "2095:2095"
