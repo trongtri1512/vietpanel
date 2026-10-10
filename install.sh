@@ -37,7 +37,7 @@ fi
 log "1/9 packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq git curl ca-certificates ufw redis-server caddy mysql-server >/dev/null
+apt-get install -y -qq git curl ca-certificates ufw redis-server caddy mysql-server sqlite3 >/dev/null
 
 log "2/9 go toolchain"
 if ! command -v go >/dev/null || ! go version | grep -qE 'go1\.(2[5-9]|[3-9][0-9])'; then
@@ -182,6 +182,14 @@ VALUES (1, 'demo', '$HASH', 'demo@$DOMAIN', 0, 0, 'default', 'default')
 ON DUPLICATE KEY UPDATE password='$HASH';
 SQL
 
+# first super admin for the admin panel (:2087) - vietcli needs sqlite3
+ADMIN_PASS=$(head -c 9 /dev/urandom | base64 | tr -d '/+=' | cut -c1-14)
+vietcli admin new admin "$ADMIN_PASS" --super >/dev/null 2>&1 || true
+cat > /root/vp-credentials.txt <<CREDS
+PANEL_LOGIN demo / $DEMO_PASS
+ADMIN_LOGIN admin / $ADMIN_PASS
+CREDS
+
 log "9/9 caddy + firewall"
 # openpanel-style block: the panel/admin read the domain from this block and each
 # serves its own TLS on 2083/2087, so Caddy proxies to the admin over https.
@@ -198,22 +206,26 @@ mkdir -p /etc/openpanel/caddy/ssl/custom
 ln -sfn /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory /etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory
 printf '%s\n' "$CADDY_CONF" > /etc/openpanel/caddy/Caddyfile   # read by panel/admin/cli
 printf '%s\n' "$CADDY_CONF" > /etc/caddy/Caddyfile             # the file Ubuntu's caddy.service actually loads
-systemctl enable caddy
-systemctl restart caddy
-ufw allow 22,80,443,2083,2087/tcp >/dev/null 2>&1 || true
+# 80/443 stay closed: the panel is reached on 2083 and the admin on 2087.
+# Caddy is disabled; the Caddyfile is kept only because the panel/admin parse the
+# domain (and admin port) out of the HOSTNAME DOMAIN block.
+systemctl disable --now caddy >/dev/null 2>&1 || true
+ufw allow 22,2083,2087/tcp >/dev/null 2>&1 || true
 ufw --force enable >/dev/null 2>&1 || true
 
 cat <<EOF
 
 ============================================================
  VietPanel installed.
-   user panel : https://$DOMAIN        (direct http://$PUBIP:2083)
-   admin      : https://admin.$DOMAIN   (direct http://$PUBIP:2087)
-   login      : demo / $DEMO_PASS
+   user panel : https://$DOMAIN:2083
+   admin      : https://$DOMAIN:2087
+   panel login: demo / $DEMO_PASS
+   admin login: admin / $ADMIN_PASS
+   (saved to /root/vp-credentials.txt; ports 80/443 are closed by design)
    license key: $LICENSE_KEY  (validated by local license-server :2095)
    license admin token (save it): $ADMIN_TOKEN
      issue more keys:
        curl -X POST http://127.0.0.1:2095/api/keys -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"plan":"enterprise"}'
-   DNS: point A records for $DOMAIN and admin.$DOMAIN to $PUBIP for TLS.
+   DNS: point an A record for $DOMAIN to $PUBIP (used for the 2083/2087 certs).
 ============================================================
 EOF
