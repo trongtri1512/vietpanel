@@ -1,0 +1,17 @@
+.DS_Store
+*.log
+*.local
+.env
+.env.*
+node_modules/
+bin/
+data/
+coverage.out
+
+# Playwright
+tests/**/test-results/
+tests/**/playwright-report/
+tests/**/.auth/
+
+# Go
+*.test

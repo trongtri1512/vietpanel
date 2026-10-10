@@ -1,0 +1,64 @@
+{{define "dashboard.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.Title}} · VietAdmin</title>
+  <link rel="stylesheet" href="/static/dist/output.css" />
+  <script defer src="/static/vendor/alpine.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div class="flex h-screen overflow-hidden">
+    {{template "_sidebar" .}}
+    <div class="flex-1 flex flex-col overflow-hidden">
+      {{template "_header" .}}
+      <main class="flex-1 overflow-y-auto p-6">
+        <h2 class="text-xl font-semibold text-slate-800">Dashboard</h2>
+        <p class="text-sm text-slate-500 mt-1">Overview of your server.</p>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <p class="text-sm font-medium text-slate-500">Users</p>
+            <p class="text-2xl font-semibold text-slate-800 mt-2">{{index .Counts "users"}}</p>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <p class="text-sm font-medium text-slate-500">Domains</p>
+            <p class="text-2xl font-semibold text-slate-800 mt-2">{{index .Counts "domains"}}</p>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <p class="text-sm font-medium text-slate-500">Plans</p>
+            <p class="text-2xl font-semibold text-slate-800 mt-2">{{index .Counts "plans"}}</p>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <p class="text-sm font-medium text-slate-500">Server</p>
+            <p class="text-2xl font-semibold text-slate-800 mt-2 truncate" title="{{.Hostname}}">{{.Hostname}}</p>
+          </div>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-6">
+            <h3 class="font-semibold text-slate-800">Getting started</h3>
+            <p class="text-sm text-slate-500 mt-1">Follow these steps to prepare the server for your first customers.</p>
+            <ul class="mt-4 space-y-3 text-sm">
+              <li class="flex items-center gap-3 text-slate-600"><span class="h-5 w-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">1</span> Create a hosting plan</li>
+              <li class="flex items-center gap-3 text-slate-600"><span class="h-5 w-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">2</span> Add your first user</li>
+              <li class="flex items-center gap-3 text-slate-600"><span class="h-5 w-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">3</span> Point a domain to the server</li>
+              <li class="flex items-center gap-3 text-slate-600"><span class="h-5 w-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">4</span> Issue an SSL certificate</li>
+            </ul>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-6">
+            <h3 class="font-semibold text-slate-800">System</h3>
+            <dl class="mt-4 space-y-3 text-sm">
+              <div class="flex justify-between"><dt class="text-slate-500">Hostname</dt><dd class="font-medium text-slate-700 truncate">{{.Hostname}}</dd></div>
+              <div class="flex justify-between"><dt class="text-slate-500">Version</dt><dd class="font-medium text-slate-700">{{.Version}}</dd></div>
+              <div class="flex justify-between"><dt class="text-slate-500">License</dt><dd class="font-medium text-slate-700">Community</dd></div>
+            </dl>
+          </div>
+        </div>
+      </main>
+      {{template "_footer" .}}
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

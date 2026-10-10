@@ -1,0 +1,85 @@
+{{define "user/dashboard.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.Title}} · VietPanel</title>
+  <link rel="stylesheet" href="/static/dist/output.css" />
+  <script defer src="/static/vendor/alpine.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div class="flex h-screen overflow-hidden">
+    {{template "_sidebar" .}}
+    <div class="flex-1 flex flex-col overflow-hidden">
+      {{template "_header" .}}
+      <main class="flex-1 overflow-y-auto p-6">
+        <h2 class="text-xl font-semibold text-slate-800">Welcome back, {{.User.Username}}</h2>
+        <p class="text-sm text-slate-500 mt-1">Here is what's happening on your hosting account.</p>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-medium text-slate-500">Websites</p>
+              <span class="h-8 w-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253"/></svg>
+              </span>
+            </div>
+            <p class="text-2xl font-semibold text-slate-800 mt-2">{{index .Counts "websites"}}</p>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-medium text-slate-500">Domains</p>
+              <span class="h-8 w-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253"/></svg>
+              </span>
+            </div>
+            <p class="text-2xl font-semibold text-slate-800 mt-2">{{index .Counts "domains"}}</p>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-medium text-slate-500">Databases</p>
+              <span class="h-8 w-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/></svg>
+              </span>
+            </div>
+            <p class="text-2xl font-semibold text-slate-800 mt-2">{{index .Counts "databases"}}</p>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-medium text-slate-500">Disk usage</p>
+              <span class="h-8 w-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/></svg>
+              </span>
+            </div>
+            <p class="text-2xl font-semibold text-slate-800 mt-2">0%</p>
+            <div class="w-full bg-slate-100 rounded-full h-1.5 mt-2"><div class="bg-purple-500 h-1.5 rounded-full" style="width: 0%"></div></div>
+          </div>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-6">
+            <h3 class="font-semibold text-slate-800">Getting started</h3>
+            <p class="text-sm text-slate-500 mt-1">Follow these steps to set up your first website.</p>
+            <ul class="mt-4 space-y-3 text-sm">
+              <li class="flex items-center gap-3 text-slate-600"><span class="h-5 w-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">1</span> Create your first website</li>
+              <li class="flex items-center gap-3 text-slate-600"><span class="h-5 w-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">2</span> Point your domain to the server</li>
+              <li class="flex items-center gap-3 text-slate-600"><span class="h-5 w-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">3</span> Create a database</li>
+              <li class="flex items-center gap-3 text-slate-600"><span class="h-5 w-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">4</span> Upload your files or install WordPress</li>
+            </ul>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-6">
+            <h3 class="font-semibold text-slate-800">Account</h3>
+            <dl class="mt-4 space-y-3 text-sm">
+              <div class="flex justify-between"><dt class="text-slate-500">Username</dt><dd class="font-medium text-slate-700">{{.User.Username}}</dd></div>
+              <div class="flex justify-between"><dt class="text-slate-500">Plan</dt><dd class="font-medium text-slate-700">Community</dd></div>
+              <div class="flex justify-between"><dt class="text-slate-500">Server</dt><dd class="font-medium text-slate-700">localhost</dd></div>
+            </dl>
+          </div>
+        </div>
+      </main>
+      {{template "_footer" .}}
+    </div>
+  </div>
+</body>
+</html>
+{{end}}
