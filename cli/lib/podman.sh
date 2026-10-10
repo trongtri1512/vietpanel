@@ -16,7 +16,7 @@
 # Docs: https://docs.openpanel.com
 # Author: Stefan Pejcic
 # Created: 10.07.2026
-# Company: VietPanel, LLC.
+# Company: OpenPanel, LLC.
 ################################################################################
 
 # echoes the CONTAINER_HOST URL for <username>'s rootless podman socket

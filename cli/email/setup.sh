@@ -7,7 +7,7 @@
 # Author: Stefan Pejcic
 # Created: 18.08.2024
 # Last Modified: 30.09.2026
-# Company: VietPanel, LLC.
+# Company: OpenPanel, LLC.
 # Copyright (c) openpanel.com
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
