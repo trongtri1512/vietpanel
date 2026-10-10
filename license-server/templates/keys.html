@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keys · VietPanel License</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f1f5f9; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #0f172a; }
+  header { background: #0f172a; color: #fff; padding: 14px 28px; display: flex; align-items: center; gap: 12px; }
+  header .logo { width: 30px; height: 30px; border-radius: 7px; background: #2563eb; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  header h1 { font-size: 16px; margin: 0; flex: 1; }
+  header form button { background: transparent; border: 1px solid #475569; color: #cbd5e1; padding: 6px 12px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+  main { max-width: 1080px; margin: 28px auto; padding: 0 20px; display: grid; gap: 20px; }
+  .stats { display: flex; gap: 14px; }
+  .stat { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 22px; }
+  .stat b { display: block; font-size: 26px; }
+  .stat span { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: .04em; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px 22px; }
+  .card h2 { margin: 0 0 14px; font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #eef2f7; vertical-align: top; }
+  th { color: #64748b; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  code { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 5px; padding: 2px 6px; font-size: 12.5px; word-break: break-all; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.active { background: #dcfce7; color: #15803d; }
+  .pill.revoked { background: #fee2e2; color: #b91c1c; }
+  form.inline { display: inline; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .grid label { font-size: 12px; font-weight: 600; color: #334155; display: block; margin-bottom: 5px; }
+  input, select { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 7px; font-size: 13.5px; background: #fff; }
+  .actions { margin-top: 14px; display: flex; gap: 10px; }
+  button.primary { background: #2563eb; color: #fff; border: 0; border-radius: 7px; padding: 9px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  button.primary:hover { background: #1d4ed8; }
+  button.danger { background: #fff; color: #b91c1c; border: 1px solid #fecaca; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+  .note { font-size: 12.5px; color: #64748b; margin-top: 12px; }
+  .note code { font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">V</span>
+  <h1>VietPanel License Manager</h1>
+  <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+</header>
+<main>
+  <div class="stats">
+    <div class="stat"><b>{{.Active}}</b><span>active keys</span></div>
+    <div class="stat"><b>{{len .Keys}}</b><span>total keys</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Issue a new key</h2>
+    <form method="post" action="/keys/issue">
+      <div class="grid">
+        <div><label for="plan">Plan</label>
+          <select id="plan" name="plan">
+            <option value="enterprise">enterprise</option>
+            <option value="noc">noc</option>
+            <option value="lifetime">lifetime</option>
+          </select></div>
+        <div><label for="ip">Bind to IP (optional)</label><input id="ip" name="ip" placeholder="auto-bind on first use"></div>
+        <div style="grid-column: span 2"><label for="note">Note</label><input id="note" name="note" placeholder="customer / server reference"></div>
+      </div>
+      <div class="actions"><button class="primary" type="submit">Issue key</button></div>
+    </form>
+    <p class="note">Point each panel at this server: <code>[LICENSE] license_server_url={{.ValidateURL}}</code> in <code>openpanel.config</code>, then paste the issued key into <code>key=</code>.</p>
+  </div>
+
+  <div class="card">
+    <h2>Keys</h2>
+    <table>
+      <thead><tr><th>Key</th><th>Plan</th><th>Status</th><th>Bound IP</th><th>Created</th><th>Note</th><th></th></tr></thead>
+      <tbody>
+      {{range .Keys}}
+        <tr>
+          <td><code>{{.Key}}</code></td>
+          <td>{{.Plan}}</td>
+          <td><span class="pill {{if eq .Status "Active"}}active{{else}}revoked{{end}}">{{.Status}}</span></td>
+          <td>{{if .IP}}<code>{{.IP}}</code>{{else}}—{{end}}</td>
+          <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+          <td>{{.Note}}</td>
+          <td>{{if eq .Status "Active"}}
+            <form class="inline" method="post" action="/keys/revoke">
+              <input type="hidden" name="key" value="{{.Key}}">
+              <button class="danger" type="submit">Revoke</button>
+            </form>{{end}}</td>
+        </tr>
+      {{else}}
+        <tr><td colspan="7" style="color:#64748b;padding:18px 10px;">No keys yet — issue one above.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>

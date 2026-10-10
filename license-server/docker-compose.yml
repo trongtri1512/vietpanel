@@ -1,0 +1,18 @@
+services:
+  license-server:
+    build: .
+    image: vietpanel/license-server:latest
+    container_name: vietpanel-license
+    restart: unless-stopped
+    ports:
+      - "2095:2095"
+    environment:
+      # REQUIRED: secret used to sign in to the web UI and call /api/keys
+      LICENSE_ADMIN_TOKEN: ${LICENSE_ADMIN_TOKEN:?set LICENSE_ADMIN_TOKEN in .env}
+      # Public base URL shown in the UI as the panel's license_server_url value
+      LICENSE_PUBLIC_URL: ${LICENSE_PUBLIC_URL:-http://127.0.0.1:2095}
+    volumes:
+      - license-data:/data
+
+volumes:
+  license-data:

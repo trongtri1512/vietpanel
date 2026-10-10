@@ -110,7 +110,7 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload && systemctl enable --now vietpanel-license
 sleep 1
-LICENSE_KEY=$(curl -fsS -X POST http://127.0.0.1:2095/admin/keys \
+LICENSE_KEY=$(curl -fsS -X POST http://127.0.0.1:2095/api/keys \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"plan":"enterprise","note":"self-hosted installer"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["key"])')
 python3 - "$LICENSE_KEY" <<'PY'
@@ -183,7 +183,7 @@ cat <<EOF
    license key: $LICENSE_KEY  (validated by local license-server :2095)
    license admin token (save it): $ADMIN_TOKEN
      issue more keys:
-       curl -X POST http://127.0.0.1:2095/admin/keys -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"plan":"enterprise"}'
+       curl -X POST http://127.0.0.1:2095/api/keys -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"plan":"enterprise"}'
    DNS: point A records for $DOMAIN and admin.$DOMAIN to $PUBIP for TLS.
 ============================================================
 EOF
