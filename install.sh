@@ -84,12 +84,24 @@ EOF
 chmod 600 /etc/my.cnf
 
 log "6/9 redis (unix socket)"
-mkdir -p /tmp/redis
+# Ubuntu's unit has PrivateTmp=true + restricted ReadWritePaths, so a socket under
+# /tmp needs a drop-in and the dir must be writable by the redis user.
+mkdir -p /tmp/redis && chown redis:redis /tmp/redis && chmod 775 /tmp/redis
+mkdir -p /etc/systemd/system/redis-server.service.d
+cat > /etc/systemd/system/redis-server.service.d/override.conf <<'EOF'
+[Service]
+PrivateTmp=false
+ReadWritePaths=/tmp/redis /var/lib/redis /var/log/redis /var/run/redis
+EOF
 grep -q '^unixsocket /tmp/redis/redis.sock' /etc/redis/redis.conf 2>/dev/null || cat >> /etc/redis/redis.conf <<'EOF'
 unixsocket /tmp/redis/redis.sock
 unixsocketperm 777
 EOF
+systemctl daemon-reload
+systemctl reset-failed redis-server 2>/dev/null || true
 systemctl restart redis-server
+sleep 1
+systemctl is-active --quiet redis-server || { echo "FATAL: redis did not start"; journalctl -u redis-server -n 20 --no-pager; exit 1; }
 
 log "7/9 panel config + translations + license-server"
 mkdir -p /etc/openpanel/openpanel/conf /etc/openpanel/openadmin/config /var/lib/vietpanel
@@ -174,7 +186,8 @@ admin.$DOMAIN {
     reverse_proxy 127.0.0.1:2087
 }
 EOF
-systemctl enable --now caddy
+systemctl enable caddy
+systemctl restart caddy   # apt already started caddy with the default config; restart to load our Caddyfile
 ufw allow 22,80,443,2083,2087/tcp >/dev/null 2>&1 || true
 ufw --force enable >/dev/null 2>&1 || true
 
