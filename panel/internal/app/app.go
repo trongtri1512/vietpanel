@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -21,11 +22,29 @@ import (
 )
 
 const (
-	ConfigPath    = "/etc/openpanel/openpanel/conf/openpanel.config"
-	SecretKeyPath = "/etc/openpanel/openpanel/secret.key"
-	RedisSocket   = "/tmp/redis/redis.sock"
-	MySQLOptFile  = db.OptionFile
+	defaultConfigPath    = "/etc/openpanel/openpanel/conf/openpanel.config"
+	defaultSecretKeyPath = "/etc/openpanel/openpanel/secret.key"
+	RedisSocket          = "/tmp/redis/redis.sock"
 )
+
+// MySQLOptFile defaults to /etc/my.cnf but can be overridden via
+// VIETPANEL_MYSQL_OPTFILE for local dev/testing.
+var MySQLOptFile = envOrDefault("VIETPANEL_MYSQL_OPTFILE", db.OptionFile)
+
+// ConfigPath/SecretKeyPath default to the production Linux locations but can be
+// overridden via VIETPANEL_CONFIG / VIETPANEL_SECRET for local dev/testing on
+// non-Linux hosts where /etc/openpanel isn't writable.
+var (
+	ConfigPath    = envOrDefault("VIETPANEL_CONFIG", defaultConfigPath)
+	SecretKeyPath = envOrDefault("VIETPANEL_SECRET", defaultSecretKeyPath)
+)
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
 
 // mainModules are always enabled, regardless of the admin's enabled_modules setting
 var mainModules = []string{"dashboard", "websites"}

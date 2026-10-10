@@ -18,11 +18,19 @@ import (
 )
 
 const (
-	TranslationsDir   = "/etc/openpanel/openpanel/translations/"
 	DefaultLocaleFile = "/etc/openpanel/openpanel/default_locale"
 	FallbackLocale    = "en"
 	domain            = "messages"
 )
+
+// TranslationsDir defaults to the production Linux path but can be overridden
+// via VIETPANEL_TRANSLATIONS for local dev/testing on non-Linux hosts.
+var TranslationsDir = func() string {
+	if v := os.Getenv("VIETPANEL_TRANSLATIONS"); v != "" {
+		return v
+	}
+	return "/etc/openpanel/openpanel/translations/"
+}()
 
 type Manager struct {
 	dir   string
