@@ -10,6 +10,7 @@ import (
 	"time"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/appkit"
 	"vietpanel/panel/internal/core/logger"
@@ -167,7 +168,7 @@ func HandleInstall(kind Kind, a *appctx.App, w http.ResponseWriter, r *http.Requ
 	envFile := "/home/" + userContext + "/.env"
 
 	emit(map[string]any{"status": "Checking if existing installation processes are running.."})
-	lockDir := "/etc/openpanel/openpanel/core/users/" + currentUsername
+	lockDir := paths.CoreUsersDir + "/" + currentUsername
 	_ = os.MkdirAll(lockDir, 0o755)
 	lockPath := lockDir + "/krompir.lock"
 	if lockErr := os.WriteFile(lockPath, nil, 0o644); lockErr != nil {

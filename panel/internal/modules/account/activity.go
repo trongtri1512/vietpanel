@@ -10,11 +10,12 @@ import (
 	"time"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 )
 
 func activityLogPath(username string) string {
-	return "/etc/openpanel/openpanel/core/users/" + username + "/activity.log"
+	return paths.CoreUsersDir + "/" + username + "/activity.log"
 }
 
 // readActivityLog returns the user's activity log newest-first (the file itself is append-only chronological, so this just reverses it), or nil if there's no log yet

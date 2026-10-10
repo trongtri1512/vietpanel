@@ -11,6 +11,7 @@ import (
 	"time"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/cache"
 	"vietpanel/panel/internal/core/i18n"
@@ -26,7 +27,7 @@ type Favorite struct {
 }
 
 func favoritesPath(username string) string {
-	return "/etc/openpanel/openpanel/core/users/" + username + "/favorites.json"
+	return paths.CoreUsersDir + "/" + username + "/favorites.json"
 }
 
 func favoritesCacheKey(username string) string {

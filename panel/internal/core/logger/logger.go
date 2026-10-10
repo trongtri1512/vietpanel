@@ -12,10 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/core/config"
 )
 
-const activityLogDir = "/etc/openpanel/openpanel/core/users"
+var activityLogDir = paths.CoreUsersDir
 
 // RecordUserAction appends a line to the user's activity.log, then trims it if it's grown past the configured retention
 func RecordUserAction(cfg config.Config, username, action, ipAddress string) error {

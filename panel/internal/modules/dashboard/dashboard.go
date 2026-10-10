@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/csrf"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/cache"
 	"vietpanel/panel/internal/core/config"
@@ -683,7 +684,7 @@ func countFTPAccounts(a *appctx.App, ctx context.Context, userContext string) in
 
 func customMessageForUser(a *appctx.App, ctx context.Context, username string) string {
 	msg, _ := cache.Memoize(ctx, a.Cache, "custom_message_for_user_on_dashboard_page:"+username, 3600*time.Second, func() (string, error) {
-		path := fmt.Sprintf("/etc/openpanel/openpanel/core/users/%s/custom_message.html", username)
+		path := paths.CoreUsersDir + "/" + username + "/custom_message.html"
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return "", nil //nolint:nilerr

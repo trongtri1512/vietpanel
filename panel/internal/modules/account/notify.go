@@ -14,6 +14,7 @@ import (
 	"time"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/core/cache"
 	"vietpanel/panel/internal/core/reqip"
 	"vietpanel/panel/internal/core/sysinfo"
@@ -99,7 +100,7 @@ func rowName(ctx context.Context, a *appctx.App, query string, id, userID int) s
 
 // notificationsFilePath is the one key=value-per-line preferences file per user.
 func notificationsFilePath(username string) string {
-	return "/etc/openpanel/openpanel/core/users/" + username + "/notifications.yaml"
+	return paths.CoreUsersDir + "/" + username + "/notifications.yaml"
 }
 
 // parseNotificationsFile is a simple "k=v" line parser, distinct from notifications.go's own parser (which also skips "#" comment lines)
@@ -150,7 +151,7 @@ func getNotificationPreference(ctx context.Context, a *appctx.App, username, key
 
 // loginIPIsKnown reports whether ip is already in the user's .lastlogin history, call it before the new login is appended
 func loginIPIsKnown(username, ip string) bool {
-	data, err := os.ReadFile("/etc/openpanel/openpanel/core/users/" + username + "/.lastlogin")
+	data, err := os.ReadFile(paths.CoreUsersDir + "/" + username + "/.lastlogin")
 	if err != nil || ip == "" {
 		return false
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/logger"
 	"vietpanel/panel/internal/core/podmanmanager"
@@ -22,7 +23,7 @@ import (
 // composerLogPath returns the host path a site's captured Composer run output is written to and read back from - same base directory convention as the install lock file
 func composerLogPath(username, siteName string) string {
 	safe := strings.ReplaceAll(siteName, "/", "_")
-	return "/etc/openpanel/openpanel/core/users/" + username + "/php-app-logs/" + safe + ".log"
+	return paths.CoreUsersDir + "/" + username + "/php-app-logs/" + safe + ".log"
 }
 
 // appendComposerLog records one Composer run's output, prefixed with a timestamp/action header, so the manage page's Logs tab has a running history rather than just the last run

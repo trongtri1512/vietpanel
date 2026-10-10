@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/logger"
 	"vietpanel/panel/internal/core/reqip"
@@ -105,7 +106,7 @@ func createHTMLSiteStream(a *appctx.App, w http.ResponseWriter, r *http.Request)
 	_ = r.ParseForm()
 	domainID := r.Form.Get("domain_id")
 
-	krompirPath := "/etc/openpanel/openpanel/core/users/" + currentUsername + "/krompir.lock"
+	krompirPath := paths.CoreUsersDir + "/" + currentUsername + "/krompir.lock"
 	if wErr := os.WriteFile(krompirPath, nil, 0o644); wErr != nil {
 		emit(map[string]any{"error": "Error creating " + krompirPath + ": " + wErr.Error()})
 		return

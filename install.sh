@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# VietPanel one-shot installer for Ubuntu 22.04+/Debian 12 (root required).
+#
+#   curl -fsSL https://raw.githubusercontent.com/trongtri1512/vietpanel/main/install.sh | bash -s -- \
+#        --domain vietpanel.trongtri.com --email you@example.com
+#
+# Installs: MySQL, Redis, Caddy, Go toolchain, VietPanel user panel (:2083),
+# VietAdmin (:2087), self-hosted license-server (:2095), CLI (opencli/vietcli),
+# and wires TLS for --domain (and admin.--domain) via Caddy/Let's Encrypt.
+set -euo pipefail
+
+DOMAIN=""; EMAIL=""; REPO="https://github.com/trongtri1512/vietpanel.git"; BRANCH="main"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --domain) DOMAIN="$2"; shift 2;;
+    --email) EMAIL="$2"; shift 2;;
+    --repo) REPO="$2"; shift 2;;
+    --branch) BRANCH="$2"; shift 2;;
+    *) echo "unknown arg: $1"; exit 1;;
+  esac
+done
+[[ -z "$DOMAIN" ]] && { echo "--domain is required"; exit 1; }
+[[ "$EUID" -ne 0 ]] && { echo "run as root"; exit 1; }
+EMAIL="${EMAIL:-admin@$DOMAIN}"
+
+log(){ echo -e "\n\033[1;34m[vietpanel]\033[0m $*"; }
+
+log "0/9 preflight"
+. /etc/os-release
+case "$ID" in ubuntu|debian) ;; *) echo "unsupported OS: $ID (use Ubuntu 22.04+/Debian 12)"; exit 1;; esac
+PUBIP=$(curl -fsS --max-time 8 https://ifconfig.me || echo "")
+RESOLVED=$(getent hosts "$DOMAIN" | awk '{print $1; exit}' || true)
+if [[ -n "$PUBIP" && -n "$RESOLVED" && "$RESOLVED" != "$PUBIP" ]]; then
+  log "WARNING: $DOMAIN resolves to $RESOLVED but this server is $PUBIP - TLS will fail until DNS is fixed"
+fi
+
+log "1/9 packages"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq git curl ca-certificates ufw redis-server caddy mysql-server >/dev/null
+
+log "2/9 go toolchain"
+if ! command -v go >/dev/null || ! go version | grep -qE 'go1\.(2[5-9]|[3-9][0-9])'; then
+  ARCH=$(dpkg --print-architecture); [[ "$ARCH" == "amd64" ]] && GOARCH=amd64 || GOARCH=arm64
+  curl -fsSL "https://go.dev/dl/go1.25.0.linux-${GOARCH}.tar.gz" -o /tmp/go.tgz
+  rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz
+fi
+export PATH=$PATH:/usr/local/go/bin
+
+log "3/9 source"
+rm -rf /opt/vietpanel
+git clone --depth 1 --branch "$BRANCH" "$REPO" /opt/vietpanel
+cd /opt/vietpanel
+
+log "4/9 build"
+mkdir -p /usr/local/vietpanel
+(cd panel && go build -o /usr/local/vietpanel/panel ./cmd/panel && go build -o /usr/local/vietpanel/genhash ./cmd/genhash)
+(cd admin && go build -o /usr/local/vietpanel/admin ./cmd/admin)
+(cd license-server && go build -o /usr/local/vietpanel/license-server .)
+
+log "5/9 mysql"
+systemctl enable --now mysql
+DBPASS=$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | cut -c1-24)
+mysql <<SQL
+CREATE DATABASE IF NOT EXISTS panel;
+CREATE USER IF NOT EXISTS 'vietpanel'@'localhost' IDENTIFIED BY '$DBPASS';
+GRANT ALL ON panel.* TO 'vietpanel'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+mysql panel < configuration/mysql/initialize/1.1/plans.sql
+cat > /etc/my.cnf <<EOF
+[client]
+user=vietpanel
+password=$DBPASS
+host=127.0.0.1
+port=3306
+database=panel
+EOF
+chmod 600 /etc/my.cnf
+
+log "6/9 redis (unix socket)"
+mkdir -p /tmp/redis
+grep -q '^unixsocket /tmp/redis/redis.sock' /etc/redis/redis.conf 2>/dev/null || cat >> /etc/redis/redis.conf <<'EOF'
+unixsocket /tmp/redis/redis.sock
+unixsocketperm 777
+EOF
+systemctl restart redis-server
+
+log "7/9 panel config + translations + license-server"
+mkdir -p /etc/openpanel/openpanel/conf /etc/openpanel/openadmin/config /var/lib/vietpanel
+cp configuration/openpanel/conf/openpanel.config /etc/openpanel/openpanel/conf/openpanel.config
+cp -r translations /etc/openpanel/openpanel/translations
+head -c 32 /dev/urandom | base64 > /etc/openpanel/openpanel/secret.key
+chmod 600 /etc/openpanel/openpanel/secret.key
+sed -i 's/^dev_mode=.*/dev_mode=off/' /etc/openpanel/openpanel/conf/openpanel.config
+
+ADMIN_TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '/+=' )
+cat > /etc/systemd/system/vietpanel-license.service <<EOF
+[Unit]
+Description=VietPanel license server
+After=network.target
+[Service]
+ExecStart=/usr/local/vietpanel/license-server
+Environment=LICENSE_DB=/var/lib/vietpanel/licenses.json
+Environment=LICENSE_ADDR=127.0.0.1:2095
+Environment=LICENSE_ADMIN_TOKEN=$ADMIN_TOKEN
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now vietpanel-license
+sleep 1
+LICENSE_KEY=$(curl -fsS -X POST http://127.0.0.1:2095/admin/keys \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"plan":"enterprise","note":"self-hosted installer"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["key"])')
+python3 - "$LICENSE_KEY" <<'PY'
+import sys, re
+p = "/etc/openpanel/openpanel/conf/openpanel.config"
+s = open(p).read()
+key = sys.argv[1]
+s = re.sub(r"(?m)^key=.*$", f"key={key}", s, count=1)
+if "[LICENSE]" in s and "license_server_url=" not in s:
+    s = s.replace("[LICENSE]", "[LICENSE]\nlicense_server_url=http://127.0.0.1:2095/enterprise/index.php", 1)
+open(p, "w").write(s)
+print("license key installed:", key)
+PY
+
+log "8/9 services + cli + admin"
+cp configuration/openadmin/config/admin.ini /etc/openpanel/openadmin/config/admin.ini
+head -c 32 /dev/urandom | base64 > /etc/openpanel/openadmin/secret.key
+chmod 600 /etc/openpanel/openadmin/secret.key
+
+install -d /usr/local/vietcli
+cp -r cli/. /usr/local/vietcli/
+chmod +x /usr/local/vietcli/vietcli 2>/dev/null || true
+ln -sf /usr/local/vietcli/vietcli /usr/local/bin/vietcli
+ln -sf /usr/local/vietcli/vietcli /usr/local/bin/opencli
+
+for svc in panel admin; do
+cat > /etc/systemd/system/vietpanel-$svc.service <<EOF
+[Unit]
+Description=VietPanel $svc
+After=network.target mysql.service redis-server.service
+[Service]
+ExecStart=/usr/local/vietpanel/$svc
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOF
+done
+systemctl daemon-reload
+systemctl enable --now vietpanel-panel vietpanel-admin
+
+# seed a demo hosting account so you can log in immediately
+DEMO_PASS=$(head -c 9 /dev/urandom | base64 | tr -d '/+=' | cut -c1-12)
+HASH=$(/usr/local/vietpanel/genhash "$DEMO_PASS")
+mysql panel <<SQL
+INSERT INTO users (id, username, password, email, user_domains, twofa_enabled, plan, server)
+VALUES (1, 'demo', '$HASH', 'demo@$DOMAIN', 0, 0, 'default', 'default')
+ON DUPLICATE KEY UPDATE password='$HASH';
+SQL
+
+log "9/9 caddy + firewall"
+cat > /etc/caddy/Caddyfile <<EOF
+$DOMAIN {
+    reverse_proxy 127.0.0.1:2083
+}
+admin.$DOMAIN {
+    reverse_proxy 127.0.0.1:2087
+}
+EOF
+systemctl enable --now caddy
+ufw allow 22,80,443,2083,2087/tcp >/dev/null 2>&1 || true
+ufw --force enable >/dev/null 2>&1 || true
+
+cat <<EOF
+
+============================================================
+ VietPanel installed.
+   user panel : https://$DOMAIN        (direct http://$PUBIP:2083)
+   admin      : https://admin.$DOMAIN   (direct http://$PUBIP:2087)
+   login      : demo / $DEMO_PASS
+   license key: $LICENSE_KEY  (validated by local license-server :2095)
+   license admin token (save it): $ADMIN_TOKEN
+     issue more keys:
+       curl -X POST http://127.0.0.1:2095/admin/keys -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"plan":"enterprise"}'
+   DNS: point A records for $DOMAIN and admin.$DOMAIN to $PUBIP for TLS.
+============================================================
+EOF

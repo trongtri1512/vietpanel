@@ -2,6 +2,7 @@
 package appkit
 
 import (
+	"vietpanel/panel/internal/core/paths"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -29,11 +30,11 @@ func RandomString(length int) string {
 
 // LockFilePath is the per-user krompir.lock so only one app install runs per user at a time
 func LockFilePath(username string) string {
-	return "/etc/openpanel/openpanel/core/users/" + username + "/krompir.lock"
+	return paths.CoreUsersDir + "/" + username + "/krompir.lock"
 }
 
 func CreateLockFile(username string) error {
-	dir := "/etc/openpanel/openpanel/core/users/" + username
+	dir := paths.CoreUsersDir + "/" + username
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}

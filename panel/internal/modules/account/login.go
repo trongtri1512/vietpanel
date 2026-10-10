@@ -22,6 +22,7 @@ import (
 	"github.com/pquerna/otp/totp"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/cache"
 	"vietpanel/panel/internal/core/captcha"
@@ -309,7 +310,7 @@ func finishLoginSession(a *appctx.App, w http.ResponseWriter, r *http.Request, s
 
 // logUserLogin appends to the user's .lastlogin history file, then creates the Redis-backed session record RequireLogin validates on every later request
 func logUserLogin(a *appctx.App, r *http.Request, sess *sessions.Session, userID int, username, ip string) error {
-	userFolder := filepath.Join("/etc/openpanel/openpanel/core/users", username)
+	userFolder := filepath.Join(paths.CoreUsersDir, username)
 	if err := os.MkdirAll(userFolder, 0o755); err != nil {
 		return err
 	}
@@ -392,7 +393,7 @@ func handleAutologin(a *appctx.App, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenPath := fmt.Sprintf("/etc/openpanel/openpanel/core/users/%s/logintoken.txt", usernameToLogin)
+	tokenPath := paths.CoreUsersDir + "/" + usernameToLogin + "/logintoken.txt"
 	tokenBytes, err := os.ReadFile(tokenPath)
 	if err != nil {
 		data.ErrorMessage = t.Get("Error reading token from user files.")

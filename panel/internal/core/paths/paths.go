@@ -235,3 +235,15 @@ func resolveNonStrict(path string) (string, error) {
 	}
 	return filepath.Join(resolvedDir, base), nil
 }
+
+// CoreUsersDir is the panel's per-user metadata directory (.lastlogin, activity.log,
+// ip.json, locks, notifications...). Defaults to the production Linux location;
+// override via VIETPANEL_CORE_USERS for local dev on non-Linux hosts.
+var CoreUsersDir = envOr("VIETPANEL_CORE_USERS", "/etc/openpanel/openpanel/core/users")
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}

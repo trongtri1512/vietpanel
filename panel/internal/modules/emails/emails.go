@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/cache"
 	"vietpanel/panel/internal/core/flash"
@@ -83,7 +84,7 @@ func randomURLToken(nBytes int) string {
 func emailsCacheKey(username string) string { return "email_list:" + username }
 
 func cachedEmailsFile(username string) string {
-	return "/etc/openpanel/openpanel/core/users/" + username + "/emails.yml"
+	return paths.CoreUsersDir + "/" + username + "/emails.yml"
 }
 
 // readEmailsFile mirrors _read_emails_file(): lines starting with '*' whose domain (the part after '@' up to the next space) is in userDomains

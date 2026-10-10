@@ -12,6 +12,7 @@ import (
 	"time"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/flash"
 	"vietpanel/panel/internal/core/i18n"
@@ -414,7 +415,7 @@ func handleFTPConfiguration(a *appctx.App, w http.ResponseWriter, r *http.Reques
 	}
 
 	defaultHost := a.GetCachedIPForUserOrPublicIPv4(r.Context(), currentUsername)
-	dedicatedIPPath := "/etc/openpanel/openpanel/core/users/" + currentUsername + "/ip.json"
+	dedicatedIPPath := paths.CoreUsersDir + "/" + currentUsername + "/ip.json"
 	if data, err := os.ReadFile(dedicatedIPPath); err == nil {
 		var parsed struct {
 			IP string `json:"ip"`

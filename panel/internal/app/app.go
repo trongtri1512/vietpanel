@@ -62,6 +62,7 @@ type App struct {
 
 	LicenseKey   string
 	LicenseValid bool
+	LicenseURL   string
 
 	ForceDomain string
 	ForcePort   string
@@ -141,6 +142,10 @@ func New() (*App, error) {
 		DemoMode:                cfg.Get("demo_mode", "") == "on",
 	}
 
+	a.LicenseURL = cfg.Get("license_server_url", "")
+	if a.LicenseURL == "" {
+		a.LicenseURL = os.Getenv("VIETPANEL_LICENSE_URL")
+	}
 	a.LicenseValid = a.checkLicenseStartup(context.Background())
 
 	return a, nil

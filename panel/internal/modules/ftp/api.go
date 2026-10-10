@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/apiregistry"
 	"vietpanel/panel/internal/core/logger"
@@ -61,7 +62,7 @@ func apiFTPServiceCheck(w http.ResponseWriter, r *http.Request) bool {
 // apiServerIP returns the FTP host to advertise for a user: their dedicated IP if one is configured, otherwise the shared server IP
 func apiServerIP(a *appctx.App, r *http.Request, currentUsername string) string {
 	ftpHost := a.GetCachedIPForUserOrPublicIPv4(r.Context(), currentUsername)
-	dedicatedIPPath := "/etc/openpanel/openpanel/core/users/" + currentUsername + "/ip.json"
+	dedicatedIPPath := paths.CoreUsersDir + "/" + currentUsername + "/ip.json"
 	if data, err := os.ReadFile(dedicatedIPPath); err == nil {
 		var parsed struct {
 			IP string `json:"ip"`

@@ -32,13 +32,17 @@ func (a *App) checkLicenseStartup(ctx context.Context) bool {
 	if a.LicenseKey == "" {
 		return false
 	}
+	if a.LicenseURL == "" {
+		log.Print("BOOTSTRAP - no license_server_url configured; cannot validate key remotely")
+		return false
+	}
 
 	dynamicIP := sysinfo.FetchPublicIP(ctx, a.Cache)
 	log.Printf("BOOTSTRAP - validating license key: %s", a.LicenseKey)
 
 	form := url.Values{"licensekey": {a.LicenseKey}, "ip": {dynamicIP}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://api.openpanel.com/enterprise/index.php", strings.NewReader(form.Encode()))
+		a.LicenseURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		log.Printf("BOOTSTRAP - license validation failed: %v", err)
 		return false

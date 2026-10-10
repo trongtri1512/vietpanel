@@ -11,6 +11,7 @@ import (
 	"time"
 
 	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/auth"
 	"vietpanel/panel/internal/core/cache"
 	"vietpanel/panel/internal/core/logger"
@@ -26,7 +27,7 @@ type AliasEntry struct {
 }
 
 func aliasesCacheFile(username string) string {
-	return "/etc/openpanel/openpanel/core/users/" + username + "/aliases.yml"
+	return paths.CoreUsersDir + "/" + username + "/aliases.yml"
 }
 
 // readAliasesFile parses the cached aliases.yml, keeping only entries whose source domain belongs to userDomains.

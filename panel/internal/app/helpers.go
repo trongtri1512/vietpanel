@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/net/idna"
 
+	"vietpanel/panel/internal/core/paths"
 	"vietpanel/panel/internal/core/cache"
 	"vietpanel/panel/internal/core/podmanmanager"
 	"vietpanel/panel/internal/core/sysinfo"
@@ -74,7 +75,7 @@ func (a *App) CheckDomainBelongsToUser(ctx context.Context, userID int, domainPa
 
 // ReadDedicatedIPFromFile reads a user's dedicated-IP file, returning ("", false) if it's missing or empty
 func ReadDedicatedIPFromFile(username string) (string, bool) {
-	path := fmt.Sprintf("/etc/openpanel/openpanel/core/users/%s/ip.json", username)
+	path := paths.CoreUsersDir + "/" + username + "/ip.json"
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", false
@@ -282,7 +283,7 @@ type LastLogin struct {
 // GetLastLoginData returns a user's parsed login history, cached 10 minutes
 func (a *App) GetLastLoginData(ctx context.Context, username string) ([]LastLogin, error) {
 	return cache.Memoize(ctx, a.Cache, "get_last_login_data:"+username, 600*time.Second, func() ([]LastLogin, error) {
-		path := fmt.Sprintf("/etc/openpanel/openpanel/core/users/%s/.lastlogin", username)
+		path := paths.CoreUsersDir + "/" + username + "/.lastlogin"
 		data, err := os.ReadFile(path)
 		if err != nil {
 			_ = os.WriteFile(path, nil, 0o644) // create the empty file if missing, so later reads don't need to special-case it
