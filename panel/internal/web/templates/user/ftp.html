@@ -1,0 +1,104 @@
+{{define "user/ftp.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.Title}} · VietPanel</title>
+  <link rel="stylesheet" href="/static/dist/output.css" />
+  <script defer src="/static/vendor/alpine.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div class="flex h-screen overflow-hidden">
+    {{template "_sidebar" .}}
+    <div class="flex-1 flex flex-col overflow-hidden">
+      {{template "_header" .}}
+      <main class="flex-1 overflow-y-auto p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-semibold text-slate-800">FTP Accounts</h2>
+            <p class="text-sm text-slate-500 mt-1">Manage FTP accounts for your domains.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <a href="/ftp/connections" class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+              <svg class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3"/></svg>
+              Connection Log
+            </a>
+            <a href="/ftp/new" class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+              Add Account
+            </a>
+          </div>
+        </div>
+        {{if .Error}}
+        <div class="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{{.Error}}</div>
+        {{end}}
+
+        {{$accounts := index .Extra "Accounts"}}
+        <div class="mt-6 bg-white rounded-xl border border-slate-200 overflow-hidden">
+          {{if $accounts}}
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 bg-slate-50 text-left">
+                <th class="px-4 py-3 font-medium text-slate-600">Username</th>
+                <th class="px-4 py-3 font-medium text-slate-600">Path</th>
+                <th class="px-4 py-3 font-medium text-slate-600">Quota</th>
+                <th class="px-4 py-3 font-medium text-slate-600">Status</th>
+                <th class="px-4 py-3 font-medium text-slate-600">Created</th>
+                <th class="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range $accounts}}
+              <tr class="border-b border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{.Username}}</td>
+                <td class="px-4 py-3 text-slate-600 font-mono text-xs">{{.Path}}</td>
+                <td class="px-4 py-3 text-slate-600">{{.Quota}}</td>
+                <td class="px-4 py-3">
+                  {{if eq .Status "active"}}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">
+                    <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span> Active
+                  </span>
+                  {{else}}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700">
+                    <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> {{.Status}}
+                  </span>
+                  {{end}}
+                </td>
+                <td class="px-4 py-3 text-slate-500 text-xs">{{.Created}}</td>
+                <td class="px-4 py-3">
+                  <div class="flex items-center gap-3" x-data="{pwOpen{{.ID}}: false}">
+                    <button type="button" @click="pwOpen{{.ID}} = !pwOpen{{.ID}}" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Change Password</button>
+                    <form method="post" action="/ftp/delete" class="inline" onsubmit="return confirm('Delete FTP account {{.Username}}?')">
+                      {{$.CSRFField}}
+                      <input type="hidden" name="id" value="{{.ID}}" />
+                      <button type="submit" class="text-red-600 hover:text-red-800 text-xs font-medium">Delete</button>
+                    </form>
+                    <div x-show="pwOpen{{.ID}}" x-cloak @click.outside="pwOpen{{.ID}} = false" class="absolute mt-8 p-3 bg-white border border-slate-200 rounded-lg shadow-lg z-10">
+                      <form method="post" action="/ftp/password" class="flex items-center gap-2">
+                        {{$.CSRFField}}
+                        <input type="hidden" name="id" value="{{.ID}}" />
+                        <input type="password" name="password" placeholder="New password" class="rounded-lg border border-slate-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                        <button type="submit" class="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700">Save</button>
+                      </form>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div class="p-12 text-center">
+            <svg class="h-12 w-12 text-slate-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+            <p class="text-slate-500">No FTP accounts yet.</p>
+            <a href="/ftp/new" class="mt-2 inline-block text-blue-600 hover:text-blue-800 text-sm font-medium">Create your first FTP account</a>
+          </div>
+          {{end}}
+        </div>
+      </main>
+      {{template "_footer" .}}
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

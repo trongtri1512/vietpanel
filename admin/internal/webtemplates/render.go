@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/csrf"
 
 	vietadmin "vietpanel/admin"
+	"vietpanel/admin/internal/app"
 	"vietpanel/admin/internal/auth"
 	"vietpanel/admin/internal/db"
 )
@@ -33,9 +34,10 @@ type PageData struct {
 	Counts    map[string]int
 	Hostname  string
 	Version   string
+Extra     map[string]any
 }
 
-func Render(w http.ResponseWriter, r *http.Request, name string, data PageData) {
+func Render(w http.ResponseWriter, r *http.Request, a *app.App, name string, data PageData) {
 	data.CSRFToken = csrf.Token(r)
 	if data.User == nil {
 		data.User = auth.FromContext(r)

@@ -1,0 +1,84 @@
+{{define "user/emails_aliases.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.Title}} · VietPanel</title>
+  <link rel="stylesheet" href="/static/dist/output.css" />
+  <script defer src="/static/vendor/alpine.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div class="flex h-screen overflow-hidden">
+    {{template "_sidebar" .}}
+    <div class="flex-1 flex flex-col overflow-hidden">
+      {{template "_header" .}}
+      <main class="flex-1 overflow-y-auto p-6">
+        <a href="/emails" class="text-sm text-blue-600 hover:text-blue-800">&larr; Back to email accounts</a>
+        <h2 class="text-xl font-semibold text-slate-800 mt-3">Email Aliases</h2>
+        <p class="text-sm text-slate-500 mt-1">Forward emails from one address to another.</p>
+        {{if .Error}}
+        <div class="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{{.Error}}</div>
+        {{end}}
+
+        <!-- Add Alias Form -->
+        <div class="mt-6 max-w-xl">
+          <form method="post" action="/emails/aliases/new" class="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+            {{.CSRFField}}
+            <h3 class="font-semibold text-slate-800">Add Alias</h3>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label for="source" class="block text-sm font-medium text-slate-700 mb-1">Source</label>
+                <input id="source" name="source" type="text" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. info@domain.com" />
+              </div>
+              <div>
+                <label for="destination" class="block text-sm font-medium text-slate-700 mb-1">Destination</label>
+                <input id="destination" name="destination" type="text" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. user@gmail.com" />
+              </div>
+            </div>
+            <button type="submit" class="py-2 px-4 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Add Alias</button>
+          </form>
+        </div>
+
+        <!-- Aliases Table -->
+        <div class="mt-6 bg-white rounded-xl border border-slate-200 overflow-hidden">
+          {{$aliases := .Extra.Aliases}}
+          {{if $aliases}}
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 bg-slate-50 text-left">
+                <th class="px-4 py-3 font-medium text-slate-600">Source</th>
+                <th class="px-4 py-3 font-medium text-slate-600">Destination</th>
+                <th class="px-4 py-3 font-medium text-slate-600">Domain</th>
+                <th class="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range $aliases}}
+              <tr class="border-b border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{.Source}}</td>
+                <td class="px-4 py-3 text-slate-600">{{.Dest}}</td>
+                <td class="px-4 py-3 text-slate-600">{{.Domain}}</td>
+                <td class="px-4 py-3">
+                  <form method="post" action="/emails/aliases/delete" class="inline" onsubmit="return confirm('Delete alias {{.Source}}?')">
+                    {{$.CSRFField}}
+                    <input type="hidden" name="id" value="{{.ID}}" />
+                    <button type="submit" class="text-red-600 hover:text-red-800 text-xs font-medium">Delete</button>
+                  </form>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div class="p-12 text-center">
+            <p class="text-slate-500">No aliases yet. Add one above.</p>
+          </div>
+          {{end}}
+        </div>
+      </main>
+      {{template "_footer" .}}
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

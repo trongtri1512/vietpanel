@@ -1,0 +1,66 @@
+{{define "user/dns.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.Title}} · VietPanel</title>
+  <link rel="stylesheet" href="/static/dist/output.css" />
+  <script defer src="/static/vendor/alpine.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div class="flex h-screen overflow-hidden">
+    {{template "_sidebar" .}}
+    <div class="flex-1 flex flex-col overflow-hidden">
+      {{template "_header" .}}
+      <main class="flex-1 overflow-y-auto p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-semibold text-slate-800">{{.Title}}</h2>
+            <p class="text-sm text-slate-500 mt-1">Manage your DNS zones and records.</p>
+          </div>
+        </div>
+
+        {{if .Error}}
+        <div class="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{{.Error}}</div>
+        {{end}}
+
+        {{$zones := index .Extra "Zones"}}
+        <div class="mt-6 bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-200">
+            <h3 class="text-sm font-semibold text-slate-700">DNS Zones</h3>
+          </div>
+          {{if $zones}}
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 bg-slate-50 text-left">
+                <th class="px-4 py-3 font-medium text-slate-600">Domain</th>
+                <th class="px-4 py-3 font-medium text-slate-600">Record Count</th>
+                <th class="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range $zones}}
+              <tr class="border-b border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{.Domain}}</td>
+                <td class="px-4 py-3 text-slate-600">{{.Records}}</td>
+                <td class="px-4 py-3">
+                  <a href="/dns/zone?id={{.ID}}" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Manage</a>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div class="p-12 text-center">
+            <p class="text-slate-500">No domains found.</p>
+            <p class="text-slate-400 text-sm mt-1">Add a domain first.</p>
+          </div>
+          {{end}}
+        </div>
+      </main>
+      {{template "_footer" .}}
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

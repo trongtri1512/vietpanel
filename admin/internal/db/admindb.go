@@ -35,6 +35,9 @@ func Open(path string) (*sql.DB, error) {
 	if err := migrate(d); err != nil {
 		return nil, err
 	}
+	if err := migratePlans(d); err != nil {
+		return nil, err
+	}
 	if err := seedDefaultAdmin(d); err != nil {
 		return nil, err
 	}
@@ -56,6 +59,27 @@ func migrate(d *sql.DB) error {
 	_, err := d.Exec(schema)
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
+	}
+	return nil
+}
+
+func migratePlans(d *sql.DB) error {
+	schema := `CREATE TABLE IF NOT EXISTS plans (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		domains_limit INTEGER NOT NULL DEFAULT 0,
+		websites_limit INTEGER NOT NULL DEFAULT 0,
+		db_limit INTEGER NOT NULL DEFAULT 0,
+		disk_limit TEXT NOT NULL DEFAULT '0',
+		cpu TEXT NOT NULL DEFAULT '0',
+		ram TEXT NOT NULL DEFAULT '0',
+		bandwidth INTEGER NOT NULL DEFAULT 0,
+		feature_set TEXT NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`
+	_, err := d.Exec(schema)
+	if err != nil {
+		return fmt.Errorf("migrate plans: %w", err)
 	}
 	return nil
 }

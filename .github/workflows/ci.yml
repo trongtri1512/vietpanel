@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Build panel
+        run: cd panel && go build ./cmd/panel/
+      - name: Build admin
+        run: cd admin && go build ./cmd/admin/
+      - name: Run panel tests
+        run: cd panel && go test ./...
+      - name: Run admin tests
+        run: cd admin && go test ./...
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: npm ci && npx playwright install chromium
+      - name: Run E2E tests
+        run: npx playwright test

@@ -1,0 +1,11 @@
+vietcli domain-add
+vietcli domain-delete
+vietcli domain-list
+vietcli plan-create
+vietcli plan-list
+vietcli user-add
+vietcli user-delete
+vietcli user-list
+vietcli user-password
+vietcli user-suspend
+vietcli user-unsuspend

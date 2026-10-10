@@ -24,7 +24,7 @@ func Dashboard(a *app.App) http.HandlerFunc {
 			}
 		}
 		hostname, _ := os.Hostname()
-		webtemplates.Render(w, r, "dashboard.html", webtemplates.PageData{
+		webtemplates.Render(w, r, a, "dashboard.html", webtemplates.PageData{
 			Title:     "Dashboard",
 			ActiveNav: "dashboard",
 			User:      auth.FromContext(r),
@@ -37,7 +37,7 @@ func Dashboard(a *app.App) http.HandlerFunc {
 
 func UsersList(a *app.App) http.HandlerFunc {
 	return auth.RequireLogin(func(w http.ResponseWriter, r *http.Request) {
-		webtemplates.Render(w, r, "users_list.html", webtemplates.PageData{
+		webtemplates.Render(w, r, a, "users_list.html", webtemplates.PageData{
 			Title:     "Users",
 			ActiveNav: "users",
 			User:      auth.FromContext(r),

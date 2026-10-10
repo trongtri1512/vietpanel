@@ -2,6 +2,7 @@
 package web
 
 import (
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -16,7 +17,8 @@ var tmpl *template.Template
 
 func Init(a *app.App) {
 	t, err := template.New("").Funcs(template.FuncMap{
-		"T": a.I18n.T,
+		"T":          a.I18n.T,
+		"formatSize": formatSize,
 	}).ParseFS(vietpanel.FS, "internal/web/templates/*.html", "internal/web/templates/**/*.html")
 	if err != nil {
 		log.Fatalf("web: parse templates: %v", err)
@@ -33,6 +35,7 @@ type PageData struct {
 	IsEnterprise bool
 	CSRFField    template.HTML
 	Counts       map[string]int
+	Extra        map[string]any
 }
 
 // Render executes the named template; callers pass the current user
@@ -43,4 +46,17 @@ func Render(w http.ResponseWriter, r *http.Request, a *app.App, name string, dat
 	if err != nil {
 		log.Printf("web: render %s: %v", name, err)
 	}
+}
+
+func formatSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

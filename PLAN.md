@@ -102,6 +102,30 @@ vietpanel/
 
 **P2 (CLI core) là bước tiếp theo** — xem §4.
 
+**P2–P9 — HOÀN THÀNH stubs (2026-10-10):**
+
+Tất cả phase từ P2 đến P9 đã được dựng xong dưới dạng stub/placeholder sẵn sàng cho việc phát triển tiếp:
+
+- **P2 CLI:** `vietcli` dispatcher, `lib/` functions, `user/` lệnh (add, delete, suspend, unsuspend, list, password, plan, usage, login, ssh), `plan/` (create, delete, list), `domain/` (add, delete, list, ssl). Đã test toàn bộ 11 lệnh CLI.
+- **P3 User panel core:** 20 modules (account, autoinstaller, backups, cache, crons, dashboard, diskusage, dns, docker, domains, emails, filemanager, ftp, mysql, nodejs, php, python, security, services, websites) — tất cả đã đăng ký route + template.
+- **P4 User panel nâng cao:** Docker containers, PHP/Node.js/Python runtime, Cache, Security, Disk Usage — handler + template stubs.
+- **P5 Autoinstaller:** 10 apps (WordPress, Joomla, Drupal, Nextcloud, Moodle, n8n, Laravel, NodeBB, Mautic, Matomo) — grid layout với link install.
+- **P6 Admin panel:** Plans (CRUD form), Domains, Emails, Services, Firewall, Settings — admin sidebar đã wire up đầy đủ.
+- **P7 Infrastructure:** Podman containers, Caddy, BIND9 DNS, Mail, FTP — admin handler + template stubs.
+- **P8 Quality:** Playwright E2E config + spec stubs (panel + admin), Go test stubs, GitHub Actions CI, README docs.
+- **P9 License:** Package `license` (validate, tier check, feature gating, generate key), `billing` (SePay VietQR + Stripe stubs), middleware enterprise check.
+
+**Cả 2 panel build thành công** — tất cả module, route, template đều compile và chạy được trên macOS (SQLite mode).
+
+**Còn lại cần làm trên Linux:**
+- Podman per-user container provisioning (P7)
+- Caddy auto vhost/SSL (P7)
+- BIND9 DNS zone management (P7)
+- Mail server (P7)
+- vsftpd FTP (P7)
+- License server + WHMCS module (P9)
+- Playwright E2E test implementation (P8)
+
 ## 5. Hệ thống Enterprise/license (một codebase)
 
 Bản gốc chỉ có **một codebase duy nhất** — toàn bộ tính năng Enterprise đã compile sẵn, license chỉ là "công tắc":

@@ -1,0 +1,43 @@
+{{define "user/databases_create.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.Title}} · VietPanel</title>
+  <link rel="stylesheet" href="/static/dist/output.css" />
+  <script defer src="/static/vendor/alpine.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div class="flex h-screen overflow-hidden">
+    {{template "_sidebar" .}}
+    <div class="flex-1 flex flex-col overflow-hidden">
+      {{template "_header" .}}
+      <main class="flex-1 overflow-y-auto p-6">
+        <div class="max-w-xl">
+          <a href="/databases" class="text-sm text-blue-600 hover:text-blue-800">&larr; Back to databases</a>
+          <h2 class="text-xl font-semibold text-slate-800 mt-3">Create a new database</h2>
+          <p class="text-sm text-slate-500 mt-1">Create a MySQL database and user.</p>
+          {{if .Error}}
+          <div class="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{{.Error}}</div>
+          {{end}}
+          <form method="post" action="/databases/new" class="mt-6 bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+            {{.CSRFField}}
+            <div>
+              <label for="db_name" class="block text-sm font-medium text-slate-700 mb-1">Database Name</label>
+              <input id="db_name" name="db_name" type="text" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. wordpress_db" />
+              <p class="mt-1 text-xs text-slate-400">A prefix may be added automatically for uniqueness.</p>
+            </div>
+            <div>
+              <label for="db_user" class="block text-sm font-medium text-slate-700 mb-1">Database User</label>
+              <input id="db_user" name="db_user" type="text" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. wp_user" />
+            </div>
+            <button type="submit" class="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Create Database</button>
+          </form>
+        </div>
+      </main>
+      {{template "_footer" .}}
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

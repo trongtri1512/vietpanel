@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/sessions"
 
+	"vietpanel/panel/internal/core/cli"
 	"vietpanel/panel/internal/core/i18n"
 )
 
@@ -77,6 +78,7 @@ type App struct {
 	DB       *sql.DB
 	Sessions sessions.Store
 	I18n     *i18n.Bundle
+	CLI      *cli.Executor
 }
 
 func New(cfg *Config) *App {
@@ -84,5 +86,6 @@ func New(cfg *Config) *App {
 		Cfg:      cfg,
 		Sessions: sessions.NewCookieStore(cfg.SecretKey),
 		I18n:     i18n.New("en"),
+		CLI:      cli.New(""),
 	}
 }

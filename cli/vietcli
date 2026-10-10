@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# vietcli — VietPanel command-line interface dispatcher.
+# Mirrors the original opencli dispatcher: maps "vietcli <command>"
+# to scripts under /usr/local/vietcli/, with dash→slash path conversion
+# (e.g. "user-add" → "user/add.sh").
+#
+# Usage: vietcli <command> [args...]
+#        vietcli --help               list all commands
+#        vietcli -x <command>         debug mode (set -x)
+
+set -o pipefail
+
+readonly VIETCLI_VERSION="0.1.0"
+readonly LOG_FILE="/var/log/vietpanel/admin/vietcli.log"
+readonly HOOKS_DIR="/etc/vietpanel/hooks"
+
+# Set by main(): VIETCLI_DEV_DIR overrides the install path for dev work.
+SCRIPTS_DIR="/usr/local/vietcli"
+
+debug_flag=""
+
+show_about() {
+    cat <<EOF
+About:
+  Documentation:                    https://vietpanel.com/docs/cli/
+  Version:                          ${VIETCLI_VERSION}
+
+EOF
+}
+
+show_history() {
+    [[ -f "$LOG_FILE" ]] || { echo "Warning: log file $LOG_FILE not found."; return; }
+    echo "Recently used commands:"
+    tail -n 100 "$LOG_FILE" | grep -o 'vietcli [^ ]*' | sort | uniq | tail -n 5 | sed 's/^/  /'
+    echo ""
+    echo "Most commonly used commands:"
+    tail -n 500 "$LOG_FILE" | awk -F ' \\| ' 'NF>=2 {print $2}' | sort | uniq -c | sort -rn | head -n 5 | awk '{$1=""; print "  " $0}'
+    echo ""
+}
+
+show_usage() {
+    cat <<EOF
+
+Usage: vietcli <COMMAND> [additional_arguments]
+
+Suggested commands:
+  vietcli --help                    List all available commands and their usage.
+
+EOF
+}
+
+log_command() {
+    [[ -n "$LOG_FILE" ]] || return 0
+    local log_dir
+    log_dir=$(dirname "$LOG_FILE")
+    [[ -d "$log_dir" ]] || mkdir -p "$log_dir" 2>/dev/null || return 0
+    echo "$(date +"%Y-%m-%d %H:%M:%S") | vietcli $1" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+run_hook() {
+    local hook_type="$1" command="$2"
+    shift 2
+
+    local hook_file="${HOOKS_DIR}/${hook_type}_${command}.sh"
+    [[ -f "$hook_file" ]] || return 0
+
+    case "$hook_type" in
+        pre)  bash ${debug_flag:+"$debug_flag"} "$hook_file" "$@" </dev/null >/dev/null 2>&1 ;;
+        post) nohup bash "$hook_file" "$@" </dev/null >/dev/null 2>&1 & ;;
+    esac
+}
+
+execute_command() {
+    local command="$1"; shift
+    # dash-to-slash: "user-add" → "user/add.sh", "domains-delete" → "domains/delete.sh"
+    local binary_path="${SCRIPTS_DIR}/${command//-//}.sh"
+
+    [[ -f "$binary_path" ]] || {
+        echo "Error: Command '$command' not found." >&2
+        show_usage
+        show_history
+        show_about
+        exit 1
+    }
+
+    log_command "$command"
+    run_hook "pre"  "$command" "$@"
+    bash ${debug_flag:+"$debug_flag"} "$binary_path" "$@"
+    local status=$?
+    run_hook "post" "$command" "$@"
+    return "$status"
+}
+
+generate_commands() {
+    local ALIAS_FILE="${SCRIPTS_DIR}/aliases.txt"
+    local SEARCH_QUERY="${1:-}"
+
+    [[ -d "$SCRIPTS_DIR" ]] || { echo "Error: Scripts directory '$SCRIPTS_DIR' not found." >&2; exit 1; }
+
+    extract_script_info() {
+        local script="$1"
+        local desc usage
+        desc=$(grep -E "^# Description:" "$script" 2>/dev/null | sed 's/^# Description: //' || true)
+        usage=$(grep -E "^# Usage:" "$script" 2>/dev/null | sed 's/^# Usage: //' || true)
+        echo "$desc"
+        echo "$usage"
+    }
+
+    generate_alias_name() {
+        local script="$1"
+        local script_name dir_name alias_name
+        script_name=$(basename "$script")
+        script_name="${script_name%.sh}"
+        dir_name=$(dirname "$script")
+        dir_name="${dir_name##*/}"
+        if [[ "$dir_name" == "vietcli" ]]; then
+            alias_name="$script_name"
+        else
+            alias_name="${dir_name}-${script_name}"
+        fi
+        echo "$alias_name"
+    }
+
+    local -a exclude_patterns=(".git/*" ".github/*" "aliases.txt" "lib/*")
+    local -a exclude_args=()
+    for pattern in "${exclude_patterns[@]}"; do
+        exclude_args+=("!" "-path" "${SCRIPTS_DIR}/${pattern}")
+    done
+
+    local -a commands_list=()
+    while IFS= read -r -d '' script; do
+        [[ -r "$script" ]] || continue
+        local alias_name full_alias desc_line usage_line
+        alias_name=$(generate_alias_name "$script")
+        full_alias="vietcli ${alias_name}"
+
+        [[ -n "$SEARCH_QUERY" && "$full_alias" != *"$SEARCH_QUERY"* ]] && continue
+
+        # Extract description/usage (desc on line 1, usage on line 2)
+        { IFS= read -r desc_line; IFS= read -r usage_line; } < <(extract_script_info "$script")
+
+        echo -e "\033[0;32m${full_alias}\033[0m"
+        if [[ -n "${desc_line:-}" ]]; then
+            echo "Description: ${desc_line}"
+        fi
+        if [[ -n "${usage_line:-}" ]]; then
+            echo "Usage: ${usage_line}"
+        fi
+        echo "------------------------"
+        commands_list+=("$full_alias")
+    done < <(find "$SCRIPTS_DIR" -type f -name "*.sh" "${exclude_args[@]}" -print0 2>/dev/null)
+
+    if [[ -z "$SEARCH_QUERY" && ${#commands_list[@]} -gt 0 ]]; then
+        printf '%s\n' "${commands_list[@]}" | sort > "$ALIAS_FILE" 2>/dev/null || true
+    fi
+}
+
+main() {
+    # dev mode: VIETCLI_DEV_DIR overrides SCRIPTS_DIR (e.g. VIETCLI_DEV_DIR=./cli)
+    [[ -n "${VIETCLI_DEV_DIR:-}" ]] && SCRIPTS_DIR="$VIETCLI_DEV_DIR"
+
+    # root check (skip on macOS for dev)
+    if [[ "$(uname -s)" != "Darwin" && $EUID -ne 0 ]]; then
+        echo "vietcli must be run as root." >&2
+        exit 1
+    fi
+    [[ $# -lt 1 ]] && { show_usage; show_history; show_about; exit 1; }
+
+    # debug
+    [[ "$1" == "-x" ]] && { debug_flag="-x"; shift; }
+
+    # help
+    case "$1" in help|-h|--help) generate_commands; exit 0 ;; esac
+    [[ $# -eq 2 ]] && case "$2" in help|-h|--help) generate_commands "$1"; exit 0 ;; esac
+
+    local command="$1"; shift
+    execute_command "$command" "$@"
+}
+
+main "$@"

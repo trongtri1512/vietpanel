@@ -15,6 +15,17 @@ import (
 	"vietpanel/admin/internal/config"
 	"vietpanel/admin/internal/db"
 	"vietpanel/admin/internal/handlers"
+	"vietpanel/admin/internal/handlers/admin_domains"
+	"vietpanel/admin/internal/handlers/admin_emails"
+	"vietpanel/admin/internal/handlers/admin_firewall"
+	"vietpanel/admin/internal/handlers/admin_plans"
+	"vietpanel/admin/internal/handlers/admin_services"
+	"vietpanel/admin/internal/handlers/admin_settings"
+	"vietpanel/admin/internal/handlers/admin_bind9"
+	"vietpanel/admin/internal/handlers/admin_caddy"
+	"vietpanel/admin/internal/handlers/admin_ftp"
+	"vietpanel/admin/internal/handlers/admin_mail"
+	"vietpanel/admin/internal/handlers/admin_podman"
 	"vietpanel/admin/internal/webtemplates"
 )
 
@@ -54,6 +65,18 @@ func main() {
 	mux.HandleFunc("GET /logout", login.HandleLogout)
 	mux.HandleFunc("GET /dashboard", handlers.Dashboard(a))
 	mux.HandleFunc("GET /users", handlers.UsersList(a))
+
+	admin_plans.Register(mux, a)
+	admin_domains.Register(mux, a)
+	admin_emails.Register(mux, a)
+	admin_services.Register(mux, a)
+	admin_firewall.Register(mux, a)
+	admin_settings.Register(mux, a)
+	admin_podman.Register(mux, a)
+	admin_caddy.Register(mux, a)
+	admin_bind9.Register(mux, a)
+	admin_mail.Register(mux, a)
+	admin_ftp.Register(mux, a)
 
 	staticFS, err := fs.Sub(vietadmin.FS, "static")
 	if err != nil {

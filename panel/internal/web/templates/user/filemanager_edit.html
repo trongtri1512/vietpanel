@@ -1,0 +1,35 @@
+{{define "user/filemanager_edit.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.Title}} · VietPanel</title>
+  <link rel="stylesheet" href="/static/dist/output.css" />
+  <script defer src="/static/vendor/alpine.min.js"></script>
+</head>
+<body class="bg-slate-100">
+  <div class="flex h-screen overflow-hidden">
+    {{template "_sidebar" .}}
+    <div class="flex-1 flex flex-col overflow-hidden">
+      {{template "_header" .}}
+      <main class="flex-1 overflow-hidden flex flex-col">
+        {{$edit := index .Extra "Edit"}}
+        <div class="px-6 py-3 bg-white border-b border-slate-200 shrink-0 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <a href="/files?dir={{$edit.Dir}}" class="text-sm text-blue-600 hover:text-blue-800">&larr; Back</a>
+            <span class="text-sm font-medium text-slate-700">{{$edit.File}}</span>
+          </div>
+          <button form="editor-form" class="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Save</button>
+        </div>
+        <form id="editor-form" method="post" action="/files/edit" class="flex-1 overflow-hidden flex flex-col">
+          {{.CSRFField}}
+          <input type="hidden" name="file" value="{{$edit.File}}" />
+          <input type="hidden" name="dir" value="{{$edit.Dir}}" />
+          <textarea name="content" class="flex-1 w-full p-4 font-mono text-sm bg-slate-900 text-slate-100 border-0 resize-none focus:outline-none">{{$edit.Content}}</textarea>
+        </form>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

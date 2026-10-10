@@ -1,0 +1,10 @@
+{{define "user/autoinstaller_install.html"}}<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>{{.Title}} · VietPanel</title><link rel="stylesheet" href="/static/dist/output.css"/><script defer src="/static/vendor/alpine.min.js"></script></head>
+<body class="bg-slate-100"><div class="flex h-screen overflow-hidden">{{template "_sidebar" .}}<div class="flex-1 flex flex-col overflow-hidden">{{template "_header" .}}<main class="flex-1 overflow-y-auto p-6">{{$app := index .Extra "App"}}<a href="/autoinstaller" class="text-sm text-blue-600 hover:text-blue-800">&larr; Back to apps</a><h2 class="text-xl font-semibold text-slate-800 mt-3">Install {{$app.Name}}</h2><p class="text-sm text-slate-500 mt-1">{{$app.Description}} (v{{$app.Version}})</p>
+<div class="mt-6 bg-white rounded-xl border border-slate-200 p-6 max-w-lg">
+<form method="post"><input type="hidden" name="app" value="{{$app.Slug}}"/>{{.CSRFField}}
+<div class="space-y-4"><div><label class="block text-sm font-medium text-slate-700 mb-1">Domain</label><select name="domain_id" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option>example.com</option></select></div>
+<div><label class="block text-sm font-medium text-slate-700 mb-1">Admin Email</label><input name="admin_email" type="email" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value="{{.User.Email}}"/></div>
+<div><label class="block text-sm font-medium text-slate-700 mb-1">Site Name</label><input name="site_name" type="text" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"/></div>
+</div><button type="submit" class="mt-5 w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Install {{$app.Name}}</button></form></div></main>{{template "_footer" .}}</div></div></body></html>{{end}}

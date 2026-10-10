@@ -1,0 +1,20 @@
+package services
+
+import (
+	"net/http"
+	"vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/web"
+)
+
+func Register(mux *http.ServeMux, a *app.App) {
+	mux.HandleFunc("GET /services", auth.Require(list(a)))
+}
+
+func list(a *app.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		web.Render(w, r, a, "user/services.html", web.PageData{
+			Title: "Services", ActiveNav: "services", User: auth.FromContext(r),
+		})
+	}
+}

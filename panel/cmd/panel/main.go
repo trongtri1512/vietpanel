@@ -11,6 +11,7 @@ import (
 	"vietpanel/panel/internal/app"
 	"vietpanel/panel/internal/auth"
 	core "vietpanel/panel/internal/core/db"
+	"vietpanel/panel/internal/core/license"
 	"vietpanel/panel/internal/modules"
 	"vietpanel/panel/internal/web"
 )
@@ -27,6 +28,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}
+
+	license.Init()
+	log.Print("license: initialized (enterprise=" + fmt.Sprintf("%v", license.IsEnterprise()) + ")")
 
 	web.Init(a)
 

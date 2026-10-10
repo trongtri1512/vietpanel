@@ -48,7 +48,7 @@ func appendLogLine(path, line string) {
 }
 
 func (l *Login) renderLoginPage(w http.ResponseWriter, r *http.Request) {
-	webtemplates.Render(w, r, "login.html", webtemplates.PageData{
+	webtemplates.Render(w, r, l.App, "login.html", webtemplates.PageData{
 		Title:   "Sign in",
 		Next:    r.URL.Query().Get("next"),
 		Flashes: auth.PopFlashes(w, r, l.App.Sessions),
