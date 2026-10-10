@@ -107,6 +107,11 @@ log "7/9 panel config + translations + license-server"
 mkdir -p /etc/openpanel/openpanel/conf /etc/openpanel/openadmin/config /var/lib/vietpanel
 cp configuration/openpanel/conf/openpanel.config /etc/openpanel/openpanel/conf/openpanel.config
 cp -r translations /etc/openpanel/openpanel/translations
+# features/*.txt drive the sidebar + dashboard icons; core/service/websites/custom_code
+# are runtime assets. Without them the panel renders with an empty nav/dashboard.
+for d in features core service websites custom_code; do
+  [ -d "configuration/openpanel/$d" ] && { rm -rf "/etc/openpanel/openpanel/$d"; cp -r "configuration/openpanel/$d" /etc/openpanel/openpanel/; }
+done
 head -c 32 /dev/urandom | base64 > /etc/openpanel/openpanel/secret.key
 chmod 600 /etc/openpanel/openpanel/secret.key
 sed -i 's/^dev_mode=.*/dev_mode=off/' /etc/openpanel/openpanel/conf/openpanel.config
@@ -178,16 +183,23 @@ ON DUPLICATE KEY UPDATE password='$HASH';
 SQL
 
 log "9/9 caddy + firewall"
-cat > /etc/caddy/Caddyfile <<EOF
+# openpanel-style block: the panel/admin read the domain from this block and each
+# serves its own TLS on 2083/2087, so Caddy proxies to the admin over https.
+CADDY_CONF="# START HOSTNAME DOMAIN #
 $DOMAIN {
-    reverse_proxy 127.0.0.1:2083
+    reverse_proxy https://localhost:2087 {
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
 }
-admin.$DOMAIN {
-    reverse_proxy 127.0.0.1:2087
-}
-EOF
+# END HOSTNAME DOMAIN #"
+mkdir -p /etc/openpanel/caddy/ssl/custom
+ln -sfn /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory /etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory
+printf '%s\n' "$CADDY_CONF" > /etc/openpanel/caddy/Caddyfile   # read by panel/admin/cli
+printf '%s\n' "$CADDY_CONF" > /etc/caddy/Caddyfile             # the file Ubuntu's caddy.service actually loads
 systemctl enable caddy
-systemctl restart caddy   # apt already started caddy with the default config; restart to load our Caddyfile
+systemctl restart caddy
 ufw allow 22,80,443,2083,2087/tcp >/dev/null 2>&1 || true
 ufw --force enable >/dev/null 2>&1 || true
 
