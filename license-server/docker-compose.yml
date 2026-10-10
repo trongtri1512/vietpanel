@@ -10,6 +10,15 @@ services:
       # via .env, Dokploy env tab, or `docker compose -e ...`.
       LICENSE_ADMIN_TOKEN: ${LICENSE_ADMIN_TOKEN:-vietpanel-dev-token}
       LICENSE_PUBLIC_URL: ${LICENSE_PUBLIC_URL:-http://127.0.0.1:2095}
+    labels:
+      # Traefik (Dokploy) routing: entrypoints web/websecure + letsencrypt resolver
+      # are Dokploy's defaults. Override host via DOMAIN in .env.
+      - traefik.enable=true
+      - traefik.http.routers.vpl-license.rule=Host(`${DOMAIN:-license.vietpanel.trongtri.com}`)
+      - traefik.http.routers.vpl-license.entrypoints=web,websecure
+      - traefik.http.routers.vpl-license.tls=true
+      - traefik.http.routers.vpl-license.tls.certresolver=letsencrypt
+      - traefik.http.services.vpl-license.loadbalancer.server.port=2095
     volumes:
       - license-data:/data
 
