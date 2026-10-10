@@ -48,8 +48,13 @@ fi
 export PATH=$PATH:/usr/local/go/bin
 
 log "3/9 source"
-rm -rf /opt/vietpanel
-git clone --depth 1 --branch "$BRANCH" "$REPO" /opt/vietpanel
+# reuse a pre-staged source tree (private repos, air-gapped installs); clone only when absent
+if [[ -f /opt/vietpanel/install.sh && -d /opt/vietpanel/panel ]]; then
+  log "using pre-staged source at /opt/vietpanel"
+else
+  rm -rf /opt/vietpanel
+  git clone --depth 1 --branch "$BRANCH" "$REPO" /opt/vietpanel
+fi
 cd /opt/vietpanel
 
 log "4/9 build"
