@@ -1,156 +1,475 @@
-// Package ftp provides FTP account management: list, create, delete accounts,
-// change password, and view connection logs.
+// Package ftp implements FTP sub-account list/create/delete/password/path management, backed by the `opencli ftp-*` CLI tools and the FTP container's own /etc/openpanel/ftp/users/ flat-file account list.
 package ftp
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
 	"strings"
+	"time"
 
-	"vietpanel/panel/internal/app"
+	appctx "vietpanel/panel/internal/app"
 	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/flash"
+	"vietpanel/panel/internal/core/i18n"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/core/session"
 	"vietpanel/panel/internal/web"
 )
 
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /ftp", auth.Require(list(a)))
-	mux.HandleFunc("GET /ftp/new", auth.Require(createPage(a)))
-	mux.HandleFunc("POST /ftp/new", auth.Require(createAction(a)))
-	mux.HandleFunc("POST /ftp/delete", auth.Require(deleteAction(a)))
-	mux.HandleFunc("POST /ftp/password", auth.Require(changePassword(a)))
-	mux.HandleFunc("GET /ftp/connections", auth.Require(connectionsPage(a)))
+const ftpContainerName = "openadmin_ftp"
+
+// Register wires the FTP account routes onto mux, gated behind the "ftp" feature flag
+func Register(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "ftp")(h)
+	}
+
+	mux.Handle("GET /ftp", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleFTPAccounts(a, w, r) }))
+	mux.Handle("/ftp/connections", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleListFTPConnections(a, w, r) }))
+	mux.Handle("/ftp/new", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleAddFTPAccount(a, w, r) }))
+	mux.Handle("POST /ftp/delete", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleDeleteFTPAccount(a, w, r) }))
+	mux.Handle("POST /ftp/bulk", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		web.ServeBulkDispatch(a, mux, w, r, ftpBulkActions(web.RequestTranslator(a, r)), func(action, value, account string) (*web.BulkCall, web.BulkResult) {
+			switch action {
+			case "password":
+				return web.Call(web.BulkCall{Method: http.MethodPost, Path: "/ftp/password/" + url.PathEscape(account), Form: url.Values{"new_password": {value}}})
+			case "path":
+				return web.Call(web.BulkCall{Method: http.MethodPost, Path: "/ftp/path/" + url.PathEscape(account), Form: url.Values{"username": {account}, "new_path": {value}}})
+			case "delete":
+				return web.Call(web.BulkCall{Method: http.MethodPost, Path: "/ftp/delete", Form: url.Values{"username": {account}}})
+			}
+			return web.Skip("Unknown bulk action.")
+		})
+	}))
+	mux.Handle("/ftp/password/{username}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleChangeFTPPassword(a, w, r, r.PathValue("username"))
+	}))
+	mux.Handle("/ftp/path/{username}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleChangeFTPPath(a, w, r, r.PathValue("username"))
+	}))
+	mux.Handle("GET /ftp/configuration/{type}/{account}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleFTPConfiguration(a, w, r, r.PathValue("type"), r.PathValue("account"))
+	}))
 }
 
-type ftpAccount struct {
-	ID       int
-	Username string
-	Path     string
-	Quota    string
-	Status   string
-	Created  string
+// legalUsernameChars is the set of characters allowed in an FTP username.
+const legalUsernameChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_@."
+
+// isValidUsername reports whether username has exactly one "@", a non-empty local part and domain, and only characters drawn from the legal set
+func isValidUsername(username string) bool {
+	if username == "" || !strings.Contains(username, "@") {
+		return false
+	}
+	if strings.Count(username, "@") != 1 {
+		return false
+	}
+	local, domain, _ := strings.Cut(username, "@")
+	if local == "" || domain == "" {
+		return false
+	}
+	for _, c := range username {
+		if !strings.ContainsRune(legalUsernameChars, c) {
+			return false
+		}
+	}
+	return true
 }
 
-type ftpConnection struct {
-	Time   string
-	User   string
-	IP     string
-	Action string
+// isFTPContainerRunning reports whether the FTP container is currently running
+func isFTPContainerRunning(ctx context.Context, containerName string) bool {
+	out, err := exec.CommandContext(ctx, "podman", "ps", "--filter", "name="+containerName, "--format", "{{.Names}}").Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == containerName {
+			return true
+		}
+	}
+	return false
 }
 
-func list(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		rows, err := a.DB.Query(
-			`SELECT id, username, COALESCE(home_path, '/'), COALESCE(quota, 'unlimited'),
-			 COALESCE(status, 'active'), COALESCE(created_at, '')
-			 FROM ftp_accounts WHERE user_id = ? ORDER BY username`, user.ID)
+func flashAndRedirectToAccounts(a *appctx.App, w http.ResponseWriter, r *http.Request, category, message string) {
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+	flash.Add(sess, category, message)
+	_ = a.Sessions.Save(r, w, sess)
+	http.Redirect(w, r, "/ftp", http.StatusFound)
+}
+
+func requireFTPRunning(a *appctx.App, w http.ResponseWriter, r *http.Request) bool {
+	if isFTPContainerRunning(r.Context(), ftpContainerName) {
+		return true
+	}
+	flashAndRedirectToAccounts(a, w, r, "info", "FTP service is not yet started, please contact Administrator to enable it.")
+	return false
+}
+
+// Account is one users.list row.
+type Account struct {
+	Username, Path, UID, GID string
+}
+
+// loadAccounts parses an FTP users.list file into Account records.
+func loadAccounts(usersListFile string) []Account {
+	content, err := os.ReadFile(usersListFile)
+	if err != nil {
+		return nil
+	}
+
+	var accounts []Account
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		switch {
+		case len(parts) >= 5:
+			accounts = append(accounts, Account{Username: parts[0], Path: parts[2], UID: parts[3], GID: parts[4]})
+		case len(parts) == 3:
+			accounts = append(accounts, Account{Username: parts[0], Path: parts[2]})
+		default:
+			continue
+		}
+	}
+	return accounts
+}
+
+// handleFTPAccounts renders the FTP accounts list page.
+func handleFTPAccounts(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	dedicatedIP := "Unknown"
+	if ip, ok := appctx.ReadDedicatedIPFromFile(currentUsername); ok {
+		dedicatedIP = ip
+	}
+	serverIP := a.GetCachedIPForUserOrPublicIPv4(r.Context(), currentUsername)
+
+	defaultHost := serverIP
+	if dedicatedIP != "Unknown" {
+		defaultHost = dedicatedIP
+	}
+	ftpHost, ftpPort := resolveFTPHostPort(defaultHost)
+
+	userFolder := "/etc/openpanel/ftp/users/" + userContext
+	usersListFile := userFolder + "/users.list"
+	_ = os.MkdirAll(userFolder, 0o755)
+
+	accounts := loadAccounts(usersListFile)
+
+	renderFTPAccountsPage(a, w, r, serverIP, dedicatedIP, ftpHost, ftpPort, accounts)
+}
+
+// handleListFTPConnections renders the page listing currently active FTP connections for the user
+func handleListFTPConnections(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_, currentUsername, _, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if !requireFTPRunning(a, w, r) {
+		return
+	}
+
+	out, cmdErr := exec.CommandContext(r.Context(), "opencli", "ftp-connections", currentUsername).Output()
+	if cmdErr != nil {
+		flashAndRedirectToAccounts(a, w, r, "info", "No currently active FTP connections")
+		return
+	}
+
+	renderFTPConnectionsPage(a, w, r, string(out))
+}
+
+// handleAddFTPAccount handles both the new-FTP-account form page and its submission
+func handleAddFTPAccount(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if !requireFTPRunning(a, w, r) {
+		return
+	}
+
+	userDomains, _ := a.AllDomainsForUser(ctx, userID)
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		ftpUsername := r.Form.Get("username")
+		ftpPassword := r.Form.Get("password")
+		ftpDomain := r.Form.Get("domain")
+		ftpPath := r.Form.Get("path")
+
+		if ftpUsername == "" {
+			web.FlashRedirect(a, w, r, "error", "FTP username not provided.", "/ftp/new")
+			return
+		}
+		if ftpDomain == "" {
+			web.FlashRedirect(a, w, r, "error", "FTP domain not provided.", "/ftp/new")
+			return
+		}
+		if !a.CheckDomainBelongsToUser(ctx, userID, ftpDomain) {
+			http.Error(w, "You do not own this domain.", http.StatusForbidden)
+			return
+		}
+		if ftpPath == "" {
+			web.FlashRedirect(a, w, r, "error", "FTP path not provided.", "/ftp/new")
+			return
+		}
+		if ftpPassword == "" {
+			web.FlashRedirect(a, w, r, "error", "FTP password not provided.", "/ftp/new")
+			return
+		}
+
+		const realPath = "/var/www/html/"
+		if !strings.HasPrefix(ftpPath, realPath) {
+			web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "The FTP path must start with %(real_path)s", "real_path", realPath), "/ftp/new")
+			return
+		}
+
+		ftpUsername = ftpUsername + "@" + ftpDomain
+		if !isValidUsername(ftpUsername) {
+			web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Username %(ftp_username)s contains invalid characters, only allowed: BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_@.", "ftp_username", ftpUsername), "/ftp/new")
+			return
+		}
+
+		out, cmdErr := exec.CommandContext(ctx, "opencli", "ftp-add", ftpUsername, ftpPassword, ftpPath, currentUsername).CombinedOutput()
+		if cmdErr != nil {
+			web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Error creating FTP user %(ftp_username)s: %(output)s", "ftp_username", ftpUsername, "output", string(out)), "/ftp/new")
+			return
+		}
+		if strings.Contains(string(out), "Success: FTP user") {
+			_ = logger.RecordUserAction(a.Config, currentUsername, "created FTP account "+ftpUsername, reqip.ClientIP(r))
+			_ = a.Cache.Delete(ctx, "count_ftp_accounts:"+userContext)
+			flashAndRedirectToAccounts(a, w, r, "success", web.Tr(a, r, "FTP account %(ftp_username)s created successfully.", "ftp_username", ftpUsername))
+			return
+		}
+		web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Failed to create FTP account %(ftp_username)s: %(output)s", "ftp_username", ftpUsername, "output", string(out)), "/ftp/new")
+		return
+	}
+
+	renderNewFTPAccountPage(a, w, r, userDomains)
+}
+
+// handleDeleteFTPAccount deletes an FTP account by username.
+func handleDeleteFTPAccount(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	_ = r.ParseForm()
+	usernameToDelete := r.Form.Get("username")
+	if !isValidUsername(usernameToDelete) {
+		flashAndRedirectToAccounts(a, w, r, "error", "Invalid FTP username.")
+		return
+	}
+
+	if !requireFTPRunning(a, w, r) {
+		return
+	}
+
+	out, _ := exec.CommandContext(r.Context(), "opencli", "ftp-delete", usernameToDelete, currentUsername).CombinedOutput()
+	if strings.Contains(string(out), "Success") {
+		_ = logger.RecordUserAction(a.Config, currentUsername, "deleted FTP account "+usernameToDelete, reqip.ClientIP(r))
+		_ = a.Cache.Delete(r.Context(), "count_ftp_accounts:"+userContext)
+		flashAndRedirectToAccounts(a, w, r, "success", web.Tr(a, r, "FTP account %(username_to_delete)s deleted successfully!", "username_to_delete", usernameToDelete))
+		return
+	}
+	flashAndRedirectToAccounts(a, w, r, "error", web.Tr(a, r, "Failed to delete FTP account %(username_to_delete)s. Output: %(output)s", "username_to_delete", usernameToDelete, "output", string(out)))
+}
+
+// handleChangeFTPPassword handles both the change-password form page and its submission for one FTP account
+func handleChangeFTPPassword(a *appctx.App, w http.ResponseWriter, r *http.Request, username string) {
+	if !isValidUsername(username) {
+		flashAndRedirectToAccounts(a, w, r, "error", "Invalid FTP username.")
+		return
+	}
+
+	if !requireFTPRunning(a, w, r) {
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		newPassword := r.Form.Get("new_password")
+		if newPassword == "" {
+			flashAndRedirectToAccounts(a, w, r, "error", "Missing new password")
+			return
+		}
+
+		_, currentUsername, _, err := auth.Injected(a, r)
 		if err != nil {
-			web.Render(w, r, a, "user/ftp.html", web.PageData{
-				Title: "FTP Accounts", ActiveNav: "ftp", User: user, Error: err.Error(),
-			})
+			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
-		var accounts []ftpAccount
-		for rows.Next() {
-			var acct ftpAccount
-			_ = rows.Scan(&acct.ID, &acct.Username, &acct.Path, &acct.Quota, &acct.Status, &acct.Created)
-			accounts = append(accounts, acct)
+
+		out, cmdErr := exec.CommandContext(r.Context(), "opencli", "ftp-password", username, newPassword, currentUsername).CombinedOutput()
+		if cmdErr != nil {
+			flashAndRedirectToAccounts(a, w, r, "error", web.Tr(a, r, "Error changing FTP password: %(output)s", "output", string(out)))
+			return
 		}
-		web.Render(w, r, a, "user/ftp.html", web.PageData{
-			Title: "FTP Accounts", ActiveNav: "ftp", User: user,
-			Extra: map[string]any{"Accounts": accounts},
-		})
+		if strings.Contains(string(out), "Success: FTP user") {
+			_ = logger.RecordUserAction(a.Config, currentUsername, "changed password for FTP account "+username, reqip.ClientIP(r))
+			flashAndRedirectToAccounts(a, w, r, "success", web.Tr(a, r, "FTP password changed successfully for user %(username)s", "username", username))
+		} else {
+			flashAndRedirectToAccounts(a, w, r, "error", web.Tr(a, r, "Failed to change FTP password: %(output)s", "output", string(out)))
+		}
+		return
 	}
+
+	renderFTPPasswordPage(a, w, r, username)
 }
 
-func createPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		web.Render(w, r, a, "user/ftp_create.html", web.PageData{
-			Title: "Create FTP Account", ActiveNav: "ftp", User: user,
-		})
+// handleChangeFTPPath handles both the change-path form page and its submission for one FTP account
+func handleChangeFTPPath(a *appctx.App, w http.ResponseWriter, r *http.Request, username string) {
+	_, currentUsername, _, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
+
+	if !requireFTPRunning(a, w, r) {
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		usernameToModify := r.Form.Get("username")
+		newPath := r.Form.Get("new_path")
+		if !isValidUsername(usernameToModify) {
+			flashAndRedirectToAccounts(a, w, r, "error", "Invalid FTP username.")
+			return
+		}
+		const allowedPath = "/var/www/html/"
+		if !strings.HasPrefix(newPath, allowedPath) {
+			newPath = allowedPath + strings.TrimLeft(newPath, "/")
+		}
+
+		out, cmdErr := exec.CommandContext(r.Context(), "opencli", "ftp-path", usernameToModify, newPath, currentUsername).CombinedOutput()
+		if cmdErr != nil {
+			flashAndRedirectToAccounts(a, w, r, "error", web.Tr(a, r, "Error changing FTP path for user %(username_to_modify)s: %(output)s", "username_to_modify", usernameToModify, "output", string(out)))
+			return
+		}
+		if strings.Contains(string(out), "Success: FTP path for user") {
+			_ = logger.RecordUserAction(a.Config, currentUsername, "changed path for FTP account "+usernameToModify, reqip.ClientIP(r))
+			flashAndRedirectToAccounts(a, w, r, "success", web.Tr(a, r, "FTP path changed successfully for user %(username_to_modify)s", "username_to_modify", usernameToModify))
+		} else {
+			flashAndRedirectToAccounts(a, w, r, "error", web.Tr(a, r, "Failed to change FTP path for user %(username_to_modify)s: %(output)s", "username_to_modify", usernameToModify, "output", string(out)))
+		}
+		return
+	}
+
+	renderFTPPathPage(a, w, r, username)
 }
 
-func createAction(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		user := auth.FromContext(r)
-		username := strings.TrimSpace(r.FormValue("username"))
-		password := strings.TrimSpace(r.FormValue("password"))
-		path := strings.TrimSpace(r.FormValue("path"))
-		quota := strings.TrimSpace(r.FormValue("quota"))
-
-		if username == "" || password == "" {
-			web.Render(w, r, a, "user/ftp.html", web.PageData{
-				Title: "FTP Accounts", ActiveNav: "ftp", User: user,
-				Error: "Username and password are required.",
-			})
-			return
-		}
-		if path == "" {
-			path = "/"
-		}
-		if quota == "" {
-			quota = "unlimited"
-		}
-		_, err := a.DB.Exec(
-			`INSERT INTO ftp_accounts (user_id, username, password, home_path, quota, status)
-			 VALUES (?, ?, ?, ?, ?, 'active')`,
-			user.ID, username, password, path, quota)
-		if err != nil {
-			web.Render(w, r, a, "user/ftp.html", web.PageData{
-				Title: "FTP Accounts", ActiveNav: "ftp", User: user,
-				Error: "Failed to create: " + err.Error(),
-			})
-			return
-		}
-		http.Redirect(w, r, "/ftp", http.StatusFound)
+// handleFTPConfiguration generates a Cyberduck/FileZilla bookmark file for one account and streams it back as a download
+func handleFTPConfiguration(a *appctx.App, w http.ResponseWriter, r *http.Request, clientType, account string) {
+	if clientType != "cyberduck" && clientType != "filezilla" {
+		flashAndRedirectToAccounts(a, w, r, "danger", "Invalid configuration type, please use cyberduck or filezilla only!")
+		return
 	}
+
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	usersListFile := "/etc/openpanel/ftp/users/" + userContext + "/users.list"
+	content, readErr := os.ReadFile(usersListFile)
+	if readErr != nil {
+		flashAndRedirectToAccounts(a, w, r, "danger", "User has no FTP accounts.")
+		return
+	}
+
+	var accountData *Account
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) >= 3 && parts[0] == account {
+			accountData = &Account{Username: parts[0], Path: parts[2]}
+			break
+		}
+	}
+	if accountData == nil {
+		flashAndRedirectToAccounts(a, w, r, "danger", "FTP account not found.")
+		return
+	}
+
+	defaultHost := a.GetCachedIPForUserOrPublicIPv4(r.Context(), currentUsername)
+	dedicatedIPPath := "/etc/openpanel/openpanel/core/users/" + currentUsername + "/ip.json"
+	if data, err := os.ReadFile(dedicatedIPPath); err == nil {
+		var parsed struct {
+			IP string `json:"ip"`
+		}
+		if json.Unmarshal(data, &parsed) == nil && parsed.IP != "" {
+			defaultHost = parsed.IP
+		}
+	}
+	host, port := resolveFTPHostPort(defaultHost)
+
+	var content2, filename, mimeType string
+	switch clientType {
+	case "cyberduck":
+		filename = account + "_cyberduck.ftpbookmark"
+		mimeType = "application/xml"
+		if rendered, ok := renderFTPClientTemplate(ftpCyberduckTemplatePath, host, port, accountData.Username, accountData.Path); ok {
+			content2 = rendered
+		} else {
+			content2 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<bookmark>\n    <hostname>" + host + "</hostname>\n    <username>" + accountData.Username + "</username>\n    <protocol>ftp</protocol>\n    <path>" + accountData.Path + "</path>\n</bookmark>"
+		}
+	case "filezilla":
+		filename = account + "_filezilla.xml"
+		mimeType = "application/xml"
+		if rendered, ok := renderFTPClientTemplate(ftpFileZillaTemplatePath, host, port, accountData.Username, accountData.Path); ok {
+			content2 = rendered
+		} else {
+			content2 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<FileZilla3>\n    <Servers>\n        <Server>\n            <Host>" + host + "</Host>\n            <Port>" + port + "</Port>\n            <Protocol>0</Protocol>\n            <Type>0</Type>\n            <User>" + accountData.Username + "</User>\n            <Logontype>2</Logontype>\n            <EncodingType>Auto</EncodingType>\n            <Name>" + account + "</Name>\n            <RemoteDir>" + accountData.Path + "</RemoteDir>\n            <UsePassive>1</UsePassive>\n            <BypassProxy>0</BypassProxy>\n            <Encryption>0</Encryption>\n        </Server>\n    </Servers>\n</FileZilla3>"
+		}
+	}
+
+	_ = logger.RecordUserAction(a.Config, currentUsername, "downloaded "+clientType+" configuration for FTP account "+account, reqip.ClientIP(r))
+
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+	_, _ = w.Write([]byte(content2))
 }
 
-func deleteAction(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		id := r.FormValue("id")
-		_, _ = a.DB.Exec(`DELETE FROM ftp_accounts WHERE id = ? AND user_id = ?`, id, auth.FromContext(r).ID)
-		http.Redirect(w, r, "/ftp", http.StatusFound)
-	}
+// domainOption is one ftp_new.html <select> entry.
+type domainOption struct {
+	DomainURL, Docroot string
 }
 
-func changePassword(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		id := r.FormValue("id")
-		password := r.FormValue("password")
-		if password != "" {
-			_, _ = a.DB.Exec(`UPDATE ftp_accounts SET password = ? WHERE id = ? AND user_id = ?`,
-				password, id, auth.FromContext(r).ID)
-		}
-		http.Redirect(w, r, "/ftp", http.StatusFound)
+func domainOptions(list []appctx.Domain) []domainOption {
+	opts := make([]domainOption, len(list))
+	for i, d := range list {
+		opts[i] = domainOption{DomainURL: d.DomainURL, Docroot: d.Docroot}
 	}
+	return opts
 }
 
-func connectionsPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		conns := []ftpConnection{
-			{Time: "2026-10-10 09:15:23", User: user.Username + "@ftp", IP: "192.168.1.100", Action: "LOGIN"},
-			{Time: "2026-10-10 08:42:10", User: user.Username + "@ftp", IP: "10.0.0.55", Action: "DOWNLOAD /public_html/index.html"},
-			{Time: "2026-10-09 22:30:05", User: user.Username + "@ftp", IP: "203.0.113.42", Action: "UPLOAD /public_html/style.css"},
-		}
-		web.Render(w, r, a, "user/ftp_connections.html", web.PageData{
-			Title: "FTP Connections", ActiveNav: "ftp", User: user,
-			Extra: map[string]any{"Connections": conns},
-		})
+func ftpBulkActions(t i18n.Translator) []web.BulkAction {
+	return []web.BulkAction{
+		{Key: "password", Label: t.Get("Change password"), Confirm: t.Get("Set this password for the selected FTP accounts:"), Input: &web.BulkInput{Type: "password", Placeholder: t.Get("New password")}},
+		{Key: "path", Label: t.Get("Change path"), Confirm: t.Get("New home folder for the selected FTP accounts:"), Input: &web.BulkInput{Type: "text", Default: "/var/www/html/", Placeholder: "/var/www/html/"}},
+		{Key: "delete", Label: t.Get("Delete"), Confirm: t.Get("Delete the selected FTP accounts? Their files are kept."), Danger: true},
 	}
 }

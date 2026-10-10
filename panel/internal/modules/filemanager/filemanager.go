@@ -1,326 +1,152 @@
-// Package filemanager provides a basic file browser, upload, editor, and
-// directory operations. In production the base path is scoped to the user's
-// home container; in dev it defaults to a configurable root.
+// Package filemanager implements the file browser (list/upload/create/delete/rename/move/copy/compress/extract/permissions/edit), built on top of internal/core/paths' SecureUserPath guard for every user-supplied path
 package filemanager
 
 import (
-	"fmt"
-	"io"
+	"context"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
+	"strconv"
 	"strings"
 
-	"vietpanel/panel/internal/app"
+	appctx "vietpanel/panel/internal/app"
 	"vietpanel/panel/internal/auth"
-	"vietpanel/panel/internal/web"
+	"vietpanel/panel/internal/core/paths"
 )
 
-type bcItem struct {
-	Path  string
-	Label string
-}
-
-type fmData struct {
-	Dir         string
-	Parent      string
-	Entries     []fileEntry
-	Breadcrumbs []bcItem
-}
-
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /files", auth.Require(list(a)))
-	mux.HandleFunc("GET /files/view", auth.Require(view(a)))
-	mux.HandleFunc("GET /files/edit", auth.Require(editPage(a)))
-	mux.HandleFunc("POST /files/edit", auth.Require(editAction(a)))
-	mux.HandleFunc("POST /files/upload", auth.Require(upload(a)))
-	mux.HandleFunc("POST /files/mkdir", auth.Require(mkdir(a)))
-	mux.HandleFunc("POST /files/delete", auth.Require(deleteFile(a)))
-	mux.HandleFunc("GET /files/download", auth.Require(download(a)))
-}
-
-type fileEntry struct {
-	Name    string
-	IsDir   bool
-	Size    int64
-	ModTime string
-	Ext     string
-}
-
-func basePath() string {
-	if d := os.Getenv("FILEMANAGER_BASE"); d != "" {
-		return d
+// Register wires the file manager's routes onto mux, gated behind the "filemanager" feature flag
+func Register(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "filemanager")(h)
 	}
-	h, _ := os.UserHomeDir()
-	return h
+
+	mux.Handle("GET /files", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleFiles(a, w, r, "") }))
+	// "GET /files/{path_param...}" already covers the bare "/files/" case too (path_param resolves to "" there), so no separate registration is needed - ServeMux would refuse to register both anyway (ambiguous conflict)
+	mux.Handle("GET /files/{path_param...}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleFiles(a, w, r, r.PathValue("path_param"))
+	}))
+
+	mux.Handle("POST /file-manager/new-file", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleCreateFile(a, w, r) }))
+	mux.Handle("POST /file-manager/new-directory", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleCreateFolder(a, w, r) }))
+	mux.Handle("/file-manager/upload", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleUploadFiles(a, w, r) }))
+	mux.Handle("POST /file-manager/extract-archive", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleExtractFiles(a, w, r) }))
+	mux.Handle("POST /file-manager/create-archive", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleCompressFiles(a, w, r) }))
+	mux.Handle("POST /file-manager/rename", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleRenameFile(a, w, r) }))
+	mux.Handle("DELETE /file-manager/delete", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleDeleteFile(a, w, r) }))
+	mux.Handle("POST /file-manager/permissions", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleChangePermissions(a, w, r) }))
+	mux.Handle("POST /file-manager/copy", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleCopyItem(a, w, r) }))
+	mux.Handle("POST /file-manager/move", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleMoveItem(a, w, r) }))
+	mux.Handle("/file-manager/edit-file/{file_path...}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleEditFile(a, w, r, r.PathValue("file_path"))
+	}))
+	mux.Handle("GET /file-manager/download-file/{filename...}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleDownloadFile(a, w, r, r.PathValue("filename"))
+	}))
+	mux.Handle("GET /file-manager/view-file/{filename...}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleViewFile(a, w, r, r.PathValue("filename"))
+	}))
+	mux.Handle("POST /file-manager/wget", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleWgetFiles(a, w, r) }))
+	mux.Handle("GET /file-manager/wget/status/{download_id}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleWgetStatus(a, w, r)
+	}))
+
+	mux.Handle("GET /json/folders/{path_param...}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleFolders(a, w, r, r.PathValue("path_param"))
+	}))
 }
 
-func resolvePath(userPath string) (string, error) {
-	base := basePath()
-	clean := filepath.Clean("/" + strings.TrimPrefix(userPath, "/"))
-	full := filepath.Join(base, clean)
-	if !strings.HasPrefix(full, base) {
-		return "", fmt.Errorf("access denied")
-	}
-	return full, nil
-}
-
-func list(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		dir := r.URL.Query().Get("dir")
-		if dir == "" {
-			dir = "/"
+// stripQuotes trims a leading/trailing matching pair of single or double quotes, used for config values that may be quoted in openpanel.config
+func stripQuotes(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 {
+		if (strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`)) ||
+			(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
+			return s[1 : len(s)-1]
 		}
-		full, err := resolvePath(dir)
-		if err != nil {
-			web.Render(w, r, a, "user/filemanager.html", web.PageData{
-				Title: "Files", ActiveNav: "files", Error: err.Error(),
-			})
-			return
-		}
-		entries, readErr := readDir(full)
-		parent := filepath.Dir(dir)
-		if parent == "." {
-			parent = "/"
-		}
-		bc := buildBreadcrumbs(dir)
-		web.Render(w, r, a, "user/filemanager.html", web.PageData{
-			Title: "Files: " + dir, ActiveNav: "files", User: auth.FromContext(r),
-			Error: errStr(readErr),
-			Extra: map[string]any{"FM": fmData{
-				Dir: dir, Parent: parent, Entries: entries, Breadcrumbs: bc,
-			}},
-		})
 	}
+	return s
 }
 
-func buildBreadcrumbs(path string) []bcItem {
-	if path == "/" {
-		return []bcItem{{Path: "/", Label: "Home"}}
-	}
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	var bc []bcItem
-	bc = append(bc, bcItem{Path: "/", Label: "Home"})
-	accum := ""
-	for _, p := range parts {
-		accum += "/" + p
-		bc = append(bc, bcItem{Path: accum, Label: p})
-	}
-	return bc
+// injectedUser is the small subset of InjectData() every filemanager route needs
+type injectedUser struct {
+	Username string
+	Context  string
 }
 
-func errStr(err error) string {
+func currentUser(ctx context.Context, a *appctx.App, r *http.Request) (injectedUser, error) {
+	userID, _ := auth.UserID(r)
+	injected, err := a.InjectData(ctx, userID)
 	if err != nil {
-		return err.Error()
+		return injectedUser{}, err
 	}
-	return ""
+	username, _ := injected["current_username"].(string)
+	userContext, _ := injected["context"].(string)
+	return injectedUser{Username: username, Context: userContext}, nil
 }
 
-func readDir(path string) ([]fileEntry, error) {
-	dirs, err := os.ReadDir(path)
+// userAllows reports whether the logged-in user's plan includes feature
+func userAllows(a *appctx.App, r *http.Request, feature string) bool {
+	userID, _ := auth.UserID(r)
+	injected, err := a.InjectData(r.Context(), userID)
 	if err != nil {
-		return nil, err
+		return false
 	}
-	var entries []fileEntry
-	for _, d := range dirs {
-		info, _ := d.Info()
-		size := int64(0)
-		modTime := "-"
-		if info != nil {
-			size = info.Size()
-			modTime = info.ModTime().Format("2006-01-02 15:04")
-		}
-		entries = append(entries, fileEntry{
-			Name: d.Name(), IsDir: d.IsDir(),
-			Size: size, ModTime: modTime,
-			Ext: strings.ToLower(filepath.Ext(d.Name())),
-		})
+	allowed, _ := injected["user_allowed"].([]string)
+	return slices.Contains(allowed, feature)
+}
+
+func filesRedirectPath(pathParam string) string {
+	if pathParam == "" {
+		return "/files"
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].IsDir != entries[j].IsDir {
-			return entries[i].IsDir
+	return "/files/" + pathParam
+}
+
+// pathErrorStatus extracts the HTTP status from a *paths.Error, defaulting to 500 for anything else
+func pathErrorStatus(err error) (int, string) {
+	if perr, ok := err.(*paths.Error); ok {
+		return perr.Code, perr.Message
+	}
+	return http.StatusInternalServerError, err.Error()
+}
+
+// chownToUser sets ownership of path to the given user's uid - best-effort: the error is returned but not acted on here, leaving each caller to decide whether to flash a warning or ignore it
+func chownToUser(ctx context.Context, a *appctx.App, path, userContext string) error {
+	uid, err := a.GetUID(ctx, userContext)
+	if err != nil || uid <= 0 {
+		return err
+	}
+	return os.Chown(path, uid, uid)
+}
+
+// chownRecursive sets ownership of root and everything beneath it, used after extract/copy/move so the destination ends up owned by the target user rather than the panel process
+func chownRecursive(ctx context.Context, a *appctx.App, root, userContext string) {
+	uid, err := a.GetUID(ctx, userContext)
+	if err != nil || uid <= 0 {
+		return
+	}
+	_ = os.Chown(root, uid, uid)
+	_ = filepath.Walk(root, func(p string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return nil //nolint:nilerr // best-effort: a walk error here shouldn't abort chowning the rest of the tree
 		}
-		return entries[i].Name < entries[j].Name
+		_ = os.Chown(p, uid, uid)
+		return nil
 	})
-	return entries, nil
 }
 
-func view(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		file := r.URL.Query().Get("file")
-		if file == "" {
-			http.Error(w, "missing file", http.StatusBadRequest)
-			return
-		}
-		full, err := resolvePath(file)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		info, err := os.Stat(full)
-		if err != nil || info.IsDir() {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		http.ServeFile(w, r, full)
+func atoiDefault(s string, def int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return def
 	}
+	return n
 }
 
-func editPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		file := r.URL.Query().Get("file")
-		if file == "" {
-			http.Redirect(w, r, "/files", http.StatusFound)
-			return
-		}
-		full, err := resolvePath(file)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		b, err := os.ReadFile(full)
-		content := ""
-		if err == nil && len(b) < 1024*1024 {
-			content = string(b)
-		}
-		type editData struct{ File, Dir, Content string }
-		web.Render(w, r, a, "user/filemanager_edit.html", web.PageData{
-			Title: "Edit: " + filepath.Base(file), ActiveNav: "files", User: auth.FromContext(r),
-			Extra: map[string]any{"Edit": editData{
-				File: file, Dir: filepath.Dir(file), Content: content,
-			}},
-		})
-	}
-}
-
-func editAction(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		file := r.FormValue("file")
-		content := r.FormValue("content")
-		dir := r.FormValue("dir")
-		if file == "" {
-			http.Error(w, "missing file", http.StatusBadRequest)
-			return
-		}
-		full, err := resolvePath(file)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			http.Error(w, "write failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		http.Redirect(w, r, "/files?dir="+dir, http.StatusFound)
-	}
-}
-
-func upload(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseMultipartForm(50 << 20); err != nil {
-			http.Error(w, "upload too large", http.StatusBadRequest)
-			return
-		}
-		dir := r.FormValue("dir")
-		if dir == "" {
-			dir = "/"
-		}
-		f, hdr, err := r.FormFile("uploaded_file")
-		if err != nil {
-			http.Error(w, "missing file", http.StatusBadRequest)
-			return
-		}
-		defer f.Close()
-		fullDir, err := resolvePath(dir)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		dst, err := os.Create(filepath.Join(fullDir, hdr.Filename))
-		if err != nil {
-			http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer dst.Close()
-		io.Copy(dst, f)
-		http.Redirect(w, r, "/files?dir="+dir, http.StatusFound)
-	}
-}
-
-func mkdir(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		dir := r.FormValue("dir")
-		name := strings.TrimSpace(r.FormValue("name"))
-		if name == "" {
-			http.Error(w, "missing name", http.StatusBadRequest)
-			return
-		}
-		fullDir, err := resolvePath(dir)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		if err := os.MkdirAll(filepath.Join(fullDir, name), 0o755); err != nil {
-			http.Error(w, "mkdir failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		http.Redirect(w, r, "/files?dir="+dir, http.StatusFound)
-	}
-}
-
-func deleteFile(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		path := r.FormValue("path")
-		dir := r.FormValue("dir")
-		if path == "" {
-			http.Error(w, "missing path", http.StatusBadRequest)
-			return
-		}
-		full, err := resolvePath(path)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		info, err := os.Stat(full)
-		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		if info.IsDir() {
-			os.RemoveAll(full)
-		} else {
-			os.Remove(full)
-		}
-		http.Redirect(w, r, "/files?dir="+dir, http.StatusFound)
-	}
-}
-
-func download(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		file := r.URL.Query().Get("file")
-		if file == "" {
-			http.Error(w, "missing file", http.StatusBadRequest)
-			return
-		}
-		full, err := resolvePath(file)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(file)))
-		http.ServeFile(w, r, full)
-	}
+// runCommand runs a command and returns its error, for the simple fire-and-check call sites in this package that don't need output
+func runCommand(ctx context.Context, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.Run()
 }

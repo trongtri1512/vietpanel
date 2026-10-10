@@ -1,61 +1,114 @@
+// Package autoinstaller implements the "Auto Installer" hub page listing every one-click app type, each showing how many instances the user already has installed.
 package autoinstaller
 
 import (
+	"context"
 	"net/http"
-	"vietpanel/panel/internal/app"
+	"strconv"
+	"strings"
+	"time"
+
+	appctx "vietpanel/panel/internal/app"
 	"vietpanel/panel/internal/auth"
-	"vietpanel/panel/internal/web"
+	"vietpanel/panel/internal/core/cache"
 )
 
-type appEntry struct {
-	Name        string
-	Slug        string
-	Version     string
-	Description string
-	Icon        string
-	Category    string
+// technologies is every site type counted for the autoinstaller hub - only some have a card in the template, the rest are counted but never displayed
+var technologies = []string{
+	"wordpress", "drupal", "joomla", "opencart", "nextcloud", "prestashop", "matomo", "moodle", "mediawiki", "sitebuilder", "node", "python", "php",
+	"java", "ruby", "bun", "mautic", "flarum", "fossbilling", "tinyphotogallery", "tinyfilemanager", "ojs", "n8n",
 }
 
-var apps = []appEntry{
-	{Name: "WordPress", Slug: "wordpress", Version: "6.7", Description: "The most popular CMS on the web.", Category: "CMS"},
-	{Name: "Joomla", Slug: "joomla", Version: "5.3", Description: "Flexible CMS for any website.", Category: "CMS"},
-	{Name: "Drupal", Slug: "drupal", Version: "11.1", Description: "Enterprise-grade content management.", Category: "CMS"},
-	{Name: "Nextcloud", Slug: "nextcloud", Version: "31.0", Description: "Self-hosted cloud collaboration.", Category: "Cloud"},
-	{Name: "Moodle", Slug: "moodle", Version: "4.7", Description: "Open-source learning platform.", Category: "Education"},
-	{Name: "n8n", Slug: "n8n", Version: "1.82", Description: "Workflow automation platform.", Category: "Automation"},
-	{Name: "Laravel", Slug: "laravel", Version: "12.0", Description: "PHP web application framework.", Category: "Framework"},
-	{Name: "NodeBB", Slug: "nodebb", Version: "4.1", Description: "Modern forum software.", Category: "Community"},
-	{Name: "Mautic", Slug: "mautic", Version: "5.2", Description: "Marketing automation platform.", Category: "Marketing"},
-	{Name: "Matomo", Slug: "matomo", Version: "5.3", Description: "Web analytics platform.", Category: "Analytics"},
-}
-
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /autoinstaller", auth.Require(list(a)))
-	mux.HandleFunc("GET /autoinstaller/install", auth.Require(installPage(a)))
-}
-
-func list(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		web.Render(w, r, a, "user/autoinstaller.html", web.PageData{
-			Title: "Auto Installer", ActiveNav: "autoinstaller", User: auth.FromContext(r),
-			Extra: map[string]any{"Apps": apps},
-		})
+// getAutoinstallerData returns every domain the user owns, plus a per-technology count of sites whose type contains that technology's name (case-insensitively)
+func getAutoinstallerData(ctx context.Context, a *appctx.App, userID int) ([]appctx.Domain, map[string]int, error) {
+	domains, err := a.AllDomainsForUser(ctx, userID)
+	if err != nil {
+		return nil, nil, err
 	}
-}
 
-func installPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		slug := r.URL.Query().Get("app")
-		var selected appEntry
-		for _, a := range apps {
-			if a.Slug == slug {
-				selected = a
-				break
+	rows, err := a.DB.QueryContext(ctx,
+		"SELECT type FROM sites WHERE domain_id IN (SELECT domain_id FROM domains WHERE user_id = ?)", userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int, len(technologies))
+	for _, t := range technologies {
+		counts[t] = 0
+	}
+	for rows.Next() {
+		var siteType string
+		if scanErr := rows.Scan(&siteType); scanErr != nil {
+			return nil, nil, scanErr
+		}
+		siteTypeLower := strings.ToLower(siteType)
+		for _, t := range technologies {
+			if strings.Contains(siteTypeLower, t) {
+				counts[t]++
 			}
 		}
-		web.Render(w, r, a, "user/autoinstaller_install.html", web.PageData{
-			Title: "Install " + selected.Name, ActiveNav: "autoinstaller", User: auth.FromContext(r),
-			Extra: map[string]any{"App": selected},
-		})
 	}
+	return domains, counts, rows.Err()
+}
+
+// handleAutoinstaller renders the autoinstaller hub page. On a database error, the response body is just the bare error text with no wrapping and no non-200 status - preserved exactly as existing production behavior, not something to fix incidentally.
+func handleAutoinstaller(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserID(r)
+	ctx := r.Context()
+
+	data, err := cache.Memoize(ctx, a.Cache, autoinstallerCacheKey(userID), 30*time.Second, func() (autoinstallerData, error) {
+		d, c, getErr := getAutoinstallerData(ctx, a, userID)
+		if getErr != nil {
+			return autoinstallerData{}, getErr
+		}
+		return autoinstallerData{Domains: d, Counts: c}, nil
+	})
+	if err != nil {
+		_, _ = w.Write([]byte(" " + err.Error()))
+		return
+	}
+
+	upsell := loadUpsellData(ctx, a, userID)
+
+	renderAutoinstallerPage(a, w, r, data.Domains, data.Counts, upsell)
+}
+
+type autoinstallerData struct {
+	Domains []appctx.Domain
+	Counts  map[string]int
+}
+
+// upsellData carries what the template needs to grey out disabled tiles and optionally offer an upgrade CTA instead of the plain "contact your administrator" tooltip - populated only when the plan has an upsell target configured (Enterprise-only) that actually grants a given module
+type upsellData struct {
+	PlanName string
+	URL      string
+	Allowed  map[string]bool
+}
+
+func loadUpsellData(ctx context.Context, a *appctx.App, userID int) upsellData {
+	injected, err := a.InjectData(ctx, userID)
+	if err != nil {
+		return upsellData{Allowed: map[string]bool{}}
+	}
+	planName, _ := injected["upsell_plan_name"].(string)
+	url, _ := injected["upsell_url"].(string)
+	allowedSlice, _ := injected["user_upsell_allowed"].([]string)
+	allowed := make(map[string]bool, len(allowedSlice))
+	for _, m := range allowedSlice {
+		allowed[m] = true
+	}
+	return upsellData{PlanName: planName, URL: url, Allowed: allowed}
+}
+
+func autoinstallerCacheKey(userID int) string {
+	return "autoinstaller:" + strconv.Itoa(userID)
+}
+
+// Register wires the /auto-installer route onto mux.
+func Register(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "autoinstaller")(h)
+	}
+	mux.Handle("GET /auto-installer", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleAutoinstaller(a, w, r) }))
 }

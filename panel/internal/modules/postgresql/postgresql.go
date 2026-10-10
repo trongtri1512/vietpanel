@@ -1,0 +1,157 @@
+// Package postgresql implements database/user CRUD, the creation wizard, privilege assignment, import, per-service configuration, remote access, and the process list - all built on internal/core/postgresmanager's per-(user, database) connection pool.
+package postgresql
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"vietpanel/panel/internal/core/postgresmanager"
+)
+
+// restrictedUsers is the set of built-in/system PostgreSQL role names that users are never allowed to create, edit, or delete
+var restrictedUsers = map[string]bool{
+	"postgres": true, "pg_signal_backend": true, "pg_read_all_data": true,
+	"pg_write_all_data": true, "pg_monitor": true, "pg_read_all_settings": true,
+	"pg_read_server_files": true, "pg_write_server_files": true,
+	"pg_execute_server_program": true, "replication": true,
+}
+
+func isRestrictedUser(name string) bool {
+	return restrictedUsers[strings.ToLower(name)]
+}
+
+// restrictedDatabases is the set of built-in/system database names that users are never allowed to create, rename, or drop
+var restrictedDatabases = map[string]bool{
+	"postgres": true, "template0": true, "template1": true,
+	"information_schema": true, "pg_catalog": true,
+}
+
+func isRestrictedDatabase(name string) bool {
+	return restrictedDatabases[name]
+}
+
+// filteredRoles is the longer role-name exclusion list used by pg_roles queries - a superset of restrictedUsers, including roles that were never registration-blocked but shouldn't show up in the regular "show system users" toggle
+var filteredRoles = []string{
+	"postgres", "pg_signal_backend", "pg_read_all_data", "pg_write_all_data",
+	"pg_read_all_settings", "pg_read_server_files", "pg_write_server_files",
+	"pg_execute_server_program", "pg_monitor", "pg_database_owner",
+	"pg_read_all_stats", "pg_stat_scan_tables", "pg_checkpoint", "pg_maintain",
+	"pg_use_reserved_connections", "pg_create_subscription",
+}
+
+func filteredRolesSQL() string {
+	out := ""
+	for i, r := range filteredRoles {
+		if i > 0 {
+			out += ","
+		}
+		out += "'" + r + "'"
+	}
+	return out
+}
+
+// postgresContainerStatusDetail builds the explanatory text shown in the databases table's empty-state row while the service isn't running/healthy - mirrors mysqlContainerStatusDetail so both templates give the same guidance, returns "" for the running+healthy case
+func postgresContainerStatusDetail(containerState, healthStatus string) string {
+	switch containerState {
+	case "not_found":
+		return "Service installation is underway and may take up to one minute."
+	case "created":
+		return "Service has been created but not yet started. Start it from the Services page."
+	case "restarting":
+		return "Service is restarting. This may indicate a configuration error or a crash — check the logs on the Services page."
+	case "paused":
+		return "Service is paused. Resume it from the Services page."
+	case "exited":
+		return "Service has stopped. This is usually caused by resource exhaustion — increase resource limits for this service and then restart it from the Services page."
+	case "removing":
+		return "Service is being deleted. Please wait for the process to complete."
+	case "dead":
+		return "Service has crashed and cannot recover. This is usually caused by resource exhaustion — check the logs on the Services page."
+	case "running":
+		switch healthStatus {
+		case "healthy":
+			return ""
+		case "unhealthy":
+			return "Service is unhealthy. Try restarting it from Services, or contact your administrator."
+		case "starting":
+			return "Service is active, but the databases are still initializing."
+		default:
+			return "Unable to retrieve service status. Please contact your administrator."
+		}
+	default:
+		return "Unable to retrieve service status. Please contact your administrator."
+	}
+}
+
+func isSystemDatabase(name string) bool {
+	switch name {
+	case "postgres", "template0", "public", "template1":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSystemUser(name string) bool {
+	for _, r := range filteredRoles {
+		if r == name {
+			return true
+		}
+	}
+	return false
+}
+
+// toStringCell converts one postgresmanager.Exec result cell to a string - lib/pq hands back native Go strings for text columns (unlike the MySQL driver's []byte), but this stays tolerant of both
+func toStringCell(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	default:
+		return ""
+	}
+}
+
+// genericCellString stringifies whatever concrete type the driver hands back for an arbitrary pg_stat_activity column, for building the pipe-delimited process list line - unlike toStringCell (strict, text-column-only), this accepts any type
+func genericCellString(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	case fmt.Stringer:
+		return t.String()
+	default:
+		return fmt.Sprint(t)
+	}
+}
+
+func toFloatCell(v any) float64 {
+	switch t := v.(type) {
+	case float64:
+		return t
+	case float32:
+		return float64(t)
+	case []byte:
+		f, _ := strconv.ParseFloat(string(t), 64)
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(t, 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+// checkPostgresInsideContainer makes a single connection attempt - no retry/polling loop, that behavior belongs to the install wizard, out of scope here
+func checkPostgresInsideContainer(ctx context.Context, userContext string) bool {
+	_, err := postgresmanager.Exec(ctx, userContext, "SELECT 1", "postgres")
+	return err == nil
+}

@@ -1,0 +1,284 @@
+// Package mysqlmanager maintains a per-user connection pool to that user's own MySQL/MariaDB instance, over a unix socket using their /home/<context>/my.cnf credentials - separate from the panel's own DB (internal/core/db).
+package mysqlmanager
+
+import (
+	"bufio"
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+)
+
+const (
+	socketWaitTimeout  = 15 * time.Second
+	socketWaitInterval = 300 * time.Millisecond
+)
+
+var (
+	poolsMu sync.Mutex
+	pools   = map[string]*sql.DB{}
+
+	// openLocks serializes pool creation per userContext instead of one global lock, so one user's mysqld
+	// socket taking up to socketWaitTimeout to appear doesn't stall every other user's queries behind it.
+	openLocksMu sync.Mutex
+	openLocks   = map[string]*sync.Mutex{}
+)
+
+func openLockFor(userContext string) *sync.Mutex {
+	openLocksMu.Lock()
+	defer openLocksMu.Unlock()
+	m, ok := openLocks[userContext]
+	if !ok {
+		m = &sync.Mutex{}
+		openLocks[userContext] = m
+	}
+	return m
+}
+
+// mycnfCredentials reads the [client] section of /home/<context>/my.cnf, same ini format as /etc/my.cnf but a distinct per-user file
+func mycnfCredentials(userContext string) (user, password string, err error) {
+	path := fmt.Sprintf("/home/%s/my.cnf", userContext)
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", fmt.Errorf("MySQL config not readable: %s: %w", path, err)
+	}
+	defer f.Close()
+
+	opts := map[string]string{}
+	section := ""
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			continue
+		}
+		if section != "client" {
+			continue
+		}
+		if k, v, ok := strings.Cut(line, "="); ok {
+			opts[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", "", err
+	}
+	if _, ok := opts["user"]; !ok && section == "" {
+		return "", "", fmt.Errorf("missing [client] section in %s", path)
+	}
+	return opts["user"], opts["password"], nil
+}
+
+// SocketExists reports whether the user's mysqld socket is there, i.e. their MySQL/MariaDB container has started
+func SocketExists(userContext string) bool {
+	_, err := os.Stat(socketPathFor(userContext))
+	return err == nil
+}
+
+func socketPathFor(userContext string) string {
+	return fmt.Sprintf("/home/%s/sockets/mysqld/mysqld.sock", userContext)
+}
+
+// waitForSocket waits for a freshly-started mysqld to create its socket
+func waitForSocket(socketPath string) error {
+	deadline := time.Now().Add(socketWaitTimeout)
+	for {
+		if _, err := os.Stat(socketPath); err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("MySQL socket not found: %s", socketPath)
+		}
+		time.Sleep(socketWaitInterval)
+	}
+}
+
+func openPool(userContext string) (*sql.DB, error) {
+	user, password, err := mycnfCredentials(userContext)
+	if err != nil {
+		return nil, err
+	}
+
+	socketPath := socketPathFor(userContext)
+	if err := waitForSocket(socketPath); err != nil {
+		return nil, err
+	}
+
+	dsn := fmt.Sprintf("%s:%s@unix(%s)/?parseTime=true&timeout=10s",
+		user, password, socketPath)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	// one connection, reused - this is a per-user mysqld for light panel-side queries, not app traffic
+	db.SetMaxOpenConns(1)
+	db.SetConnMaxLifetime(time.Hour)
+
+	return db, nil
+}
+
+func getPool(userContext string) (*sql.DB, error) {
+	poolsMu.Lock()
+	db, ok := pools[userContext]
+	poolsMu.Unlock()
+	if ok {
+		return db, nil
+	}
+
+	// only serializes opens for this one userContext, other users' lookups above aren't blocked by this wait
+	lock := openLockFor(userContext)
+	lock.Lock()
+	defer lock.Unlock()
+
+	poolsMu.Lock()
+	db, ok = pools[userContext]
+	poolsMu.Unlock()
+	if ok {
+		return db, nil
+	}
+
+	db, err := openPool(userContext)
+	if err != nil {
+		return nil, err
+	}
+
+	poolsMu.Lock()
+	pools[userContext] = db
+	poolsMu.Unlock()
+	return db, nil
+}
+
+// InvalidatePool drops and closes the cached pool for a user, e.g. after their mysqld container restarts
+func InvalidatePool(userContext string) {
+	poolsMu.Lock()
+	db, ok := pools[userContext]
+	delete(pools, userContext)
+	poolsMu.Unlock()
+
+	if ok {
+		_ = db.Close()
+	}
+}
+
+// getConnection gets the pool, pings it, and transparently reopens once if that fails - covers a restarted mysqld container without the caller needing to know
+func getConnection(ctx context.Context, userContext string) (*sql.DB, error) {
+	db, err := getPool(userContext)
+	if err != nil {
+		// opening already waited socketWaitTimeout for the socket, opening again would just wait that long a second time
+		return nil, err
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	pingErr := db.PingContext(pingCtx)
+	cancel()
+	if pingErr == nil {
+		return db, nil
+	}
+
+	InvalidatePool(userContext)
+	return getPool(userContext)
+}
+
+// Exec runs one statement (optionally USE-ing database first) and returns every row as a slice of columns, the same shape whether it's a SELECT, SHOW GRANTS, or CREATE DATABASE
+func Exec(ctx context.Context, userContext, query string, database string) ([][]any, error) {
+	db, err := getConnection(ctx, userContext)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	if database != "" {
+		safeDatabase := strings.ReplaceAll(database, "`", "``")
+		if _, err := conn.ExecContext(ctx, "USE `"+safeDatabase+"`"); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := conn.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var result [][]any
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, err
+		}
+		result = append(result, vals)
+	}
+	return result, rows.Err()
+}
+
+// ToInt converts one Exec result cell to an int, tolerating whatever concrete type the driver hands back ([]byte, int64, etc.) for numeric aggregates
+func ToInt(v any) int {
+	switch t := v.(type) {
+	case int64:
+		return int(t)
+	case uint64:
+		return int(t)
+	case int32:
+		return int(t)
+	case uint32:
+		return int(t)
+	case float64:
+		return int(t)
+	case int:
+		return t
+	case []byte:
+		n, _ := strconv.Atoi(string(t))
+		return n
+	case string:
+		n, _ := strconv.Atoi(t)
+		return n
+	default:
+		return 0
+	}
+}
+
+// ToString converts one Exec result cell to a string, a missing case here silently becomes ""
+func ToString(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case uint64:
+		return strconv.FormatUint(t, 10)
+	case int:
+		return strconv.Itoa(t)
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(t)
+	default:
+		return ""
+	}
+}

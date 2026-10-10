@@ -1,0 +1,645 @@
+// This file handles the generic PM2-style app management routes (/pm2/logs, /pm2/<action>, /pm2/delete) - these work identically regardless of whether the app is Python or NodeJS, so they're grouped here rather than under either install type
+package appinstall
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/flash"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/podmanmanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/core/session"
+	"vietpanel/panel/internal/modules/docker"
+	"vietpanel/panel/internal/web"
+)
+
+// undeletableAppActions is a confusingly-named variable - it's actually the *allowed* app_actions list, not a list of undeletable things
+var undeletableAppActions = map[string]bool{"start": true, "stop": true, "update": true, "restart": true, "envvars": true}
+
+// undeletableServices are core panel services app_actions/app_delete refuse to touch even if asked
+var undeletableServices = map[string]bool{
+	"elasticsearch": true, "redis": true, "valkey": true, "postgres": true, "mysql": true,
+	"mariadb": true, "phpmyadmin": true, "opensearch": true, "memcached": true,
+	"openresty": true, "nginx": true, "apache": true, "openlitespeed": true, "litespeed": true,
+	"varnish": true, "cron": true, "backup": true, "tor": true,
+}
+
+func flashAndRedirectApp(a *appctx.App, w http.ResponseWriter, r *http.Request, category, message, path string) {
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+	flash.Add(sess, category, message)
+	_ = a.Sessions.Save(r, w, sess)
+	http.Redirect(w, r, path, http.StatusFound)
+}
+
+// RegisterPM2 wires the three /pm2/* routes onto mux. Like RegisterShared, gated on "helpers", which is unconditionally granted - login-only in practice.
+func RegisterPM2(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "helpers")(h)
+	}
+	mux.Handle("GET /pm2/logs/{site_name...}", requireLogin(func(w http.ResponseWriter, r *http.Request) { handlePM2Logs(a, w, r) }))
+	mux.Handle("POST /pm2/delete/{site_name...}", requireLogin(func(w http.ResponseWriter, r *http.Request) { handlePM2Delete(a, w, r) }))
+	mux.Handle("POST /pm2/{action}/{site_name...}", requireLogin(func(w http.ResponseWriter, r *http.Request) { handlePM2Action(a, w, r) }))
+}
+
+// handlePM2Logs mirrors app_container_logs().
+func handlePM2Logs(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	siteName := r.PathValue("site_name")
+	_, userContext, err := injectedContext(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	containerName := strings.ToLower(strings.ReplaceAll(siteName, "/", "-"))
+	containerName, _, _ = strings.Cut(containerName, "_")
+	if containerName == "" {
+		return
+	}
+
+	lines := 100
+	if v := r.URL.Query().Get("lines"); v != "" {
+		if parsed, perr := strconv.Atoi(v); perr == nil {
+			lines = parsed
+		}
+	}
+
+	argv := podmanmanager.PodmanArgv(userContext, "ps", "-aqf", "name=^"+containerName+"$", "--no-trunc")
+	out, cmdErr := podmanmanager.Command(r.Context(), userContext, argv).CombinedOutput()
+	containerID := strings.TrimSpace(string(out))
+	if cmdErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Docker error: " + string(out) + "\n"))
+		return
+	}
+	if containerID == "" {
+		web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "Container " + containerName + " is not running."})
+		return
+	}
+
+	// `podman logs` itself, not a raw json-file-log-driver path on the host - that assumed Docker's default logging layout, which doesn't exist under podman. `podman logs` works regardless of log driver and rootless/remote setup, matching how every other container op here goes through podmanmanager.
+	logsArgv := podmanmanager.PodmanArgv(userContext, "logs", "--tail", strconv.Itoa(lines), "--timestamps", containerID)
+	out, logsErr := podmanmanager.Command(r.Context(), userContext, logsArgv).CombinedOutput()
+	if logsErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Error fetching logs: " + string(out) + "\n"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write(out)
+}
+
+// pm2SiteLookup mirrors the "find the app type for this site" query shared by app_actions() and app_delete() (each with its own slightly different WHERE clause)
+type pm2SiteLookup struct {
+	Type, SiteName, Container string
+}
+
+// handlePM2Action mirrors app_actions(): start/stop/update/restart.
+func handlePM2Action(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	currentUsername, userContext, err := injectedContext(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	action := strings.ToLower(r.PathValue("action"))
+	siteName := strings.ToLower(r.PathValue("site_name"))
+
+	if !undeletableAppActions[action] {
+		flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Invalid action '%(action)s'. Allowed actions: start, stop, update, restart.", "action", action), "/website")
+		return
+	}
+	if undeletableServices[siteName] || strings.HasPrefix(siteName, "php-fpm-") {
+		flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Hacker! Service '%(site_name)s' cannot be deleted.", "site_name", siteName), "/website")
+		return
+	}
+
+	var lookup pm2SiteLookup
+	row := a.DB.QueryRowContext(ctx, `
+		SELECT sites.type, sites.site_name
+		FROM sites
+		JOIN domains ON domains.domain_url = SUBSTRING_INDEX(sites.site_name, '/', 1)
+		WHERE sites.container LIKE ? AND domains.user_id = ?`, "%"+siteName+"%", userID)
+	if scanErr := row.Scan(&lookup.Type, &lookup.SiteName); scanErr != nil {
+		web.WriteJSON(w, http.StatusOK, map[string]string{"error": "Unable to detect container type for the application."})
+		return
+	}
+
+	kind, ok := kindByAppType(lookup.Type)
+	if !ok {
+		web.WriteJSON(w, http.StatusOK, map[string]string{"error": "Not a valid type, only NodeJS, Python, or Ruby applications can be edited."})
+		return
+	}
+
+	composeFile := "/home/" + userContext + "/docker-compose.yml"
+	nameForManager := lookup.SiteName
+	ip := reqip.ClientIP(r)
+
+	switch action {
+	case "stop":
+		// -f composeFile is required - podman-compose has no default search path here (the openpanel process's cwd is "/", not the user's home), so without it this silently no-ops against a nonexistent /docker-compose.yml instead of touching the user's actual stack. Pre-existing bug found via manual testing: this affected Start/Stop for every app type (nodejs/python/ruby/java), not just n8n - "restart" a few lines down already passed -f correctly, which is what exposed the inconsistency.
+		argv := podmanmanager.PodmanComposeArgv("-f", composeFile, "down", siteName)
+		if runErr := podmanmanager.Command(ctx, userContext, argv).Run(); runErr != nil {
+			flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Failed to stop container '%(site_name)s': %(error)s", "site_name", siteName, "error", runErr.Error()), "/website?domain="+nameForManager)
+			return
+		}
+		flashAndRedirectApp(a, w, r, "success", web.Tr(a, r, "Stopped container for application: '%(site_name)s'.", "site_name", siteName), "/website?domain="+nameForManager)
+		_ = logger.RecordUserAction(a.Config, currentUsername, "stopped container for application "+siteName, ip)
+		return
+
+	case "start":
+		argv := podmanmanager.PodmanComposeArgv("-f", composeFile, "up", "-d", siteName)
+		if runErr := podmanmanager.Command(ctx, userContext, argv).Run(); runErr != nil {
+			flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Failed to start container '%(site_name)s': %(error)s", "site_name", siteName, "error", runErr.Error()), "/website?domain="+nameForManager)
+			return
+		}
+		flashAndRedirectApp(a, w, r, "success", web.Tr(a, r, "Started container for application '%(site_name)s'.", "site_name", siteName), "/website?domain="+nameForManager)
+		_ = logger.RecordUserAction(a.Config, currentUsername, "started container for application "+siteName, ip)
+		return
+
+	case "restart":
+		pullArgv := podmanmanager.PodmanComposeArgv("-f", composeFile, "pull", siteName)
+		if runErr := podmanmanager.Command(ctx, userContext, pullArgv).Run(); runErr != nil {
+			flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Failed to restart container '%(site_name)s': %(error)s", "site_name", siteName, "error", runErr.Error()), "/website?domain="+nameForManager)
+			return
+		}
+		downArgv := podmanmanager.PodmanComposeArgv("-f", composeFile, "down", siteName)
+		if runErr := podmanmanager.Command(ctx, userContext, downArgv).Run(); runErr != nil {
+			flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Failed to restart container '%(site_name)s': %(error)s", "site_name", siteName, "error", runErr.Error()), "/website?domain="+nameForManager)
+			return
+		}
+		upArgv := podmanmanager.PodmanComposeArgv("-f", composeFile, "up", "-d", siteName)
+		if runErr := podmanmanager.Command(ctx, userContext, upArgv).Run(); runErr != nil {
+			flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Failed to restart container '%(site_name)s': %(error)s", "site_name", siteName, "error", runErr.Error()), "/website?domain="+nameForManager)
+			return
+		}
+		_ = logger.RecordUserAction(a.Config, currentUsername, "restarted container for application "+siteName, ip)
+		flashAndRedirectApp(a, w, r, "success", web.Tr(a, r, "Re-downloaded image and started container for application '%(site_name)s'.", "site_name", siteName), "/website?domain="+nameForManager)
+		return
+
+	case "update":
+		handlePM2Update(a, w, r, currentUsername, userContext, siteName, kind, nameForManager)
+		return
+
+	case "envvars":
+		handlePM2EnvVars(a, w, r, currentUsername, userContext, siteName, nameForManager)
+		return
+	}
+}
+
+var envVarLineRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=.*$`)
+
+// handlePM2EnvVars saves the Env Vars tab's textarea (one KEY=VALUE per line, blank/#-comment lines ignored) as the service's docker-compose.yml `environment:` list, via the same LoadCompose/SaveCompose round-trip handlePM2Update uses - never hand-edits YAML text. A full replace, not a merge, since the textarea is the only source of truth for these vars.
+func handlePM2EnvVars(a *appctx.App, w http.ResponseWriter, r *http.Request, currentUsername, userContext, containerName, nameForManager string) {
+	_ = r.ParseForm()
+	redirectPath := "/website?domain=" + nameForManager
+
+	var envLines []string
+	for _, rawLine := range strings.Split(r.FormValue("env_vars"), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !envVarLineRE.MatchString(line) {
+			flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Error saving: invalid line \"%(line)s\" - each line must be KEY=VALUE.", "line", line), redirectPath)
+			return
+		}
+		envLines = append(envLines, line)
+	}
+
+	composeData, loadErr := docker.LoadCompose(userContext)
+	if loadErr != nil {
+		flashAndRedirectApp(a, w, r, "error", "Error saving: could not read docker-compose.yml.", redirectPath)
+		return
+	}
+	services, ok := composeData["services"].(map[string]any)
+	if !ok {
+		flashAndRedirectApp(a, w, r, "error", "Error saving: docker-compose.yml has no services.", redirectPath)
+		return
+	}
+	svc, ok := services[containerName].(map[string]any)
+	if !ok {
+		flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Error saving: service '%(container_name)s' not found in docker-compose.yml.", "container_name", containerName), redirectPath)
+		return
+	}
+
+	envAny := make([]any, len(envLines))
+	for i, l := range envLines {
+		envAny[i] = l
+	}
+	if len(envAny) == 0 {
+		delete(svc, "environment")
+	} else {
+		svc["environment"] = envAny
+	}
+	if saveErr := docker.SaveCompose(userContext, composeData); saveErr != nil {
+		flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Error saving: %(error)s", "error", saveErr.Error()), redirectPath)
+		return
+	}
+
+	_ = logger.RecordUserAction(a.Config, currentUsername, "edited environment variables for application "+containerName, reqip.ClientIP(r))
+	flashAndRedirectApp(a, w, r, "success", "Environment variables saved, make sure to restart the application for changes to take effect.", redirectPath)
+}
+
+// pm2Settings is every field the Update tab lets a user change, and the only shape a PM2 app's .env/docker-compose.yml service ever gets written from - both handlePM2Update and handlePM2RestoreBackup go through validatePM2Settings/applyPM2Settings below, so a hand-edited backup file gets the same scrutiny as a live form. Container name, image, ports, volumes, and networks are never fields here, which is what actually stops a restored backup from repointing the service at something it shouldn't.
+type pm2Settings struct {
+	Version      string `json:"version"`
+	Requirements string `json:"requirements"`
+	StartupFile  string `json:"startup_file"`
+	CustomCmd    string `json:"custom_cmd"`
+	Workdir      string `json:"workdir"`
+	CPU          string `json:"cpu"`
+	RAM          string `json:"ram"`
+	PIDs         string `json:"pids"`
+	GitRepoURL   string `json:"git_repo_url"`
+}
+
+// validatePM2Settings returns every validation failure in s (empty means valid) using the exact same checks handlePM2Update always has
+func validatePM2Settings(s pm2Settings) []string {
+	var errs []string
+	if !isValidVersion(s.Version) {
+		errs = append(errs, "Invalid version format (check tags from hub.docker.com)")
+	}
+	if !isValidRequirements(s.Requirements) {
+		errs = append(errs, "Requirements must be empty (No) or 1 (Yes)")
+	}
+	if !isValidStartupFile(s.StartupFile) {
+		errs = append(errs, "Startup file invalid (must start with /var/www/html/, no path traversal, ends with .js, .py, or .rb)")
+	}
+	if s.CustomCmd != "" && !isValidCustomCommand(s.CustomCmd) {
+		errs = append(errs, "Provided custom startup command is invalid (no path traversal '..' allowed!)")
+	}
+	if !isValidWorkdir(s.Workdir) {
+		errs = append(errs, "Workdir invalid (must start with /var/www/html/, no path traversal)")
+	}
+	if !isPositiveNumber(s.CPU) {
+		errs = append(errs, "CPU core limit provided is not a positive integer.")
+	}
+	if !isPositiveNumber(s.RAM) {
+		errs = append(errs, "Memory limit provided is not a positive integer.")
+	}
+	if !docker.IsValidPIDsLimit(s.PIDs) {
+		errs = append(errs, "PIDs limit must be a positive whole number.")
+	}
+	if !isValidGitURL(s.GitRepoURL) {
+		errs = append(errs, "Invalid git repository URL. Only https:// URLs are supported.")
+	}
+	return errs
+}
+
+// applyPM2Settings writes an already-validated s into containerName's .env entries and docker-compose.yml command/pids-limit - factored out so handlePM2RestoreBackup can reach the identical apply step. Callers must run validatePM2Settings first; this doesn't re-validate.
+func applyPM2Settings(a *appctx.App, ctx context.Context, userContext, containerName string, kind Kind, s pm2Settings) error {
+	prefix := strings.ToUpper(containerName) + "_" + kind.PyOrNode + "_"
+	envFile := "/home/" + userContext + "/.env"
+	if !fileExists(envFile) {
+		return errors.New("environment file not found")
+	}
+
+	ramValue := s.RAM
+	if !strings.HasSuffix(strings.ToUpper(ramValue), "G") {
+		ramValue += "G"
+	}
+
+	docker.SetEnvValue(userContext, prefix+"TAG", s.Version)
+	if _, execErr := a.DB.ExecContext(ctx, "UPDATE sites SET version = ? WHERE container = ?", s.Version, containerName); execErr != nil {
+		return execErr
+	}
+	docker.SetEnvValue(userContext, prefix+"REQUIREMENTS", s.Requirements)
+	docker.SetEnvValue(userContext, prefix+"STARTUP_FILE", s.StartupFile)
+	docker.SetEnvValue(userContext, prefix+"WORKDIR", s.Workdir)
+	docker.SetEnvValue(userContext, prefix+"CPU", s.CPU)
+	docker.SetEnvValue(userContext, prefix+"RAM", ramValue)
+	docker.SetEnvValue(userContext, prefix+"PIDS", s.PIDs)
+	docker.SetEnvValue(userContext, prefix+"CUSTOM_CMD", s.CustomCmd)
+	docker.SetEnvValue(userContext, prefix+"GIT_URL", s.GitRepoURL)
+
+	resolvedCommand := buildAppRunCommand(kind, s.Requirements, s.CustomCmd, s.StartupFile, s.GitRepoURL)
+	composeData, loadErr := docker.LoadCompose(userContext)
+	if loadErr == nil {
+		if services, ok := composeData["services"].(map[string]any); ok {
+			if svc, svcOK := services[containerName].(map[string]any); svcOK {
+				svc["command"] = `sh -c "` + resolvedCommand + `"`
+				// installs from before PIDs became editable hardcode "pids: 100" instead of the env var - point it there now so a saved edit takes effect on restart, not just future installs
+				if deploy, ok := svc["deploy"].(map[string]any); ok {
+					if resources, ok := deploy["resources"].(map[string]any); ok {
+						if limits, ok := resources["limits"].(map[string]any); ok {
+							limits["pids"] = "${" + prefix + "PIDS:-100}"
+						}
+					}
+				}
+				_ = docker.SaveCompose(userContext, composeData)
+			}
+		}
+	}
+	return nil
+}
+
+// validatePM2SettingsSimple is the reduced Update-tab validation for Simple kinds (currently only n8n) - no startup file, custom command, workdir, or git URL to check.
+func validatePM2SettingsSimple(s pm2Settings) []string {
+	var errs []string
+	if !isValidVersion(s.Version) {
+		errs = append(errs, "Invalid version format (check tags from hub.docker.com)")
+	}
+	if !isPositiveNumber(s.CPU) {
+		errs = append(errs, "CPU core limit provided is not a positive integer.")
+	}
+	if !isPositiveNumber(s.RAM) {
+		errs = append(errs, "Memory limit provided is not a positive integer.")
+	}
+	if !docker.IsValidPIDsLimit(s.PIDs) {
+		errs = append(errs, "PIDs limit must be a positive whole number.")
+	}
+	return errs
+}
+
+// applyPM2SettingsSimple is applyPM2Settings' counterpart for Simple kinds - it deliberately never touches the compose service's `command:` field (unlike applyPM2Settings, which always rewrites it from kind's install/run tokens), since a Simple kind's compose template has no such placeholder and overwriting it would break the container's own entrypoint.
+func applyPM2SettingsSimple(a *appctx.App, ctx context.Context, userContext, containerName string, kind Kind, s pm2Settings) error {
+	prefix := strings.ToUpper(containerName) + "_" + kind.PyOrNode + "_"
+	envFile := "/home/" + userContext + "/.env"
+	if !fileExists(envFile) {
+		return errors.New("environment file not found")
+	}
+
+	ramValue := s.RAM
+	if !strings.HasSuffix(strings.ToUpper(ramValue), "G") {
+		ramValue += "G"
+	}
+
+	docker.SetEnvValue(userContext, prefix+"TAG", s.Version)
+	if _, execErr := a.DB.ExecContext(ctx, "UPDATE sites SET version = ? WHERE container = ?", s.Version, containerName); execErr != nil {
+		return execErr
+	}
+	docker.SetEnvValue(userContext, prefix+"CPU", s.CPU)
+	docker.SetEnvValue(userContext, prefix+"RAM", ramValue)
+	docker.SetEnvValue(userContext, prefix+"PIDS", s.PIDs)
+
+	composeData, loadErr := docker.LoadCompose(userContext)
+	if loadErr == nil {
+		if services, ok := composeData["services"].(map[string]any); ok {
+			if svc, svcOK := services[containerName].(map[string]any); svcOK {
+				if deploy, ok := svc["deploy"].(map[string]any); ok {
+					if resources, ok := deploy["resources"].(map[string]any); ok {
+						if limits, ok := resources["limits"].(map[string]any); ok {
+							limits["pids"] = "${" + prefix + "PIDS:-100}"
+						}
+					}
+				}
+				_ = docker.SaveCompose(userContext, composeData)
+			}
+		}
+	}
+	return nil
+}
+
+func handlePM2Update(a *appctx.App, w http.ResponseWriter, r *http.Request, currentUsername, userContext, containerName string, kind Kind, nameForManager string) {
+	_ = r.ParseForm()
+	redirectPath := "/website?domain=" + nameForManager
+
+	siteNameUp := strings.ToUpper(containerName)
+	envFile := "/home/" + userContext + "/.env"
+
+	if kind.Simple {
+		settings := pm2Settings{
+			Version: strings.TrimSpace(r.FormValue("version")),
+			CPU:     strings.TrimSpace(r.FormValue("cpu")),
+			RAM:     strings.TrimSpace(r.FormValue("ram")),
+			PIDs:    strings.TrimSpace(r.FormValue("pids")),
+		}
+		if errs := validatePM2SettingsSimple(settings); len(errs) > 0 {
+			flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Error saving: %(errs)s", "errs", errs[0]), redirectPath)
+			return
+		}
+		if !fileExists(envFile) {
+			flashAndRedirectApp(a, w, r, "error", "Environment file not found.", redirectPath)
+			return
+		}
+		if applyErr := applyPM2SettingsSimple(a, r.Context(), userContext, containerName, kind, settings); applyErr != nil {
+			flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Error saving: %(error)s", "error", applyErr.Error()), redirectPath)
+			return
+		}
+		flashAndRedirectApp(a, w, r, "success", "Changes saved, make sure to restart the application for changes to take effect.", redirectPath)
+		_ = logger.RecordUserAction(a.Config, currentUsername, "edited container for application "+siteNameUp, reqip.ClientIP(r))
+		return
+	}
+
+	settings := pm2Settings{
+		Version:      strings.TrimSpace(r.FormValue("version")),
+		Requirements: normalizeRequirements(r.FormValue("requirements")),
+		StartupFile:  strings.TrimSpace(r.FormValue("startup_file")),
+		CustomCmd:    strings.TrimSpace(r.FormValue("custom_cmd")),
+		Workdir:      strings.TrimSpace(r.FormValue("workdir")),
+		CPU:          strings.TrimSpace(r.FormValue("cpu")),
+		RAM:          strings.TrimSpace(r.FormValue("ram")),
+		PIDs:         strings.TrimSpace(r.FormValue("pids")),
+		GitRepoURL:   strings.TrimSpace(r.FormValue("git_repo_url")),
+	}
+
+	if errs := validatePM2Settings(settings); len(errs) > 0 {
+		flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Error saving: %(errs)s", "errs", errs[0]), redirectPath)
+		return
+	}
+	if !fileExists(envFile) {
+		flashAndRedirectApp(a, w, r, "error", "Environment file not found.", redirectPath)
+		return
+	}
+
+	if applyErr := applyPM2Settings(a, r.Context(), userContext, containerName, kind, settings); applyErr != nil {
+		flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Error saving: %(error)s", "error", applyErr.Error()), redirectPath)
+		return
+	}
+
+	flashAndRedirectApp(a, w, r, "success", "Changes saved, make sure to restart the application for changes to take effect.", redirectPath)
+	_ = logger.RecordUserAction(a.Config, currentUsername, "edited container for application "+siteNameUp, reqip.ClientIP(r))
+}
+
+// handlePM2Delete mirrors app_delete().
+func handlePM2Delete(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	currentUsername, userContext, err := injectedContext(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	siteName := r.PathValue("site_name")
+	selectedDomain, subdirectory, _ := strings.Cut(siteName, "/")
+
+	if !a.CheckDomainBelongsToUser(ctx, userID, selectedDomain) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	var serviceName, appType string
+	row := a.DB.QueryRowContext(ctx, "SELECT container, type FROM sites WHERE site_name = ?", siteName)
+	if scanErr := row.Scan(&serviceName, &appType); scanErr != nil {
+		web.WriteJSON(w, http.StatusOK, map[string]string{"error": "Unable to detect service name for the application."})
+		return
+	}
+
+	kind, ok := kindByAppType(appType)
+	if !ok {
+		web.WriteJSON(w, http.StatusOK, map[string]string{"error": "Not a valid type, only NodeJS, Python, or Ruby applications can be removed."})
+		return
+	}
+
+	docker.StartOrStopContainer(ctx, userContext, strings.ToLower(serviceName), "deactivate", "")
+
+	webServerType, _ := docker.GetEnvValue(userContext, "WEB_SERVER")
+	switch {
+	case webServerType == "apache", webServerType == "openresty", webServerType == "nginx",
+		webServerType == "openlitespeed", strings.Contains(strings.ToLower(webServerType), "litespeed"):
+		// lowercased - editApacheConfig/editNginxConfig/editLswsConfig wrote the proxy block using the lowercase install-time service name, but `serviceName` here is sites.container, which is always stored uppercase (see install.go's serviceNameUp), so passing it through as-is never matched and left the proxy block orphaned on every delete, for every app type, not just n8n
+		revertWebserverConfig(userContext, subdirectory, webServerType, selectedDomain, strings.ToLower(serviceName))
+		restartArgv := podmanmanager.PodmanArgv(userContext, "restart", webServerType)
+		_ = podmanmanager.Command(ctx, userContext, restartArgv).Run()
+	default:
+		_, _ = w.Write([]byte("unknown"))
+		return
+	}
+
+	composeData, loadErr := docker.LoadCompose(userContext)
+	if loadErr == nil {
+		serviceKey := strings.ToLower(serviceName)
+		if services, ok := composeData["services"].(map[string]any); ok {
+			if _, exists := services[serviceKey]; exists {
+				delete(services, serviceKey)
+				if kind.DataVolume {
+					if volumes, ok := composeData["volumes"].(map[string]any); ok {
+						delete(volumes, serviceKey+"_data")
+					}
+				}
+				_ = docker.SaveCompose(userContext, composeData)
+				if kind.DataVolume {
+					// podman-compose prefixes every named volume it creates with the compose project name (== userContext here, e.g. "testinguser_myn8n_data") - the bare "{service}_data" name used in the compose file's volumes: section doesn't exist as an actual podman volume
+					rmVolArgv := podmanmanager.PodmanArgv(userContext, "volume", "rm", "-f", userContext+"_"+serviceKey+"_data")
+					_ = podmanmanager.Command(ctx, userContext, rmVolArgv).Run()
+				}
+				web.Flash(a, w, r, "success", web.Tr(a, r, "Application '%(site_name)s' removed successfully", "site_name", siteName))
+			} else {
+				web.Flash(a, w, r, "warning", web.Tr(a, r, "Service '%(service_key)s' not found in compose file", "service_key", serviceKey))
+			}
+		}
+	}
+
+	envFile := "/home/" + userContext + "/.env"
+	serviceNameUp := strings.ToUpper(serviceName)
+	if fileExists(envFile) {
+		content, _ := os.ReadFile(envFile)
+		lines := strings.Split(string(content), "\n")
+		prefix := serviceNameUp + "_" + kind.PyOrNode + "_"
+		commentPrefix := "# " + kind.PyOrNode + ": " + serviceNameUp
+		filtered := make([]string, 0, len(lines))
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, prefix) || strings.HasPrefix(trimmed, commentPrefix) {
+				continue
+			}
+			filtered = append(filtered, line)
+		}
+		_ = os.WriteFile(envFile, []byte(strings.Join(filtered, "\n")), 0o644)
+		web.Flash(a, w, r, "success", web.Tr(a, r, "Environment variables for '%(service_name)s' removed from .env", "service_name", serviceName))
+	} else {
+		web.Flash(a, w, r, "warning", web.Tr(a, r, ".env file not found at %(env_file)s", "env_file", envFile))
+	}
+
+	if _, execErr := a.DB.ExecContext(ctx, "DELETE FROM sites WHERE site_name = ?", siteName); execErr == nil {
+		_ = logger.RecordUserAction(a.Config, currentUsername, "deleted application "+siteName, reqip.ClientIP(r))
+		web.Flash(a, w, r, "success", web.Tr(a, r, "Application '%(site_name)s' deleted from the database", "site_name", siteName))
+	} else {
+		flashAndRedirectApp(a, w, r, "error", web.Tr(a, r, "Failed to delete application '%(site_name)s' from the database: %(error)s", "site_name", siteName, "error", execErr.Error()), "/sites")
+		return
+	}
+
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+	_ = a.Sessions.Save(r, w, sess)
+	http.Redirect(w, r, "/sites", http.StatusFound)
+}
+
+// revertWebserverConfig's Apache branch searches for what editApacheConfig() actually writes ("http://{service_name}"), not "http://localhost" - matching the real inserted lines is what makes the revert find and remove them
+func revertWebserverConfig(userContext, subdirectory, webServerType, domainURL, serviceName string) {
+	vhostsPath := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_webserver_data/_data/" + domainURL + ".conf"
+	content, err := os.ReadFile(vhostsPath)
+	if err != nil {
+		return
+	}
+	backupPath := vhostsPath + ".bak"
+
+	switch {
+	case webServerType == "apache":
+		var proxyLine, reverseProxyLine string
+		if subdirectory != "" {
+			proxyLine = "\tProxyPass /" + subdirectory + "/ http://" + serviceName
+			reverseProxyLine = "\tProxyPassReverse /" + subdirectory + "/ http://" + serviceName
+		} else {
+			proxyLine = "\tProxyPass / http://" + serviceName
+			reverseProxyLine = "\tProxyPassReverse / http://" + serviceName
+		}
+		_ = os.WriteFile(backupPath, content, 0o644)
+
+		var updated []string
+		for _, line := range strings.SplitAfter(string(content), "\n") {
+			if strings.Contains(line, proxyLine) || strings.Contains(line, reverseProxyLine) {
+				continue
+			}
+			updated = append(updated, line)
+		}
+		if writeErr := os.WriteFile(vhostsPath, []byte(strings.Join(updated, "")), 0o644); writeErr != nil {
+			_ = copyFile(backupPath, vhostsPath)
+		}
+
+	case webServerType == "nginx" || webServerType == "openresty":
+		_ = os.WriteFile(backupPath, content, 0o644)
+
+		markerStart := "location / {"
+		if subdirectory != "" {
+			markerStart = "location /" + subdirectory + "/ {"
+		}
+		const markerEnd = "proxy_set_header X-Real-IP $remote_addr;"
+
+		var updated []string
+		insideBlock := false
+		skipNext := false
+		for _, line := range strings.SplitAfter(string(content), "\n") {
+			stripped := strings.TrimSpace(line)
+			if strings.Contains(stripped, markerStart) {
+				insideBlock = true
+				continue
+			}
+			if insideBlock && strings.Contains(stripped, markerEnd) {
+				insideBlock = false
+				skipNext = true
+				continue
+			}
+			if skipNext {
+				skipNext = false
+				continue
+			}
+			if !insideBlock {
+				updated = append(updated, line)
+			}
+		}
+		_ = os.WriteFile(vhostsPath, []byte(strings.Join(updated, "")), 0o644)
+
+	case strings.Contains(strings.ToLower(webServerType), "litespeed"):
+		_ = os.WriteFile(backupPath, content, 0o644)
+
+		svc := regexp.QuoteMeta(strings.ToLower(serviceName))
+		pattern := regexp.MustCompile(`(?s)\n# PM2-PROXY-START:` + svc + `.+?# PM2-PROXY-END:` + svc + `\n`)
+		cleaned := strings.TrimRight(pattern.ReplaceAllString(string(content), "\n"), " \t\n\r") + "\n"
+
+		if writeErr := os.WriteFile(vhostsPath, []byte(cleaned), 0o644); writeErr != nil {
+			_ = copyFile(backupPath, vhostsPath)
+		}
+	}
+}

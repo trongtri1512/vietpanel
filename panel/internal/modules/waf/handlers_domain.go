@@ -1,0 +1,184 @@
+package waf
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/web"
+)
+
+var ruleIDRE = regexp.MustCompile(`^\d+$`)
+
+// reloadCaddy mirrors the `podman exec caddy caddy reload --config /etc/caddy/Caddyfile` call every WAF config change makes to apply it
+var reloadCaddy = func(ctx context.Context) error {
+	return exec.CommandContext(ctx, "podman", "exec", "caddy", "caddy", "reload", "--config", "/etc/caddy/Caddyfile").Run()
+}
+
+func filterOut(items []string, exclude string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if item != exclude {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func handleWAFDomain(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	domainName := firstPathSegment(r.PathValue("domain"))
+
+	userID, _ := auth.UserID(r)
+	_, username, _, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if !a.CheckDomainBelongsToUser(r.Context(), userID, domainName) {
+		log.Printf("WAF - Domain %s is not owned by the user.", domainName)
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	configFilePath := domainConfigPath(domainName)
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		removedRules := strings.Fields(r.Form.Get("removed_rules"))
+		removedTags := strings.Fields(r.Form.Get("removed_tags"))
+
+		for _, rule := range removedRules {
+			if !ruleIDRE.MatchString(rule) {
+				web.FlashRedirect(a, w, r, "error", "Error: IDs should only contain numbers separated by spaces.", "/server/waf/"+domainName)
+				return
+			}
+		}
+		// removed_tags has no meaningful validation - the pattern this was checked against matches any non-empty string, so every split value already passes
+
+		removedRules = append([]string{excludedRuleID}, filterOut(removedRules, excludedRuleID)...)
+		removedTags = append([]string{excludedTag}, filterOut(removedTags, excludedTag)...)
+
+		if content, readErr := os.ReadFile(configFilePath); readErr == nil {
+			newContent := rewriteDirectivesBlock(string(content), removedRules, removedTags)
+			if writeErr := os.WriteFile(configFilePath, []byte(newContent), 0o644); writeErr == nil {
+				if reloadErr := reloadCaddy(r.Context()); reloadErr == nil {
+					_ = logger.RecordUserAction(a.Config, username, "updated WAF rules for domain "+domainName, reqip.ClientIP(r))
+					web.Flash(a, w, r, "success", "WAF configuration updated.")
+				} else {
+					log.Printf("WAF - Error occurred during updating WAF settings: %v", reloadErr)
+					web.Flash(a, w, r, "error", "Error updating WAF!")
+				}
+			} else {
+				log.Printf("WAF - Error occurred during updating WAF settings: %v", writeErr)
+				web.Flash(a, w, r, "error", "Error updating WAF!")
+			}
+		} else {
+			log.Printf("WAF - Configuration file: %s does not exist.", configFilePath)
+			web.Flash(a, w, r, "error", "Configuration file not found.")
+		}
+	}
+
+	// GET (and the POST fallthrough): re-read the file after any change.
+	status := "Not Found"
+	var removedRules, removedTags, activeProfiles []string
+	level := defaultLevel
+
+	if content, readErr := os.ReadFile(configFilePath); readErr == nil {
+		contentStr := string(content)
+		status = engineStatus(contentStr)
+
+		removedRules, removedTags = parseWAFRemovals(contentStr)
+		activeProfiles = parseWAFProfiles(contentStr)
+		level = parseWAFLevel(contentStr)
+	}
+
+	detected := detectProfiles(r.Context(), a, domainName)
+
+	if r.URL.Query().Get("output") == "json" {
+		web.WriteJSON(w, http.StatusOK, map[string]any{
+			"domain": domainName, "status": status, "removed_rules": removedRules, "removed_tags": removedTags,
+			"profiles": activeProfiles, "detected_profiles": detected, "level": level,
+		})
+		return
+	}
+
+	profiles, suggested := buildProfileViews(activeProfiles, detected)
+	renderWAFDomainPage(a, w, r, WAFDomainPageData{
+		Domain: domainName, Status: status, RemovedRules: removedRules, RemovedTags: removedTags,
+		Profiles: profiles, Suggested: suggested, Stats: readWAFLogs(wafLogPath(domainName), 86400), Level: level,
+		Summary: recentSummary(domainName),
+	})
+}
+
+// readLinesKeepEnds splits content into lines; each element (except possibly the last) keeps its trailing "\n"
+func readLinesKeepEnds(content string) []string {
+	if content == "" {
+		return nil
+	}
+	var lines []string
+	start := 0
+	for i, c := range content {
+		if c == '\n' {
+			lines = append(lines, content[start:i+1])
+			start = i + 1
+		}
+	}
+	if start < len(content) {
+		lines = append(lines, content[start:])
+	}
+	return lines
+}
+
+// rewriteDirectivesBlock mirrors the line-buffering loop in server_settings_waf_for_domain(): finds the directives block in a Caddy per-domain conf, strips existing SecRuleRemoveById/SecRuleRemoveByTag lines, and appends fresh ones built from removedRules/removedTags
+func rewriteDirectivesBlock(content string, removedRules, removedTags []string) string {
+	lines := readLinesKeepEnds(content)
+	var newLines []string
+	insideDirectives := false
+	var buffer []string
+
+	for _, line := range lines {
+		stripped := strings.TrimSpace(line)
+
+		if !insideDirectives && strings.HasPrefix(stripped, "directives `") {
+			insideDirectives = true
+			buffer = []string{line}
+			continue
+		}
+
+		if insideDirectives {
+			if stripped == "`" {
+				var filtered []string
+				for _, l := range buffer {
+					s := strings.TrimSpace(l)
+					if strings.HasPrefix(s, "SecRuleRemoveById") || strings.HasPrefix(s, "SecRuleRemoveByTag") {
+						continue
+					}
+					filtered = append(filtered, l)
+				}
+				filtered = append(filtered, "            SecRuleRemoveById "+strings.Join(removedRules, " ")+"\n")
+				for _, tag := range removedTags {
+					filtered = append(filtered, "            SecRuleRemoveByTag \""+tag+"\"\n")
+				}
+				filtered = append(filtered, line)
+				newLines = append(newLines, filtered...)
+				buffer = nil
+				insideDirectives = false
+			} else {
+				buffer = append(buffer, line)
+			}
+		} else {
+			newLines = append(newLines, line)
+		}
+	}
+
+	return strings.Join(newLines, "")
+}

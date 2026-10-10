@@ -1,0 +1,29 @@
+package ipblocker
+
+import (
+	"log"
+	"net/http"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/web"
+)
+
+var ipBlockerPage = web.LoadPage("system/ip_blocker.html")
+
+// IPBlockerPageData is system/ip_blocker.html's template context.
+type IPBlockerPageData struct {
+	web.LayoutData
+	IPs []string
+}
+
+func renderIPBlockerPage(a *appctx.App, w http.ResponseWriter, r *http.Request, ips []string) {
+	layout, _, err := web.BuildLayoutData(a, w, r, "IP Blocker")
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	data := IPBlockerPageData{LayoutData: layout, IPs: ips}
+	if err := ipBlockerPage.Render(w, http.StatusOK, data); err != nil {
+		log.Printf("IPBLOCKER - template render error: %v", err)
+	}
+}

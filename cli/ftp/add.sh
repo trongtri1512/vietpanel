@@ -1,0 +1,250 @@
+#!/bin/bash
+################################################################################
+# Script Name: ftp/add.sh
+# Description: Create FTP sub-user for openpanel user.
+# Usage: vietcli ftp-add <NEW_USERNAME> <NEW_PASSWORD> <FOLDER> <OPENPANEL_USERNAME> [--debug]
+# Docs: https://docs.openpanel.com
+# Author: Stefan Pejcic
+# Created: 22.05.2024
+# Last Modified: 21.08.2026
+# Company: VietPanel, LLC.
+# Copyright (c) openpanel.com
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+################################################################################
+
+if [ "$#" -lt 4 ] || [ "$#" -gt 5 ]; then
+    echo "Usage: vietcli ftp-add <new_username> <new_password> '<directory>' <openpanel_username> [--debug]"
+    exit 1
+fi
+
+username="${1,,}"
+password="$2"
+directory="$3"
+openpanel_username="$4"
+DEBUG=false
+
+source /usr/local/vietcli/lib/password_strength.sh
+# shellcheck disable=SC1091
+source /usr/local/vietcli/lib/podman.sh
+
+
+# parse optional flags, enabling debug mode if asked
+for arg in "$@"; do
+    case $arg in
+        --debug) DEBUG=true ;;
+        *) ;;
+    esac
+done
+
+
+
+
+check_and_start_ftp_server(){
+	podman_is_running openadmin_ftp || podman_ensure_running openadmin_ftp /root openadmin_ftp
+}
+
+
+create_user() {
+    real_path="/home/${context}/docker-data/volumes/${context}_html_data/_data/"
+    relative_path="${directory##/var/www/html/}"
+    new_directory="${real_path}${relative_path}"
+
+    GID=$(stat -c '%u' "/home/$context")
+    if [[ ! "$GID" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: Could not determine GID for '$context'."
+        exit 1
+    fi
+
+    EXISTING_GROUP=$(podman exec openadmin_ftp sh -c "getent group '$GID' | cut -d: -f1")
+    if [[ -z "$EXISTING_GROUP" ]]; then
+        podman exec openadmin_ftp addgroup -g "$GID" "$context"
+    fi
+
+    mkdir -p "$new_directory"
+    chmod +rx "/home/$context"
+    chmod +rx "/home/$context/docker-data"
+    chmod +rx "/home/$context/docker-data/volumes"
+    chmod +rx "/home/$context/docker-data/volumes/${context}_html_data"
+    chmod +rx "/home/$context/docker-data/volumes/${context}_html_data/_data"
+
+    PYTHON_PATH=$(which python3 || echo "/usr/local/bin/python3")
+
+    HASHED_PASS=$($PYTHON_PATH -c "
+import sys, hashlib, os, base64
+pw = sys.argv[1]
+salt = base64.b64encode(os.urandom(12)).decode()[:16]
+import crypt
+print(crypt.crypt(pw, '\$6\$' + salt))
+" "$password" 2>/dev/null || $PYTHON_PATH -c "
+import sys, os, hashlib
+pw = sys.argv[1].encode()
+salt = os.urandom(8)
+import hashlib
+h = hashlib.sha512(pw + salt).hexdigest()
+print('\$6\$' + salt.hex() + '\$' + h)
+" "$password")
+
+    podman exec openadmin_ftp useradd -d "${new_directory}" -s /sbin/nologin -g "$context" -M "$username" --badname
+
+    if podman exec openadmin_ftp sh -c "usermod -p '$HASHED_PASS' '$username'"; then
+        mkdir -p "$new_directory"
+        chown -R "$GID:$GID" "$new_directory"
+        chmod -R 2775 "$new_directory"
+        chmod +rx "/home/$context"
+        chmod +rx "/home/$context/docker-data"
+        chmod +rx "/home/$context/docker-data/volumes"
+        chmod +rx "/home/$context/docker-data/volumes/${context}_html_data"
+        chmod +rx "/home/$context/docker-data/volumes/${context}_html_data/_data"
+
+        USER_UID=$(podman exec openadmin_ftp id -u "$username")
+        USER_GID=$(podman exec openadmin_ftp id -g "$username")
+
+        echo "$username|$HASHED_PASS|$directory|$USER_UID|$USER_GID" >> "/etc/openpanel/ftp/users/${context}/users.list"
+
+        nohup vietcli sentinel --action=ftp_create --title="FTP account created" --message="New FTP account has been created for VietPanel user: '$openpanel_username'. Directory: $directory | UID: $USER_UID | GID: $USER_GID" >/dev/null 2>&1 &
+        disown
+
+        echo "Success: FTP user '$username' created successfully (UID: $USER_UID, GID: $USER_GID)."
+    else
+        if [ "$DEBUG" = true ]; then
+            echo "ERROR: Failed to create FTP user with command:"
+            echo "podman exec openadmin_ftp useradd -d $new_directory -s /sbin/nologin -g $context $username"
+        else
+            echo "ERROR: Failed to create FTP user. To debug, run: vietcli ftp-add $username $password '$new_directory' $context --debug"
+        fi
+        exit 1
+    fi
+}
+
+
+
+
+
+
+validate_data() {
+	if [[ $username != *@* ]]; then
+	    echo "ERROR: FTP username must be in format: username@domain"
+	    exit 1
+	fi
+
+    local_part="${username%%@*}"
+    domain_part="${username##*@}"
+
+    if [[ ! "$local_part" =~ ^[a-z0-9_-]+$ ]]; then
+        echo "ERROR: FTP username before the domain part may only contain a-z, 0-9, _ and -"
+        exit 1
+    fi
+
+    if [[ ! "$domain_part" =~ ^[a-z0-9._-]+$ ]]; then
+        echo "ERROR: Invalid domain provided in FTP username."
+        exit 1
+    fi
+
+	if [[ ! "$openpanel_username" =~ ^[a-z0-9_-]+$ ]]; then
+	    echo "ERROR: Invalid VietPanel username."
+	    exit 1
+	fi
+
+	context=$(mariadb -N -e "SELECT u.server FROM users u WHERE u.username='${openpanel_username}' AND EXISTS (SELECT 1 FROM domains d WHERE d.domain_url = '${domain_part}' AND d.user_id = u.id);")
+    if [ -z "$context" ]; then
+        echo "ERROR: No context found for user '$openpanel_username' - or does not own the domain name. Aborting!"
+        exit 1
+    fi
+
+	if [[ "$directory" != /var/www/html/* ]]; then
+		echo "ERROR: Invalid path. It must start with /var/www/html/"
+		exit 1
+	fi
+
+	if [[ "$directory" =~ [*?\[\]] ]]; then
+	    echo "ERROR: Path cannot contain glob characters."
+	    exit 1
+	fi
+
+	if [[ "$directory" == *".."* ]]; then
+		echo "ERROR: Path traversal detected (.. is not allowed)."
+		exit 1
+	fi
+	
+	if [[ "$directory" == *"//"* ]]; then
+		echo "ERROR: Double slashes are not allowed in the path."
+		exit 1
+	fi
+	
+	if [[ "$directory" == *"|"* ]]; then
+		echo "ERROR: The path cannot contain the '|' character."
+		exit 1
+	fi
+
+	if [ ${#password} -lt 8 ]; then
+	    echo "ERROR: Password is too short. It must be at least 8 characters long."
+	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    exit 1
+	fi
+	
+	if ! [[ $password =~ [A-Z] ]]; then
+	    echo "ERROR: Password must contain at least one uppercase letter."
+	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    exit 1
+	fi
+	
+	if ! [[ $password =~ [a-z] ]]; then
+	    echo "ERROR: Password must contain at least one lowercase letter."
+	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    exit 1
+	fi
+	
+	if ! [[ $password =~ [0-9] ]]; then
+	    echo "ERROR: Password must contain at least one digit."
+	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    exit 1
+	fi
+	
+	if ! [[ $password =~ [[:punct:]] ]]; then
+	    echo "ERROR: Password must contain at least one special character."
+	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    exit 1
+	fi
+
+	# Check against the admin-configured strength threshold
+	require_password_strength "$password"
+}
+
+check_user_exists() {
+	if grep -Fq "$username|" "/etc/openpanel/ftp/users/${context}/users.list"; then
+	    echo "ERROR: FTP User '$username' already exists."
+	    exit 1
+	fi
+}
+
+make_dirs() {
+	mkdir -p "/etc/openpanel/ftp/users/${context}"
+	touch "/etc/openpanel/ftp/users/${context}/users.list"
+}
+
+
+
+# main
+validate_data                 # check username, path and password
+make_dirs		              # create dir for user and users file
+check_user_exists
+check_and_start_ftp_server    # start ftpserver if not running
+create_user
+exit 0

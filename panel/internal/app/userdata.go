@@ -1,0 +1,295 @@
+package app
+
+import (
+	"context"
+	"crypto/md5" //nolint:gosec // matches gravatar's md5-of-email protocol, not used for security
+	"database/sql"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"vietpanel/panel/internal/core/cache"
+	"vietpanel/panel/internal/core/sysinfo"
+)
+
+// UserDetails holds the user/plan fields returned by GetUserDetailsWithPlan
+type UserDetails struct {
+	Username string
+	Context  string
+	Email    string
+	PlanID   int
+	PlanName string
+	Found    bool
+}
+
+// GetUserDetailsWithPlan looks up the user's details and plan, cached for 1h - should be evicted on email/username change, but that flow doesn't exist yet
+func (a *App) GetUserDetailsWithPlan(ctx context.Context, userID int) (UserDetails, error) {
+	key := "get_user_details_with_plan:" + strconv.Itoa(userID)
+	return cache.Memoize(ctx, a.Cache, key, time.Hour, func() (UserDetails, error) {
+		var (
+			d       UserDetails
+			context sql.NullString // users.server: NULL until a container/domain is provisioned
+			email   sql.NullString
+		)
+		row := a.DB.QueryRowContext(ctx, `
+			SELECT users.username, users.server, users.email, plans.id, plans.name
+			FROM users
+			JOIN plans ON users.plan_id = plans.id
+			WHERE users.id = ?`, userID)
+
+		err := row.Scan(&d.Username, &context, &email, &d.PlanID, &d.PlanName)
+		if err == sql.ErrNoRows {
+			return UserDetails{}, nil
+		}
+		if err != nil {
+			return UserDetails{}, err
+		}
+		d.Context = context.String
+		d.Email = email.String
+		d.Found = true
+		return d, nil
+	})
+}
+
+// TwoFAStatus holds the (twofa_enabled, otp_secret) pair returned by Get2FAStatusForUser
+type TwoFAStatus struct {
+	Enabled   bool
+	OTPSecret string
+}
+
+// Get2FAStatusForUser looks up a user's 2FA enrollment status, cached 6h, for the login/dashboard 2FA-nag check
+func (a *App) Get2FAStatusForUser(ctx context.Context, userID int) (TwoFAStatus, error) {
+	key := "get_2fa_status_for_user:" + strconv.Itoa(userID)
+	return cache.Memoize(ctx, a.Cache, key, 6*time.Hour, func() (TwoFAStatus, error) {
+		var (
+			enabled sql.NullBool
+			secret  sql.NullString
+		)
+		row := a.DB.QueryRowContext(ctx, `SELECT twofa_enabled, otp_secret FROM users WHERE id = ?`, userID)
+		if err := row.Scan(&enabled, &secret); err != nil {
+			if err == sql.ErrNoRows {
+				return TwoFAStatus{}, nil
+			}
+			return TwoFAStatus{}, err
+		}
+		return TwoFAStatus{Enabled: enabled.Bool, OTPSecret: secret.String}, nil
+	})
+}
+
+// GetFeatureSetOnPlan looks up the feature set name for a user's plan, cached 24h. Returns "None" (not "") when not found, so callers build a nonexistent features/None.txt path that falls through to default.txt.
+func (a *App) GetFeatureSetOnPlan(ctx context.Context, username string) (string, error) {
+	key := "get_feature_set_on_plan:" + username
+	return cache.Memoize(ctx, a.Cache, key, 24*time.Hour, func() (string, error) {
+		var featureSet sql.NullString
+		row := a.DB.QueryRowContext(ctx, `
+			SELECT plans.feature_set
+			FROM users
+			JOIN plans ON users.plan_id = plans.id
+			WHERE users.username = ?`, username)
+
+		if err := row.Scan(&featureSet); err != nil {
+			if err == sql.ErrNoRows {
+				return "None", nil
+			}
+			return "", err
+		}
+		if !featureSet.Valid {
+			return "None", nil
+		}
+		return featureSet.String, nil
+	})
+}
+
+// GetFeatureSetNameByPlanID looks up the feature_set column for a plan by id, cached 24h, same "None" not-found convention as GetFeatureSetOnPlan
+func (a *App) GetFeatureSetNameByPlanID(ctx context.Context, planID int) (string, error) {
+	key := "get_feature_set_name_by_plan_id:" + strconv.Itoa(planID)
+	return cache.Memoize(ctx, a.Cache, key, 24*time.Hour, func() (string, error) {
+		var featureSet sql.NullString
+		row := a.DB.QueryRowContext(ctx, `SELECT feature_set FROM plans WHERE id = ?`, planID)
+		if err := row.Scan(&featureSet); err != nil {
+			if err == sql.ErrNoRows {
+				return "None", nil
+			}
+			return "", err
+		}
+		if !featureSet.Valid {
+			return "None", nil
+		}
+		return featureSet.String, nil
+	})
+}
+
+// LoadFeaturesForPlanID returns the feature list for a plan id (its feature_set file, falling back to default.txt), used to check if an upsell target plan includes a module - skips the user-specific features.txt override since there's no requesting user here
+func (a *App) LoadFeaturesForPlanID(ctx context.Context, planID int) ([]string, error) {
+	key := "load_features_for_plan_id:" + strconv.Itoa(planID)
+	return cache.Memoize(ctx, a.Cache, key, 24*time.Hour, func() ([]string, error) {
+		planFeatureSet, err := a.GetFeatureSetNameByPlanID(ctx, planID)
+		if err != nil {
+			return nil, err
+		}
+		features, _ := loadFeaturesFromFile(fmt.Sprintf("/etc/openpanel/openpanel/features/%s.txt", planFeatureSet))
+		if features == nil {
+			features, _ = loadFeaturesFromFile("/etc/openpanel/openpanel/features/default.txt")
+		}
+		return features, nil
+	})
+}
+
+// QueryContextByUsername looks up a user's server context, cached 24h.
+func (a *App) QueryContextByUsername(ctx context.Context, username string) (string, error) {
+	key := "query_context_by_username:" + username
+	return cache.Memoize(ctx, a.Cache, key, 24*time.Hour, func() (string, error) {
+		var server sql.NullString
+		row := a.DB.QueryRowContext(ctx, `SELECT server FROM users WHERE username = ?`, username)
+		if err := row.Scan(&server); err != nil {
+			if err == sql.ErrNoRows {
+				return "", nil
+			}
+			return "", err
+		}
+		return server.String, nil
+	})
+}
+
+// baselineFeatures are always granted, regardless of the user's/plan's feature file
+var baselineFeatures = []string{
+	"dashboard", "helpers", "websites", "databases_size_info",
+	"screenshots", "favicons", "logout", "errors", "search", "app",
+}
+
+// LoadUserFeatures returns a user's feature list (features.txt, else the plan's set, else default.txt) plus the baseline, cached 24h
+func (a *App) LoadUserFeatures(ctx context.Context, username, userContext string) ([]string, error) {
+	if userContext == "" {
+		var err error
+		userContext, err = a.QueryContextByUsername(ctx, username)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	key := "load_user_features:" + username + ":" + userContext
+	return cache.Memoize(ctx, a.Cache, key, 24*time.Hour, func() ([]string, error) {
+		features, _ := loadFeaturesFromFile(fmt.Sprintf("/home/%s/features.txt", userContext))
+
+		if features == nil {
+			planFeatureSet, err := a.GetFeatureSetOnPlan(ctx, username)
+			if err != nil {
+				return nil, err
+			}
+			features, _ = loadFeaturesFromFile(fmt.Sprintf("/etc/openpanel/openpanel/features/%s.txt", planFeatureSet))
+			if features == nil {
+				features, _ = loadFeaturesFromFile("/etc/openpanel/openpanel/features/default.txt")
+			}
+		}
+
+		result := append([]string{}, features...)
+		result = append(result, baselineFeatures...)
+		return result, nil
+	})
+}
+
+func loadFeaturesFromFile(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// non-nil even when empty, so an emptied feature set doesn't fall back to default.txt
+	lines := []string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines, nil
+}
+
+func gravatarURL(avatarType, email string) string {
+	if !strings.EqualFold(avatarType, "gravatar") || email == "" {
+		return ""
+	}
+	sum := md5.Sum([]byte(strings.ToLower(email))) //nolint:gosec
+	return "https://www.gravatar.com/avatar/" + hex.EncodeToString(sum[:]) + "?s=150&d=identicon"
+}
+
+// InjectData computes the per-request user/branding data every page template needs, returning an empty (non-nil) map for anonymous requests
+func (a *App) InjectData(ctx context.Context, userID int) (map[string]any, error) {
+	if userID == 0 {
+		return map[string]any{}, nil
+	}
+
+	details, err := a.GetUserDetailsWithPlan(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	userFeatures, err := a.LoadUserFeatures(ctx, details.Username, details.Context)
+	if err != nil {
+		return nil, err
+	}
+	featureSet := make(map[string]bool, len(userFeatures))
+	for _, f := range userFeatures {
+		featureSet[f] = true
+	}
+
+	allowed := map[string]bool{}
+	for _, m := range a.EnabledModules {
+		if featureSet[m] {
+			allowed[m] = true
+		}
+	}
+	userAllowed := make([]string, 0, len(allowed))
+	for m := range allowed {
+		userAllowed = append(userAllowed, m)
+	}
+
+	plan, _ := a.QueryPlanDetailsByID(ctx, details.PlanID)
+	upsellAllowed := a.upsellAllowedModules(ctx, plan, allowed)
+
+	return map[string]any{
+		"user_id":           userID,
+		"current_username":  details.Username,
+		"context":           details.Context,
+		"current_email":     details.Email,
+		"hosting_plan":      details.PlanID,
+		"hosting_plan_name": details.PlanName,
+		"panel_version":     sysinfo.GetVietPanelVersion(ctx, a.Cache),
+		// "dir" is the config key for UI text direction (ltr/rtl), not a filesystem path
+		"panel_dir":           a.Config.Get("dir", "ltr"),
+		"avatar_type":         a.AvatarType,
+		"gravatar_image_url":  gravatarURL(a.AvatarType, details.Email),
+		"user_allowed":        userAllowed,
+		"user_upsell_allowed": upsellAllowed,
+		"upsell_plan_name":    plan.UpsellPlanName,
+		"upsell_url":          plan.UpsellURL,
+		"is_enterprise":       strings.HasPrefix(a.LicenseKey, "enterprise"),
+	}, nil
+}
+
+// upsellAllowedModules returns the enabled modules that the current plan doesn't grant but the upsell plan does, so the GUI can show them greyed-out with an upgrade prompt instead of hiding them outright
+func (a *App) upsellAllowedModules(ctx context.Context, plan PlanDetails, allowed map[string]bool) []string {
+	if !plan.HasUpsell() {
+		return nil
+	}
+	upsellPlanID, err := strconv.Atoi(plan.UpsellPlanID)
+	if err != nil {
+		return nil
+	}
+	upsellFeatures, err := a.LoadFeaturesForPlanID(ctx, upsellPlanID)
+	if err != nil {
+		return nil
+	}
+	upsellFeatureSet := make(map[string]bool, len(upsellFeatures))
+	for _, f := range upsellFeatures {
+		upsellFeatureSet[f] = true
+	}
+	var result []string
+	for _, m := range a.EnabledModules {
+		if !allowed[m] && upsellFeatureSet[m] {
+			result = append(result, m)
+		}
+	}
+	return result
+}

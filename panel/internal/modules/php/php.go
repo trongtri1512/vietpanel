@@ -1,210 +1,235 @@
-// Package php provides PHP version management, extension toggling, php.ini
-// editing, phpMyAdmin link, and per-domain PHP version assignment.
+// Package php handles default/per-domain PHP version selection, php.ini editing, PHP option tuning, extension management, and the phpMyAdmin redirect.
 package php
 
 import (
-	"net/http"
+	"context"
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
-	"vietpanel/panel/internal/app"
-	"vietpanel/panel/internal/auth"
-	"vietpanel/panel/internal/web"
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/cache"
+	"vietpanel/panel/internal/core/podmanmanager"
+	"vietpanel/panel/internal/core/webserver"
+	"vietpanel/panel/internal/modules/docker"
 )
 
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /php", auth.Require(settingsPage(a)))
-	mux.HandleFunc("POST /php/version", auth.Require(switchVersion(a)))
-	mux.HandleFunc("GET /php/extensions", auth.Require(extensionsPage(a)))
-	mux.HandleFunc("POST /php/extensions/toggle", auth.Require(toggleExtension(a)))
-	mux.HandleFunc("GET /php/ini", auth.Require(iniEditorPage(a)))
-	mux.HandleFunc("POST /php/ini", auth.Require(saveINI(a)))
-	mux.HandleFunc("GET /php/info", auth.Require(phpInfo(a)))
-	mux.HandleFunc("GET /php/phpmyadmin", auth.Require(phpMyAdmin(a)))
+// phpVersionFromSegment extracts the version from a "php<version>" URL path segment - Go's ServeMux only lets a wildcard span an entire segment, so routes register the whole segment as a wildcard and every handler unwraps it with this
+func phpVersionFromSegment(seg string) string {
+	return strings.TrimPrefix(seg, "php")
 }
 
-type phpExtension struct {
-	Name    string
-	Enabled bool
-	Default bool
+// phpVersionFromIniSegment extracts the version from a "php<version>.ini" segment, used by the /php/{phpiniversion}/editor route
+func phpVersionFromIniSegment(seg string) string {
+	return strings.TrimSuffix(phpVersionFromSegment(seg), ".ini")
 }
 
-var phpVersions = []string{"8.4", "8.3", "8.2", "8.1", "8.0", "7.4"}
-
-var commonExtensions = []phpExtension{
-	{Name: "curl", Default: true},
-	{Name: "gd", Default: true},
-	{Name: "imagick", Default: false},
-	{Name: "intl", Default: true},
-	{Name: "mbstring", Default: true},
-	{Name: "mysqli", Default: true},
-	{Name: "opcache", Default: true},
-	{Name: "pdo_mysql", Default: true},
-	{Name: "redis", Default: false},
-	{Name: "soap", Default: false},
-	{Name: "xml", Default: true},
-	{Name: "zip", Default: true},
-	{Name: "ioncube", Default: false},
-	{Name: "xdebug", Default: false},
-}
-
-func settingsPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		// Get current PHP version
-		var currentVersion string
-		_ = a.DB.QueryRow(`SELECT COALESCE(php_version, '8.2') FROM users WHERE id = ?`, user.ID).Scan(&currentVersion)
-
-		// Get per-domain PHP versions
-		rows, _ := a.DB.Query(
-			`SELECT domain_id, domain_url, COALESCE(php_version, ?)
-			 FROM domains WHERE user_id = ? ORDER BY domain_url`,
-			currentVersion, user.ID)
-		defer rows.Close()
-		type domainPHP struct {
-			ID      int
-			Domain  string
-			Version string
-		}
-		var domains []domainPHP
-		for rows.Next() {
-			var d domainPHP
-			_ = rows.Scan(&d.ID, &d.Domain, &d.Version)
-			domains = append(domains, d)
-		}
-
-		web.Render(w, r, a, "user/php.html", web.PageData{
-			Title: "PHP Settings", ActiveNav: "php", User: user,
-			Extra: map[string]any{
-				"CurrentVersion": currentVersion,
-				"Versions":       phpVersions,
-				"Domains":        domains,
-			},
-		})
+// checkPHPIniSyntax mirrors check_php_ini_syntax(): has the PHP CLI inside the relevant container parse php.ini, returning the parse error string if invalid, or "" if valid or unable to check
+func checkPHPIniSyntax(ctx context.Context, userContext, version string) string {
+	webServer := webserver.GetEnvFileValue(userContext, "WEB_SERVER")
+	var container, iniPath string
+	if strings.Contains(strings.ToLower(webServer), "litespeed") {
+		container = webServer
+		iniPath = "/usr/local/lsws/lsphp" + strings.ReplaceAll(version, ".", "") + "/etc/php/" + version + "/litespeed/php.ini"
+	} else {
+		container = "php-fpm-" + version
+		iniPath = "/etc/php/" + version + "/fpm/php.ini"
 	}
-}
 
-func switchVersion(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		user := auth.FromContext(r)
-		version := r.FormValue("version")
-		domainID := r.FormValue("domain_id")
-
-		if domainID != "" {
-			_, _ = a.DB.Exec(`UPDATE domains SET php_version = ? WHERE domain_id = ? AND user_id = ?`,
-				version, domainID, user.ID)
-		} else {
-			_, _ = a.DB.Exec(`UPDATE users SET php_version = ? WHERE id = ?`, version, user.ID)
-		}
-		http.Redirect(w, r, "/php", http.StatusFound)
+	if !docker.ComposeContainer(ctx, userContext, container, "status") {
+		return ""
 	}
+
+	argv := podmanmanager.PodmanArgv(userContext, "exec", container, "php", "-c", iniPath, "-d", "display_errors=0", "-r", "exit(0);")
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := podmanmanager.Command(cctx, userContext, argv)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	_ = cmd.Run()
+
+	return strings.TrimSpace(stderr.String())
 }
 
-func extensionsPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		// Load enabled extensions from DB
-		enabledMap := map[string]bool{}
-		rows, _ := a.DB.Query(`SELECT ext_name FROM php_extensions WHERE user_id = ? AND enabled = 1`, user.ID)
-		defer rows.Close()
-		for rows.Next() {
-			var name string
-			_ = rows.Scan(&name)
-			enabledMap[name] = true
+// domainConfVersionRE mirrors the `php-fpm-(\d+\.\d+)` search used by get_php_v_for_domain() and php_version() to read the version straight out of a domain's vhost config
+var domainConfVersionRE = regexp.MustCompile(`php-fpm-(\d+\.\d+)`)
+
+var validDomainRE = regexp.MustCompile(`^[a-zA-Z0-9.-]+$`)
+var validContextRE = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// litespeedTagVersionRE mirrors the `(\d)(\d)$` fallback used to derive a PHP version from an OPENLITESPEED_VERSION/LITESPEED_VERSION tag when the container isn't running to ask directly
+var litespeedTagVersionRE = regexp.MustCompile(`(\d)(\d)$`)
+
+// GetPHPVForDomain is the PHP version currently configured for domainURL, read from its vhost file (PHP-FPM) or queried live from the running container (LiteSpeed) - exported for other app-installer callers (wordpress, websites) too
+func GetPHPVForDomain(ctx context.Context, a *appctx.App, userContext, domainURL string) string {
+	webServer := webserver.GetEnvFileValue(userContext, "WEB_SERVER")
+
+	if !validDomainRE.MatchString(domainURL) || !validContextRE.MatchString(userContext) {
+		return "/"
+	}
+
+	if strings.Contains(strings.ToLower(webServer), "litespeed") {
+		command := `php -d memory_limit=-1 -d open_basedir=none -d disable_functions= -d display_errors=0 -d error_log=/dev/null -r "echo PHP_VERSION, PHP_EOL;"`
+		argv := podmanmanager.PodmanArgv(userContext, "exec", webServer, "sh", "-c", command)
+		out, err := podmanmanager.Command(ctx, userContext, argv).Output()
+		if err == nil {
+			return strings.TrimSpace(string(out))
 		}
-		// Merge with defaults
-		var exts []phpExtension
-		for _, e := range commonExtensions {
-			e.Enabled = enabledMap[e.Name] || e.Default
-			exts = append(exts, e)
+
+		var tagKey string
+		if webServer == "openlitespeed" {
+			tagKey = "OPENLITESPEED_VERSION"
+		} else if webServer == "litespeed" {
+			tagKey = "LITESPEED_VERSION"
 		}
-		web.Render(w, r, a, "user/php_extensions.html", web.PageData{
-			Title: "PHP Extensions", ActiveNav: "php", User: user,
-			Extra: map[string]any{"Extensions": exts},
-		})
-	}
-}
-
-func toggleExtension(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
+		tag := webserver.GetEnvFileValue(userContext, tagKey)
+		if tag == "latest" {
+			return "8.3"
 		}
-		user := auth.FromContext(r)
-		extName := r.FormValue("ext")
-		enable := r.FormValue("enable") == "1"
-		_, _ = a.DB.Exec(
-			`INSERT INTO php_extensions (user_id, ext_name, enabled) VALUES (?, ?, ?)
-			 ON CONFLICT(user_id, ext_name) DO UPDATE SET enabled = ?`,
-			user.ID, extName, enable, enable)
-		http.Redirect(w, r, "/php/extensions", http.StatusFound)
-	}
-}
-
-func iniEditorPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		iniContent := `; PHP ini settings for ` + user.Username + `
-memory_limit = 256M
-max_execution_time = 300
-upload_max_filesize = 64M
-post_max_size = 64M
-max_input_vars = 2000
-display_errors = Off
-log_errors = On
-error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
-date.timezone = Asia/Ho_Chi_Minh`
-		web.Render(w, r, a, "user/php_ini.html", web.PageData{
-			Title: "PHP ini Editor", ActiveNav: "php", User: user,
-			Extra: map[string]any{"INI": iniContent},
-		})
-	}
-}
-
-func saveINI(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// In production, write to the user's php.ini and reload PHP-FPM
-		http.Redirect(w, r, "/php", http.StatusFound)
-	}
-}
-
-func phpInfo(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		info := map[string]string{
-			"PHP Version":      "8.2.24",
-			"Server API":       "FPM/FastCGI",
-			"Loaded Config":    "/etc/php/8.2/fpm/php.ini",
-			"Memory Limit":     "256M",
-			"Max Execution":    "300",
-			"Upload Max Size":  "64M",
-			"Zend Engine":      "4.2.24",
-			"OPcache":          "Enabled",
-			"Ioncube":          "Not Loaded",
+		if m := litespeedTagVersionRE.FindStringSubmatch(tag); m != nil {
+			return m[1] + "." + m[2]
 		}
-		web.Render(w, r, a, "user/php_info.html", web.PageData{
-			Title: "PHP Info", ActiveNav: "php", User: user,
-			Extra: map[string]any{"Info": info},
-		})
+		return "8.3"
 	}
-}
 
-func phpMyAdmin(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		dbID := r.URL.Query().Get("db_id")
-		if dbID != "" {
-			var dbName string
-			_ = a.DB.QueryRow(`SELECT db_name FROM databases WHERE id = ? AND user_id = ?`,
-				dbID, auth.FromContext(r).ID).Scan(&dbName)
-			if dbName != "" {
-				http.Redirect(w, r, "/pma/index.php?db="+strings.ReplaceAll(dbName, "_", "\\_"), http.StatusFound)
-				return
+	confPath := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_webserver_data/_data/" + domainURL + ".conf"
+	if content, err := os.ReadFile(confPath); err == nil {
+		lines := strings.SplitN(string(content), "\n", 2)
+		if len(lines) > 0 {
+			if m := domainConfVersionRE.FindStringSubmatch(lines[0]); m != nil {
+				return m[1]
 			}
 		}
-		http.Redirect(w, r, "/pma/", http.StatusFound)
 	}
+
+	var version string
+	err := a.DB.QueryRowContext(ctx, "SELECT php_version FROM domains WHERE domain_url = ?", domainURL).Scan(&version)
+	if err != nil || version == "" {
+		return "/"
+	}
+	return version
+}
+
+// updatePHPVersionPreference mirrors update_php_version_preference().
+func updatePHPVersionPreference(userContext, newPHPVersion string) bool {
+	webServer := webserver.GetEnvFileValue(userContext, "WEB_SERVER")
+	newPHPVersion = strings.TrimPrefix(newPHPVersion, "php")
+
+	var placeholder string
+	switch webServer {
+	case "openlitespeed":
+		placeholder = "OPENLITESPEED_VERSION"
+		newPHPVersion = "1.8.5-lsphp" + strings.ReplaceAll(newPHPVersion, ".", "")
+	case "litespeed":
+		placeholder = "LITESPEED_VERSION"
+		newPHPVersion = "6.3.5-lsphp" + strings.ReplaceAll(newPHPVersion, ".", "")
+	default:
+		placeholder = "DEFAULT_PHP_VERSION"
+	}
+
+	configFilePath := "/home/" + userContext + "/.env"
+	content, err := os.ReadFile(configFilePath)
+	if err != nil {
+		return false
+	}
+
+	lines := strings.Split(string(content), "\n")
+	prefix := placeholder + "="
+	for i, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			lines[i] = placeholder + "=" + newPHPVersion
+		}
+	}
+	return os.WriteFile(configFilePath, []byte(strings.Join(lines, "\n")), 0o644) == nil
+}
+
+// FetchPHPVersions is memoized for 1h.
+func FetchPHPVersions(ctx context.Context, a *appctx.App, userContext string) []string {
+	versions, _ := cache.Memoize(ctx, a.Cache, "fetch_php_versions:"+userContext, time.Hour, func() ([]string, error) {
+		return computeFetchPHPVersions(ctx, userContext), nil
+	})
+	return versions
+}
+
+func computeFetchPHPVersions(ctx context.Context, userContext string) []string {
+	webServer := webserver.GetEnvFileValue(userContext, "WEB_SERVER")
+
+	if strings.Contains(strings.ToLower(webServer), "litespeed") {
+		return fetchLitespeedTags(ctx, webServer)
+	}
+
+	argv := podmanmanager.PodmanComposeArgv("-f", "/home/"+userContext+"/docker-compose.yml", "config", "--services")
+	out, err := podmanmanager.Command(ctx, userContext, argv).Output()
+	if err != nil {
+		return nil
+	}
+
+	var versions []string
+	for _, service := range strings.Split(string(out), "\n") {
+		service = strings.TrimSpace(service)
+		if v, ok := strings.CutPrefix(service, "php-fpm-"); ok {
+			versions = append(versions, v)
+		}
+	}
+	sortVersionsDesc(versions)
+	return versions
+}
+
+// sortVersionsDesc mirrors sorted(..., key=lambda x: tuple(map(int, x.split('.'))), reverse=True): numeric major.minor comparison, not lexical
+func sortVersionsDesc(versions []string) {
+	less := func(a, b string) bool {
+		amaj, amin := parseMajorMinor(a)
+		bmaj, bmin := parseMajorMinor(b)
+		if amaj != bmaj {
+			return amaj > bmaj
+		}
+		return amin > bmin
+	}
+	for i := 1; i < len(versions); i++ {
+		for j := i; j > 0 && less(versions[j], versions[j-1]); j-- {
+			versions[j], versions[j-1] = versions[j-1], versions[j]
+		}
+	}
+}
+
+func parseMajorMinor(v string) (int, int) {
+	parts := strings.SplitN(v, ".", 2)
+	maj, _ := strconv.Atoi(parts[0])
+	min := 0
+	if len(parts) > 1 {
+		min, _ = strconv.Atoi(parts[1])
+	}
+	return maj, min
+}
+
+// stopPHPServiceIfRunningAndUnused mirrors stop_php_service_if_running_and_unused()
+func stopPHPServiceIfRunningAndUnused(ctx context.Context, userContext, oldPHPVersion string) {
+	phpDefaultVersion := webserver.GetEnvFileValue(userContext, "DEFAULT_PHP_VERSION")
+	if oldPHPVersion == phpDefaultVersion {
+		return
+	}
+
+	phpFPMVersion := "php-fpm-" + oldPHPVersion
+	basePath := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_webserver_data/_data/"
+
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".conf") {
+			continue
+		}
+		content, err := os.ReadFile(basePath + entry.Name())
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(content), phpFPMVersion) {
+			return
+		}
+	}
+
+	docker.StartOrStopContainer(ctx, userContext, phpFPMVersion, "deactivate", "")
 }

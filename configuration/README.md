@@ -1,3 +1,4 @@
-# configuration/
+# openpanel-configuration
+Configuration files for `/etc/openpanel/`
 
-Template cấu hình & cài đặt server: caddy/, bind9/, mysql/, nginx/, apache/, openlitespeed/, php/, docker/ (compose per-user), backups/, cron/, ftp/, ssh/...
+# ✌️

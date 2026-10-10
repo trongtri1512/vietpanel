@@ -1,0 +1,132 @@
+package backups
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/url"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/apiregistry"
+	"vietpanel/panel/internal/web"
+)
+
+// RegisterAPI wires the /api/backups/* routes onto mux. Every handler below delegates to the existing UI handler rather than reimplementing its logic: a cloned request gets an "output=json" query param (so the handler's own branch returns JSON) and, where it reads a POST form, Form/PostForm pre-populated from the API's JSON body, so the same code path runs unchanged.
+func RegisterAPI(mux *http.ServeMux, a *appctx.App) {
+	apiregistry.Handle(mux, a, "backups", "GET /api/backups", func(w http.ResponseWriter, r *http.Request) {
+		handleBackupsPage(a, w, withJSONOutput(r))
+	})
+	apiregistry.Handle(mux, a, "backups", "GET /api/backups/settings", func(w http.ResponseWriter, r *http.Request) {
+		handleBackupSettings(a, w, withJSONOutput(r))
+	})
+	apiregistry.Handle(mux, a, "backups", "PUT /api/backups/settings", func(w http.ResponseWriter, r *http.Request) {
+		apiUpdateBackupSettings(a, w, r)
+	})
+	apiregistry.Handle(mux, a, "backups", "GET /api/backups/destination", func(w http.ResponseWriter, r *http.Request) {
+		handleBackupTarget(a, w, withJSONOutput(r))
+	})
+	apiregistry.Handle(mux, a, "backups", "PUT /api/backups/destination", func(w http.ResponseWriter, r *http.Request) {
+		apiSwitchBackupDestination(a, w, r)
+	})
+	apiregistry.Handle(mux, a, "backups", "GET /api/backups/list", func(w http.ResponseWriter, r *http.Request) {
+		handleListBackupsFromDestination(a, w, withJSONOutput(r))
+	})
+	apiregistry.Handle(mux, a, "backups", "POST /api/backups/reindex", func(w http.ResponseWriter, r *http.Request) {
+		handleListBackupsFromDestination(a, w, withJSONOutput(r))
+	})
+	apiregistry.Handle(mux, a, "backups", "POST /api/backups/restore", func(w http.ResponseWriter, r *http.Request) {
+		apiRestoreFromBackup(a, w, r)
+	})
+	apiregistry.Handle(mux, a, "backups", "POST /api/backups/download", func(w http.ResponseWriter, r *http.Request) {
+		apiDownloadBackup(a, w, r)
+	})
+}
+
+// withJSONOutput clones r with "output=json" set on the query string, so a UI handler that branches on that param returns JSON instead of HTML.
+func withJSONOutput(r *http.Request) *http.Request {
+	clone := r.Clone(r.Context())
+	q := clone.URL.Query()
+	q.Set("output", "json")
+	clone.URL.RawQuery = q.Encode()
+	return clone
+}
+
+func decodeJSONBody(r *http.Request, v any) error {
+	defer r.Body.Close()
+	return json.NewDecoder(r.Body).Decode(v)
+}
+
+func writeAPIError(w http.ResponseWriter, status int, msg string) {
+	web.WriteJSON(w, status, map[string]string{"error": msg})
+}
+
+// apiUpdateBackupSettings translates the API's JSON body into the values[KEY]/settings[KEY] form fields handleBackupSettings expects from the UI's POST, then delegates to it
+func apiUpdateBackupSettings(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Values   map[string]string `json:"values"`
+		Settings map[string]string `json:"settings"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	form := url.Values{}
+	for k, v := range body.Values {
+		form.Set("values["+k+"]", v)
+	}
+	for k, v := range body.Settings {
+		form.Set("settings["+k+"]", v)
+	}
+
+	cloned := withJSONOutput(web.WithForm(r, form))
+	handleBackupSettings(a, w, cloned)
+}
+
+// apiSwitchBackupDestination translates the API's JSON body into the "target" form field handleBackupTarget expects from the UI's POST, then delegates to it
+func apiSwitchBackupDestination(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Target string `json:"target"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	form := url.Values{"target": {body.Target}}
+	cloned := withJSONOutput(web.WithForm(r, form))
+	handleBackupTarget(a, w, cloned)
+}
+
+// apiRestoreFromBackup translates the API's JSON body into the backup_file/restore_target/database form fields handleRestoreFromBackup expects from the UI's multipart POST, then delegates to it
+func apiRestoreFromBackup(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		BackupFile    string `json:"backup_file"`
+		RestoreTarget string `json:"restore_target"`
+		Database      string `json:"database"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	form := url.Values{
+		"backup_file":    {body.BackupFile},
+		"restore_target": {body.RestoreTarget},
+		"database":       {body.Database},
+	}
+	handleRestoreFromBackup(a, w, web.WithForm(r, form))
+}
+
+// apiDownloadBackup translates the API's JSON body into the backup_file form field handleDownloadBackup expects from the UI's multipart POST, then delegates to it (streams the archive back as the response body)
+func apiDownloadBackup(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		BackupFile string `json:"backup_file"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	form := url.Values{"backup_file": {body.BackupFile}}
+	handleDownloadBackup(a, w, web.WithForm(r, form))
+}

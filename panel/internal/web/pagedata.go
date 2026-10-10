@@ -1,0 +1,186 @@
+package web
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gorilla/csrf"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/flash"
+	"vietpanel/panel/internal/core/i18n"
+	"vietpanel/panel/internal/core/mysqlmanager"
+	"vietpanel/panel/internal/core/session"
+	"vietpanel/panel/internal/core/validators"
+	"vietpanel/panel/internal/core/webserver"
+)
+
+// DashboardIconViewCookie is the browser cookie storing the user's chosen dashboard icon-section layout ("icon" or "list"), set client-side by the sidebar's layout toggle and read server-side by ReadDashboardIconView so the dashboard renders the saved layout on first paint with no flicker.
+const DashboardIconViewCookie = "dashboard_icon_view"
+
+// ReadDashboardIconView reads the dashboard_icon_view cookie, defaulting to "icon" for a missing or unrecognized value
+func ReadDashboardIconView(r *http.Request) string {
+	if c, err := r.Cookie(DashboardIconViewCookie); err == nil && c.Value == "list" {
+		return "list"
+	}
+	return "icon"
+}
+
+// FilemanagerViewCookie is the browser cookie storing the user's chosen filemanager button style ("classic" or "modern"), set client-side by the account menu's style toggle (only shown on /files) and read server-side by ReadFilemanagerView so /files renders the saved style on first paint with no flicker.
+const FilemanagerViewCookie = "filemanager_view"
+
+// ReadFilemanagerView resolves the filemanager button style: an explicit ?view= query param wins (it's how the choice propagates across breadcrumb/pagination links), then the filemanager_view cookie, then the admin-configured filemanager_buttons_style default.
+func ReadFilemanagerView(a *appctx.App, r *http.Request) string {
+	if v := r.URL.Query().Get("view"); v == "classic" || v == "modern" {
+		return v
+	}
+	if c, err := r.Cookie(FilemanagerViewCookie); err == nil && (c.Value == "classic" || c.Value == "modern") {
+		return c.Value
+	}
+	return a.Config.Get("filemanager_buttons_style", "classic")
+}
+
+// MenuStyleCookie is the browser cookie storing the user's own navigation style ("classic" or "modern"), set client-side by the user menu's toggle and read server-side by ReadMenuStyle.
+const MenuStyleCookie = "menu_style"
+
+// ReadMenuStyle resolves the navigation style: the user's menu_style cookie wins, then the admin-configured menu_style, falling back to "classic" for a missing or unknown value.
+// classic is the collapsible-group sidebar, modern the one-link-per-area sidebar with page tabs, area breadcrumbs and the matching dashboard sections.
+func ReadMenuStyle(a *appctx.App, r *http.Request) string {
+	cookie := ""
+	if c, err := r.Cookie(MenuStyleCookie); err == nil {
+		cookie = c.Value
+	}
+	return resolveMenuStyle(cookie, a.Config.Get("menu_style", ""))
+}
+
+func resolveMenuStyle(cookie, configured string) string {
+	for _, v := range []string{cookie, configured} {
+		if v == "classic" || v == "modern" {
+			return v
+		}
+	}
+	return "classic"
+}
+
+// BuildLayoutData assembles the shared app-shell data every authenticated page needs (nav, flashes, branding, translator, ...), factored out so each module doesn't reimplement it - also returns the injected user-context map since callers need fields like current_username/context/hosting_plan for their own page-specific data.
+func BuildLayoutData(a *appctx.App, w http.ResponseWriter, r *http.Request, title string) (LayoutData, map[string]any, error) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+
+	injected, err := a.InjectData(ctx, userID)
+	if err != nil {
+		return LayoutData{}, nil, err
+	}
+
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+
+	userAllowedSlice, _ := injected["user_allowed"].([]string)
+	userAllowed := make(map[string]bool, len(userAllowedSlice))
+	for _, m := range userAllowedSlice {
+		userAllowed[m] = true
+	}
+
+	upsellAllowedSlice, _ := injected["user_upsell_allowed"].([]string)
+	upsellAllowed := make(map[string]bool, len(upsellAllowedSlice))
+	for _, m := range upsellAllowedSlice {
+		upsellAllowed[m] = true
+	}
+	upsellPlanName, _ := injected["upsell_plan_name"].(string)
+	upsellURL, _ := injected["upsell_url"].(string)
+
+	currentUsername, _ := injected["current_username"].(string)
+	sessionLocale, _ := sess.Values["locale"].(string)
+	userContext, _ := injected["context"].(string)
+	userLocale := i18n.UserLocale(userContext)
+	locale := a.I18n.ResolveLocale(ctx, sessionLocale, userLocale, r.Header.Get("Accept-Language"))
+	t := a.I18n.Translator(locale)
+
+	adminPort, _ := sess.Values["admin_port"].(string)
+	if adminPort == "" {
+		adminPort = "2087"
+	}
+	_, impersonating := sess.Values["impersonate"]
+
+	hostingPlanName, _ := injected["hosting_plan_name"].(string)
+	avatarType, _ := injected["avatar_type"].(string)
+	gravatarURL, _ := injected["gravatar_image_url"].(string)
+	panelVersion, _ := injected["panel_version"].(string)
+	panelDir, _ := injected["panel_dir"].(string)
+	isEnterprise, _ := injected["is_enterprise"].(bool)
+
+	// a reseller can set their own logo (RESELLER_LOGO_URL), applied instead of the global default for every account they own - except the login page, which always uses the global default (built via LoginPageData, not this function)
+	logo := a.Config.Get("logo", "")
+	if resellerLogo := webserver.GetEnvFileValue(userContext, "RESELLER_LOGO_URL"); resellerLogo != "" {
+		logo = resellerLogo
+	}
+
+	menuStyle := ReadMenuStyle(a, r)
+	var (
+		navItems    []NavItem
+		navGroups   []NavGroup
+		pageTabs    []NavLink
+		navTrail    []NavLink
+		serviceTool string
+	)
+	if menuStyle == "modern" {
+		navPath, tabCtx := ResolveNav(r, func(key string) string { return webserver.GetEnvFileValue(userContext, key) })
+		if strings.HasPrefix(navPath, "/backup") {
+			tabCtx.BackupsAdminManaged = BackupsAdminManaged(userContext)
+		}
+		serviceTool = tabCtx.ActiveTool
+		pageTabs = BuildPageTabs(userAllowed, upsellAllowed, navPath, tabCtx)
+		if strings.HasPrefix(navPath, "/dashboard") {
+			pageTabs = DashboardTabs(navPath, upsellPlanName != "" && upsellURL != "")
+		}
+		navItems = BuildSidebarNav(userAllowed, upsellAllowed, navPath)
+		navTrail = BuildNavTrail(userAllowed, upsellAllowed, navPath, r.URL.Path, t.Get(title), pageTabs)
+	} else {
+		navGroups = BuildClassicSidebarNav(userAllowed, upsellAllowed, NavPath(r))
+		// the Dashboard/Upgrade tabs belong to the upgrade page, not the menu, so classic keeps them too
+		if strings.HasPrefix(r.URL.Path, "/dashboard") {
+			pageTabs = DashboardTabs(r.URL.Path, upsellPlanName != "" && upsellURL != "")
+		}
+	}
+
+	layout := LayoutData{
+		// t.Get falls back to its input unchanged when no catalog entry matches (e.g. a dynamic title like "Delete container "+service), so it's safe to call unconditionally
+		Title:             t.Get(title),
+		BrandName:         a.Config.Get("brand_name", ""),
+		Logo:              logo,
+		Favicon:           a.Config.Get("favicon", ""),
+		CSRFToken:         csrf.Token(r),
+		PanelDir:          panelDir,
+		FoundABugLink:     a.Config.Get("found_a_bug_link", ""),
+		PanelVersion:      panelVersion,
+		CustomCSS:         a.CustomCSS,
+		CustomJS:          true, // the custom-JS <script> tag is always emitted, whether or not custom.js has real content (see base.html)
+		MenuStyle:         menuStyle,
+		NavItems:          navItems,
+		NavGroups:         navGroups,
+		PageTabs:          pageTabs,
+		NavTrail:          navTrail,
+		ServiceTool:       serviceTool,
+		UserAllowed:       userAllowed,
+		UserAllowedJSON:   UserAllowedList(userAllowed),
+		UpsellAllowed:     upsellAllowed,
+		UpsellPlanName:    upsellPlanName,
+		UpsellURL:         upsellURL,
+		IsEnterprise:      isEnterprise,
+		CurrentUsername:   currentUsername,
+		HostingPlanName:   hostingPlanName,
+		MySQLPrefix:       mysqlmanager.Prefix(a.Config, userContext),
+		AvatarType:        avatarType,
+		GravatarURL:       gravatarURL,
+		RequestPath:       r.URL.Path,
+		Flashes:           BuildFlashDisplay(flash.Pop(a.Sessions, w, r, sess)),
+		Impersonating:     impersonating,
+		AdminPort:         adminPort,
+		PasswordStrength:  validators.ClampPasswordStrength(a.Config.Get("password_strength", ""), 50),
+		DashboardIconView: ReadDashboardIconView(r),
+		FilemanagerView:   ReadFilemanagerView(a, r),
+		T:                 t,
+	}
+
+	return layout, injected, nil
+}

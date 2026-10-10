@@ -1,0 +1,75 @@
+package mysql
+
+import (
+	"net/http"
+	"os/exec"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/mysqlmanager"
+	"vietpanel/panel/internal/core/podmanmanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/modules/docker"
+	"vietpanel/panel/internal/web"
+)
+
+// handleRootPasswordMySQL changes the MySQL root password - unlike every other password-change route in this package, no strength check is applied here, deliberately, since the root password is admin-only
+func handleRootPasswordMySQL(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	mysqlVersion := GetMySQLVersion(ctx, a, userContext)
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		password := r.Form.Get("password")
+		dbHost := r.Form.Get("db_host")
+		if dbHost == "" {
+			dbHost = "%"
+		}
+		escapedPassword := escapeMySQLString(password)
+
+		ok := func() bool {
+			if _, execErr := mysqlmanager.Exec(ctx, userContext, "ALTER USER 'root'@'"+dbHost+"' IDENTIFIED BY '"+escapedPassword+"'", ""); execErr != nil {
+				web.Flash(a, w, r, "error", web.Tr(a, r, "Error changing MySQL root password: %(error)s", "error", execErr.Error()))
+				return false
+			}
+			if _, execErr := mysqlmanager.Exec(ctx, userContext, "ALTER USER 'root'@'localhost' IDENTIFIED BY '"+escapedPassword+"'", ""); execErr != nil {
+				web.Flash(a, w, r, "error", web.Tr(a, r, "Error changing MySQL root password: %(error)s", "error", execErr.Error()))
+				return false
+			}
+			if _, execErr := mysqlmanager.Exec(ctx, userContext, "FLUSH PRIVILEGES", ""); execErr != nil {
+				web.Flash(a, w, r, "error", web.Tr(a, r, "Error changing MySQL root password: %(error)s", "error", execErr.Error()))
+				return false
+			}
+			return true
+		}()
+
+		if ok {
+			docker.SetEnvValue(userContext, "MYSQL_ROOT_PASSWORD", password)
+
+			sedCmd := "s/^password=.*/password=" + escapedPassword + "/"
+			myCnfPath := "/home/" + userContext + "/my.cnf"
+			if sedErr := exec.CommandContext(ctx, "sed", "-i", "-e", sedCmd, myCnfPath).Run(); sedErr != nil {
+				web.Flash(a, w, r, "error", "Password changed but failed to restart MySQL.")
+			} else {
+				mysqlmanager.InvalidatePool(userContext)
+
+				argv := podmanmanager.PodmanArgv(userContext, "restart", mysqlVersion)
+				if restartErr := podmanmanager.Command(ctx, userContext, argv).Run(); restartErr != nil {
+					web.Flash(a, w, r, "error", "Password changed but failed to restart MySQL.")
+				} else {
+					ipAddress := reqip.ClientIP(r)
+					_ = logger.RecordUserAction(a.Config, currentUsername, "changed MySQL root user password", ipAddress)
+					web.Flash(a, w, r, "success", "Successfully changed root password.")
+				}
+			}
+		}
+	}
+
+	renderRootPasswordPage(a, w, r, mysqlVersion)
+}

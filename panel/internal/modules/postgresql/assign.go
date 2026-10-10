@@ -1,0 +1,102 @@
+package postgresql
+
+import (
+	"net/http"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/postgresmanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/core/validators"
+	"vietpanel/panel/internal/web"
+)
+
+// handleDatabasesAssign grants a Postgres user access to a database - unlike MySQL's equivalent, there's no privilege checklist here, Postgres assignment is always the fixed GRANT ALL PRIVILEGES + USAGE + CREATE trio
+func handleDatabasesAssign(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		dbUser := r.Form.Get("db_user")
+		databaseName := r.Form.Get("database_name")
+
+		switch {
+		case dbUser == "" || !validators.IsValidIdentifier(dbUser):
+			web.FlashRedirect(a, w, r, "error", "Invalid or missing user name.", "/postgresql/assign")
+			return
+		case databaseName == "" || !validators.IsValidIdentifier(databaseName):
+			web.FlashRedirect(a, w, r, "error", "Invalid or missing database name.", "/postgresql/assign")
+			return
+		case isRestrictedDatabase(databaseName):
+			web.FlashRedirect(a, w, r, "error", "This is a system database that cannot be used.", "/postgresql")
+			return
+		}
+
+		grantSQL := `GRANT ALL PRIVILEGES ON DATABASE "` + databaseName + `" TO "` + dbUser + `"; ` +
+			`GRANT USAGE ON SCHEMA public TO "` + dbUser + `"; ` +
+			`GRANT CREATE ON SCHEMA public TO "` + dbUser + `";`
+
+		if _, execErr := postgresmanager.Exec(ctx, userContext, grantSQL, databaseName); execErr != nil {
+			web.Flash(a, w, r, "error", "Failed to assign user to database.")
+		} else {
+			ipAddress := reqip.ClientIP(r)
+			_ = logger.RecordUserAction(a.Config, currentUsername, "assigned all privileges to PostgreSQL user "+dbUser+" on database "+databaseName, ipAddress)
+			web.Flash(a, w, r, "success", web.Tr(a, r, "Successfully added a user %(db_user)s to PostgreSQL database", "db_user", dbUser))
+		}
+
+		http.Redirect(w, r, "/postgresql", http.StatusFound)
+		return
+	}
+
+	renderAssignPage(a, w, r)
+}
+
+// handleDatabasesRemove renders the page for revoking a user's access to a PostgreSQL database
+func handleDatabasesRemove(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	renderRemovePage(a, w, r)
+}
+
+// handleRemovePostgresUserFromDB revokes a PostgreSQL user's privileges on a database
+func handleRemovePostgresUserFromDB(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	_ = r.ParseForm()
+	dbUser := r.Form.Get("db_user")
+	databaseName := r.Form.Get("database_name")
+
+	switch {
+	case dbUser == "" || !validators.IsValidIdentifier(dbUser):
+		web.FlashRedirect(a, w, r, "error", "Invalid or missing user name.", "/postgresql/remove")
+		return
+	case databaseName == "" || !validators.IsValidIdentifier(databaseName):
+		web.FlashRedirect(a, w, r, "error", "Invalid or missing database name.", "/postgresql/remove")
+		return
+	case isRestrictedUser(dbUser):
+		web.FlashRedirect(a, w, r, "error", "This is a system username that cannot be edited.", "/postgresql/remove")
+		return
+	case isRestrictedDatabase(databaseName):
+		web.FlashRedirect(a, w, r, "error", "This is a system database that cannot be edited.", "/postgresql/remove")
+		return
+	}
+
+	if _, execErr := postgresmanager.Exec(ctx, userContext, `REVOKE ALL PRIVILEGES ON DATABASE "`+databaseName+`" FROM "`+dbUser+`"`, "postgres"); execErr != nil {
+		web.Flash(a, w, r, "error", web.Tr(a, r, "Failed to revoke privileges for user %(db_user)s from PostgreSQL database %(database_name)s", "db_user", dbUser, "database_name", databaseName))
+	} else {
+		ipAddress := reqip.ClientIP(r)
+		_ = logger.RecordUserAction(a.Config, currentUsername, "revoked all privileges for PostgreSQL user "+dbUser+" from database "+databaseName, ipAddress)
+		web.Flash(a, w, r, "success", web.Tr(a, r, "Successfully revoked all privileges for user %(db_user)s from PostgreSQL database %(database_name)s", "db_user", dbUser, "database_name", databaseName))
+	}
+
+	http.Redirect(w, r, "/postgresql", http.StatusFound)
+}

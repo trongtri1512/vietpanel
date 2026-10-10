@@ -1,0 +1,101 @@
+package docker
+
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+
+// ToggleProxyHTTPPort comments or uncomments the PROXY_HTTP_PORT line in a user's .env file, enabling or disabling the port varnish listens on
+func ToggleProxyHTTPPort(userContext, state string) error {
+	path := "/home/" + userContext + "/.env"
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(RewriteProxyHTTPPortLines(string(content), state)), 0o644)
+}
+
+// RewriteProxyHTTPPortLines is ToggleProxyHTTPPort()'s pure line-rewriting half, split out for testability without touching the filesystem
+func RewriteProxyHTTPPortLines(content, state string) string {
+	lines := strings.SplitAfter(content, "\n")
+	var out strings.Builder
+	for _, line := range lines {
+		if !strings.Contains(line, "PROXY_HTTP_PORT=") {
+			out.WriteString(line)
+			continue
+		}
+		switch state {
+		case "on":
+			out.WriteString(strings.TrimLeft(line, "# "))
+		case "off":
+			if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+				out.WriteString("#" + line)
+			} else {
+				out.WriteString(line)
+			}
+		default:
+			out.WriteString(line)
+		}
+	}
+	return out.String()
+}
+
+// ProxyPortSwapPair picks the old/new port-variable pair to swap when toggling varnish on or off
+func ProxyPortSwapPair(state string) (old, replacement string, err error) {
+	switch state {
+	case "on":
+		return "${HTTP_PORT}", "${PROXY_HTTP_PORT}", nil
+	case "off":
+		return "${PROXY_HTTP_PORT}", "${HTTP_PORT}", nil
+	default:
+		return "", "", fmt.Errorf("state must be either 'on' or 'off'")
+	}
+}
+
+// SwapWebserverComposePort swaps one webserver's port-mapping variable in place. podman-compose can't resolve a ${VAR} nested inside another ${VAR:-default}, so docker-compose.yml keeps each webserver's port mapping flat - the swap is scoped to the block between the webserver's `container_name:` line and its `HTTPS_PORT` line, so only that service's mapping is touched. Callers must keep exactly one webserver's block on PROXY_HTTP_PORT ("on") at a time when varnish is running, so both toggling varnish and switching the active webserver need to call this.
+func SwapWebserverComposePort(userContext, webserver, state string) error {
+	old, replacement, err := ProxyPortSwapPair(state)
+	if err != nil {
+		return err
+	}
+
+	path := "/home/" + userContext + "/docker-compose.yml"
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(RewriteComposePortBlock(string(content), webserver, old, replacement)), 0o644)
+}
+
+// composeWebservers lists every webserver service whose ports line in docker-compose.yml can use the varnish port variable. Only one runs per account at a time, but the admin can switch it later without re-toggling Varnish, so all their blocks need to agree on whether Varnish is on or off.
+var composeWebservers = []string{"openlitespeed", "openresty", "nginx", "apache"}
+
+// SwapAllWebserversComposePort applies SwapWebserverComposePort to every webserver block in one pass, so enabling/disabling Varnish keeps the compose file consistent regardless of which webserver ends up active
+func SwapAllWebserversComposePort(userContext, state string) error {
+	for _, webserver := range composeWebservers {
+		if err := SwapWebserverComposePort(userContext, webserver, state); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RewriteComposePortBlock is SwapWebserverComposePort()'s pure block-scoped rewrite, split out for testability without touching the filesystem
+func RewriteComposePortBlock(content, webserver, old, replacement string) string {
+	lines := strings.SplitAfter(content, "\n")
+
+	inBlock := false
+	for i, line := range lines {
+		if strings.HasSuffix(strings.TrimRight(line, " \t\r\n"), "container_name: "+webserver) {
+			inBlock = true
+		}
+		if inBlock && strings.Contains(line, old) {
+			lines[i] = strings.ReplaceAll(line, old, replacement)
+		}
+		if inBlock && strings.Contains(line, "HTTPS_PORT") {
+			inBlock = false
+		}
+	}
+	return strings.Join(lines, "")
+}

@@ -1,270 +1,906 @@
-// Package emails handles email account management: list accounts, create/delete,
-// alias management, deliverability checks (SPF/DKIM/DMARC), and webmail links.
+// Package emails handles email account CRUD, quota management, aliases, catch-all addresses, SPF/DKIM/DMARC deliverability checks, CSV/XLSX export/import, Sieve filters, and webmail single-sign-on
 package emails
 
 import (
+	"context"
+	cryptorand "crypto/rand"
+	"encoding/base64"
+	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
-	"vietpanel/panel/internal/app"
+	"github.com/google/uuid"
+
+	appctx "vietpanel/panel/internal/app"
 	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/cache"
+	"vietpanel/panel/internal/core/flash"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/core/session"
+	"vietpanel/panel/internal/core/sysinfo"
+	"vietpanel/panel/internal/core/validators"
 	"vietpanel/panel/internal/web"
 )
 
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /emails", auth.Require(list(a)))
-	mux.HandleFunc("GET /emails/new", auth.Require(createPage(a)))
-	mux.HandleFunc("POST /emails/new", auth.Require(createAction(a)))
-	mux.HandleFunc("POST /emails/delete", auth.Require(deleteAction(a)))
-	mux.HandleFunc("GET /emails/detail", auth.Require(detailPage(a)))
-	mux.HandleFunc("POST /emails/password", auth.Require(changePassword(a)))
-	mux.HandleFunc("GET /emails/aliases", auth.Require(aliasesPage(a)))
-	mux.HandleFunc("POST /emails/aliases/new", auth.Require(createAlias(a)))
-	mux.HandleFunc("POST /emails/aliases/delete", auth.Require(deleteAlias(a)))
-	mux.HandleFunc("GET /emails/deliverability", auth.Require(deliverabilityPage(a)))
-	mux.HandleFunc("GET /emails/webmail", auth.Require(webmailRedirect(a)))
+// emailRegex mirrors EMAIL_REGEX.
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
+func isValidEmail(s string) bool { return emailRegex.MatchString(s) }
+
+// baseMailPath is read once from admin.ini at package init.
+var baseMailPath = readEmailStorageLocation()
+
+const adminIniPath = "/etc/openpanel/openadmin/config/admin.ini"
+
+// readEmailStorageLocation reads admin.ini's [EMAIL] email_storage_location value (default "/var/mail") - a minimal single-purpose INI reader since this is the only place that needs admin.ini's [EMAIL] section
+func readEmailStorageLocation() string {
+	const fallback = "/var/mail"
+	data, err := os.ReadFile(adminIniPath)
+	if err != nil {
+		return fallback
+	}
+	section := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			continue
+		}
+		if section != "EMAIL" {
+			continue
+		}
+		idx := strings.Index(line, "=")
+		if idx == -1 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		if key == "email_storage_location" {
+			return strings.TrimSpace(line[idx+1:])
+		}
+	}
+	return fallback
 }
 
-type emailAccount struct {
-	ID       int
-	Email    string
-	Domain   string
-	Quota    string
-	Usage    string
-	Created  string
+// randomURLToken mirrors secrets.token_urlsafe(nBytes).
+func randomURLToken(nBytes int) string {
+	b := make([]byte, nBytes)
+	_, _ = cryptorand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-type emailAlias struct {
-	ID       int
-	Source   string
-	Dest     string
-	Domain   string
+// email list cache
+
+func emailsCacheKey(username string) string { return "email_list:" + username }
+
+func cachedEmailsFile(username string) string {
+	return "/etc/openpanel/openpanel/core/users/" + username + "/emails.yml"
 }
 
-func list(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		rows, err := a.DB.Query(
-			`SELECT id, email, domain, COALESCE(quota,'unlimited'), COALESCE(usage,'0'),
-			 COALESCE(created_at,'') FROM email_accounts WHERE user_id = ? ORDER BY email`,
-			user.ID)
-		if err != nil {
-			web.Render(w, r, a, "user/emails.html", web.PageData{
-				Title: "Email Accounts", ActiveNav: "emails", User: user, Error: err.Error(),
-			})
+// readEmailsFile mirrors _read_emails_file(): lines starting with '*' whose domain (the part after '@' up to the next space) is in userDomains
+func readEmailsFile(username string, userDomains map[string]bool) []string {
+	data, err := os.ReadFile(cachedEmailsFile(username))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "*") {
+			continue
+		}
+		atIdx := strings.Index(line, "@")
+		if atIdx == -1 {
+			continue
+		}
+		rest := line[atIdx+1:]
+		domain := rest
+		if sp := strings.Index(rest, " "); sp != -1 {
+			domain = rest[:sp]
+		}
+		if userDomains[domain] {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// GetEmailList mirrors get_email_list(), cached 1h.
+func GetEmailList(ctx context.Context, a *appctx.App, userID int, username string, userDomains map[string]bool) []string {
+	result, _ := cache.Memoize(ctx, a.Cache, emailsCacheKey(username), time.Hour, func() ([]string, error) {
+		path := cachedEmailsFile(username)
+		info, statErr := os.Stat(path)
+		if statErr != nil || info.Size() == 0 {
+			domains, _ := a.AllDomainsForUser(ctx, userID)
+			ImportUserEmails(ctx, username, domainSet(domains))
+		}
+		return readEmailsFile(username, userDomains), nil
+	})
+	return result
+}
+
+func domainSet(domains []appctx.Domain) map[string]bool {
+	set := make(map[string]bool, len(domains))
+	for _, d := range domains {
+		set[d.DomainURL] = true
+	}
+	return set
+}
+
+// GetEmailCount mirrors get_email_count().
+func GetEmailCount(ctx context.Context, a *appctx.App, userID int, username string, userDomains map[string]bool) int {
+	return len(GetEmailList(ctx, a, userID, username, userDomains))
+}
+
+// InvalidateEmailCache mirrors invalidate_email_cache().
+func InvalidateEmailCache(ctx context.Context, a *appctx.App, userID int, username string) {
+	_ = a.Cache.Delete(ctx, emailsCacheKey(username))
+	domains, _ := a.AllDomainsForUser(ctx, userID)
+	ImportUserEmails(ctx, username, domainSet(domains))
+}
+
+// ImportUserEmails mirrors import_user_emails(): (re)writes the per-user on-disk email cache file from `opencli email-setup email list`
+func ImportUserEmails(ctx context.Context, currentUsername string, userDomains map[string]bool) {
+	path := cachedEmailsFile(currentUsername)
+	if _, err := os.Stat(path); err != nil {
+		_ = os.MkdirAll(strings.TrimSuffix(path, "/emails.yml"), 0o755)
+		_ = os.WriteFile(path, nil, 0o644)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "opencli", "email-setup", "email", "list").Output()
+	if err != nil {
+		return
+	}
+
+	var filtered []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.HasPrefix(line, "*") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		atIdx := strings.Index(fields[1], "@")
+		if atIdx == -1 {
+			continue
+		}
+		domain := fields[1][atIdx+1:]
+		if userDomains[domain] {
+			filtered = append(filtered, line)
+		}
+	}
+
+	_ = os.MkdirAll(strings.TrimSuffix(path, "/emails.yml"), 0o755)
+	_ = os.WriteFile(path, []byte(strings.Join(filtered, "\n")+"\n"), 0o644)
+}
+
+// quota helpers
+
+var quotaUnitMultipliers = map[byte]float64{'B': 1, 'K': 1024, 'M': 1024 * 1024, 'G': 1024 * 1024 * 1024, 'T': 1024 * 1024 * 1024 * 1024}
+
+// quotaToBytes mirrors quota_to_bytes().
+func quotaToBytes(value string) (float64, error) {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value == "" {
+		return 0, fmt.Errorf("invalid quota unit")
+	}
+	unit := value[len(value)-1]
+	mult, ok := quotaUnitMultipliers[unit]
+	if !ok {
+		return 0, fmt.Errorf("invalid quota unit")
+	}
+	num, err := strconv.ParseFloat(value[:len(value)-1], 64)
+	if err != nil {
+		return 0, err
+	}
+	return num * mult, nil
+}
+
+// emailSetQuota returns (message, ok); ok=false with an empty message means "invalid quota format"
+func emailSetQuota(email, gb, format, maxEmailQuota string, maxEmailQuotaNumeric float64, allocatedUnit string) (string, bool) {
+	if gb == "0" {
+		_ = exec.Command("opencli", "email-setup", "quota", "del", email).Run()
+		return "deleted quota", true
+	}
+
+	validFormats := map[string]bool{"B": true, "k": true, "M": true, "G": true, "T": true}
+	if !validFormats[format] {
+		return "", false
+	}
+
+	requestedQuota := gb + format
+
+	if maxEmailQuota != "0" {
+		reqBytes, reqErr := quotaToBytes(requestedQuota)
+		maxBytes, maxErr := quotaToBytes(maxEmailQuota)
+		if reqErr == nil && maxErr == nil {
+			if reqBytes > maxBytes {
+				requestedQuota = fmt.Sprintf("%s%s", trimFloat(maxEmailQuotaNumeric), allocatedUnit)
+			}
+		} else {
+			requestedQuota = fmt.Sprintf("%s%s", trimFloat(maxEmailQuotaNumeric), allocatedUnit)
+		}
+	}
+
+	_ = exec.Command("opencli", "email-setup", "quota", "set", email, requestedQuota).Run()
+	return "set quota to " + requestedQuota, true
+}
+
+// trimFloat formats a float without a trailing ".0" when it's a whole number - the max quota value is often a whole number in practice
+func trimFloat(f float64) string {
+	if f == float64(int64(f)) {
+		return strconv.FormatInt(int64(f), 10)
+	}
+	return strconv.FormatFloat(f, 'g', -1, 64)
+}
+
+var maxQuotaRE = regexp.MustCompile(`(?i)^([\d.]+)([BKMGTP])`)
+
+// parseMaxQuota mirrors _parse_max_quota().
+func parseMaxQuota(maxEmailQuota string) (float64, string) {
+	if maxEmailQuota == "0" {
+		return 0, "T"
+	}
+	if m := maxQuotaRE.FindStringSubmatch(maxEmailQuota); m != nil {
+		n, _ := strconv.ParseFloat(m[1], 64)
+		return n, strings.ToUpper(m[2])
+	}
+	n, _ := strconv.ParseFloat(maxEmailQuota, 64)
+	return n, "G"
+}
+
+// getDedicatedOrSharedIP mirrors _get_dedicated_or_shared_ip(): a standalone, uncached IP lookup distinct from appctx.GetCachedIPForUserOrPublicIPv4 (its own fresh curl call, not the shared 1h-cached fallback chain)
+func getDedicatedOrSharedIP(ctx context.Context, currentUsername string) string {
+	if ip, ok := appctx.ReadDedicatedIPFromFile(currentUsername); ok {
+		return ip
+	}
+	out, err := exec.CommandContext(ctx, "curl", "-4", "https://ip.openpanel.com").Output()
+	if err != nil {
+		return "mail.example.com"
+	}
+	ipStr := strings.TrimSpace(string(out))
+	if ipStr == "" {
+		return "mail.example.com"
+	}
+	return ipStr
+}
+
+// NEW EMAIL
+
+// handleEmailsNew mirrors emails_new().
+func handleEmailsNew(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	_, currentUsername, _, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	domains, _ := a.AllDomainsForUser(ctx, userID)
+	userDomains := domainSet(domains)
+
+	injectedData, _ := a.InjectData(ctx, userID)
+	planID, _ := injectedData["hosting_plan"].(int)
+	emailLimitStr, maxEmailQuota, _ := a.QueryPlanEmailMailboxLimits(ctx, planID)
+	maxEmailQuotaNumeric, allocatedUnit := parseMaxQuota(maxEmailQuota)
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		domain := r.Form.Get("domain")
+		username := r.Form.Get("username")
+		password := r.Form.Get("password")
+		gb := r.Form.Get("gb")
+		format := r.Form.Get("format")
+
+		var missing []string
+		if domain == "" {
+			missing = append(missing, "domain")
+		}
+		if username == "" {
+			missing = append(missing, "username")
+		}
+		if password == "" {
+			missing = append(missing, "password")
+		}
+		if len(missing) > 0 {
+			sess, _ := a.Sessions.Get(r, session.CookieName)
+			for _, field := range missing {
+				flash.Add(sess, "error", web.Tr(a, r, "Error: %(field)s not provided.", "field", field))
+			}
+			_ = a.Sessions.Save(r, w, sess)
+			http.Redirect(w, r, "/emails/new", http.StatusFound)
 			return
 		}
-		defer rows.Close()
-		var accounts []emailAccount
-		for rows.Next() {
-			var acct emailAccount
-			_ = rows.Scan(&acct.ID, &acct.Email, &acct.Domain, &acct.Quota, &acct.Usage, &acct.Created)
-			accounts = append(accounts, acct)
+
+		if !a.CheckDomainBelongsToUser(ctx, userID, domain) {
+			http.Error(w, "You do not own this domain.", http.StatusForbidden)
+			return
 		}
-		web.Render(w, r, a, "user/emails.html", web.PageData{
-			Title: "Email Accounts", ActiveNav: "emails", User: user,
-			Extra: map[string]any{"Accounts": accounts},
+
+		if !validators.IsValidEmailUsername(username) {
+			web.FlashRedirect(a, w, r, "error", "Username can only contain letters, numbers, and . _ % + - (no @).", "/emails/new")
+			return
+		}
+
+		threshold := validators.ClampPasswordStrength(a.Config.Get("password_strength", ""), 50)
+		if !validators.IsPasswordStrongEnough(password, threshold) {
+			web.FlashRedirect(a, w, r, "error", "Password does not meet the required strength.", "/emails/new")
+			return
+		}
+
+		emailLimit, _ := strconv.Atoi(emailLimitStr)
+		if emailLimit != 0 && GetEmailCount(ctx, a, userID, currentUsername, userDomains) >= emailLimit {
+			web.FlashRedirect(a, w, r, "error", "Error: reached max number of email accounts on the hosting plan.", "/emails/new")
+			return
+		}
+
+		email := username + "@" + domain
+		args := []string{"email-setup", "email", "add", email, password}
+		if maxEmailQuota != "0" {
+			args = append(args, "--wait")
+		}
+		if r.Form.Get("send_welcome") != "" {
+			args = append(args, "--send-welcome")
+		}
+
+		cmd := exec.CommandContext(ctx, "opencli", args...)
+		var stderrBuf strings.Builder
+		cmd.Stderr = &stderrBuf
+		stdout, cmdErr := cmd.Output()
+		// mirrors emails_new(): a zero-exit run with non-empty stdout is ALSO treated as a failure (opencli's success case prints nothing)
+		if cmdErr != nil || strings.TrimSpace(string(stdout)) != "" {
+			stderrStr := strings.TrimSpace(stderrBuf.String())
+			if !strings.Contains(stderrStr, "Supplied non-number argument") && !strings.Contains(stderrStr, "User doesn't exist") {
+				msg := stderrStr
+				if msg == "" {
+					msg = "command failed"
+				}
+				web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Failed to add email %(email)s: %(msg)s", "email", email, "msg", msg), "/emails/new")
+				return
+			}
+		}
+
+		if gb != "" {
+			msg, ok := emailSetQuota(email, gb, format, maxEmailQuota, maxEmailQuotaNumeric, allocatedUnit)
+			if !ok {
+				http.Error(w, "ERROR: Invalid quota format. e.g. (B (byte), k (kibibyte), M (mebibyte), G (gibibyte) or T (tebibyte))", http.StatusBadRequest)
+				return
+			}
+			_ = msg
+		} else if maxEmailQuota != "0" {
+			_ = exec.CommandContext(ctx, "opencli", "email-setup", "quota", "set", email, fmt.Sprintf("%s%s", trimFloat(maxEmailQuotaNumeric), allocatedUnit)).Run()
+		}
+
+		ipAddress := reqip.ClientIP(r)
+		_ = logger.RecordUserAction(a.Config, currentUsername, "created email "+email, ipAddress)
+		InvalidateEmailCache(ctx, a, userID, currentUsername)
+		web.FlashRedirect(a, w, r, "success", web.Tr(a, r, "Email %(email)s added successfully.", "email", email), "/emails")
+		return
+	}
+
+	renderNewEmailPage(a, w, r, domains, maxEmailQuotaNumeric, allocatedUnit)
+}
+
+// quota-line parsing (mirrors accounts.html's and single_account.html's inline Jinja parsing of one `opencli email-setup email list` line, e.g. "* info@demo.rs ( 0 / 2.0G ) [0%]")
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// EmailListRow is one row of emails/accounts.html's table.
+type EmailListRow struct {
+	Address      string
+	QuotaDisplay string
+	PercentVal   int
+	CappedVal    int
+	BarColor     string
+	Suspended    bool
+	HasFilter    bool
+	NearQuota    bool
+}
+
+// parseEmailListRow mirrors accounts.html's per-row quota parsing.
+func parseEmailListRow(entry string) EmailListRow {
+	parts := strings.Split(entry, " ")
+	address := ""
+	if len(parts) > 1 {
+		address = parts[1]
+	}
+	quota := ""
+	if len(parts) > 2 {
+		quota = strings.Join(parts[2:], " ")
+	}
+
+	quotaParts := strings.Split(quota, "[")
+	percentageStr := "0%"
+	if len(quotaParts) > 1 {
+		percentageStr = strings.Split(quotaParts[1], "]")[0]
+	}
+
+	rawPercent := "0%"
+	if percentageStr != "" && isAllDigits(strings.Trim(percentageStr, "%")) {
+		rawPercent = percentageStr
+	}
+	percentVal, _ := strconv.Atoi(strings.Trim(rawPercent, "%"))
+
+	cappedVal := percentVal
+	if cappedVal > 100 {
+		cappedVal = 100
+	}
+
+	barColor := "bg-green-500"
+	switch {
+	case percentVal <= 80:
+		barColor = "bg-green-500"
+	case percentVal <= 90:
+		barColor = "bg-orange-500"
+	default:
+		barColor = "bg-red-500"
+	}
+
+	return EmailListRow{Address: address, QuotaDisplay: quota, PercentVal: percentVal, CappedVal: cappedVal, BarColor: barColor, NearQuota: percentVal > 80}
+}
+
+const dmsConfigDir = "/usr/local/mail/openmail/docker-data/dms/config"
+
+// readRestrictedAddresses returns the addresses listed in a postfix access file (lines like "user@domain REJECT")
+func readRestrictedAddresses(path string) map[string]bool {
+	set := map[string]bool{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return set
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || strings.HasPrefix(fields[0], "#") {
+			continue
+		}
+		set[strings.ToLower(fields[0])] = true
+	}
+	return set
+}
+
+// annotateEmailRows fills in the suspended and has-filter flags used by the accounts page filters
+func annotateEmailRows(rows []EmailListRow) {
+	send := readRestrictedAddresses(filepath.Join(dmsConfigDir, "postfix-send-access.cf"))
+	receive := readRestrictedAddresses(filepath.Join(dmsConfigDir, "postfix-receive-access.cf"))
+	for i := range rows {
+		addr := strings.ToLower(rows[i].Address)
+		rows[i].Suspended = send[addr] || receive[addr]
+		user, domain, ok := strings.Cut(rows[i].Address, "@")
+		if !ok || strings.Contains(user, "/") || strings.Contains(domain, "/") || strings.Contains(rows[i].Address, "..") {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(baseMailPath, domain, user, "home", ".dovecot.sieve")); err == nil && fi.Size() > 0 {
+			rows[i].HasFilter = true
+		}
+	}
+}
+
+// SingleEmailQuota is single_account.html's parsed quota-line view-model.
+type SingleEmailQuota struct {
+	Address        string
+	QuotaDisplay   string
+	PercentVal     int
+	CappedVal      int
+	AllocatedQuota string
+	AllocatedValue string
+}
+
+// parseSingleEmailQuota mirrors single_account.html's inline parsing.
+func parseSingleEmailQuota(entry string) SingleEmailQuota {
+	parts := strings.Split(entry, " ")
+	address := ""
+	if len(parts) > 1 {
+		address = parts[1]
+	}
+	quota := ""
+	if len(parts) > 2 {
+		quota = strings.Join(parts[2:], " ")
+	}
+
+	quotaParts := strings.Split(quota, "[")
+	percentageStr := "0"
+	if len(quotaParts) > 1 {
+		percentageStr = strings.Split(quotaParts[1], "]")[0]
+	}
+	percentVal, _ := strconv.Atoi(strings.Trim(percentageStr, "%"))
+	cappedVal := percentVal
+	if cappedVal > 100 {
+		cappedVal = 100
+	}
+
+	allocatedQuota := "0"
+	allocatedValue := ""
+	quotaMatch := strings.Split(strings.Trim(quotaParts[0], "() "), "/")
+	if len(quotaMatch) > 1 {
+		allocatedQuotaWithUnit := strings.TrimSpace(quotaMatch[1])
+		if allocatedQuotaWithUnit != "" {
+			allocatedQuota = allocatedQuotaWithUnit[:len(allocatedQuotaWithUnit)-1]
+			allocatedValue = allocatedQuotaWithUnit[len(allocatedQuotaWithUnit)-1:]
+		}
+	}
+
+	return SingleEmailQuota{
+		Address: address, QuotaDisplay: quota, PercentVal: percentVal, CappedVal: cappedVal,
+		AllocatedQuota: allocatedQuota, AllocatedValue: allocatedValue,
+	}
+}
+
+// SINGLE EMAIL: LIST, EDIT, DELETE
+
+// handleEmails handles GET /emails, GET/POST/DELETE /emails and /emails/edit/{email} (email is "" when hit at the bare /emails path)
+func handleEmails(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	_, currentUsername, _, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	domains, _ := a.AllDomainsForUser(ctx, userID)
+	userDomains := domainSet(domains)
+
+	email := r.PathValue("email")
+	if email != "" {
+		handleSingleEmail(a, w, r, email, userID, currentUsername, userDomains)
+		return
+	}
+
+	currentEmailsList := GetEmailList(ctx, a, userID, currentUsername, userDomains)
+	renderAccountsPage(a, w, r, currentEmailsList, domains)
+}
+
+func handleSingleEmail(a *appctx.App, w http.ResponseWriter, r *http.Request, email string, userID int, currentUsername string, userDomains map[string]bool) {
+	ctx := r.Context()
+
+	if !isValidEmail(email) {
+		http.Error(w, "Invalid email format", http.StatusBadRequest)
+		return
+	}
+
+	_, domain, _ := strings.Cut(email, "@")
+	if !a.CheckDomainBelongsToUser(ctx, userID, domain) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	injectedData, _ := a.InjectData(ctx, userID)
+	planID, _ := injectedData["hosting_plan"].(int)
+	_, maxEmailQuota, _ := a.QueryPlanEmailMailboxLimits(ctx, planID)
+	maxEmailQuotaNumeric, allocatedUnit := parseMaxQuota(maxEmailQuota)
+
+	switch r.Method {
+	case http.MethodGet:
+		getSingleEmail(a, w, r, email, userID, currentUsername, userDomains, maxEmailQuotaNumeric, allocatedUnit)
+	case http.MethodPost:
+		postSingleEmail(a, w, r, email, userID, currentUsername, maxEmailQuota, maxEmailQuotaNumeric, allocatedUnit)
+	case http.MethodDelete:
+		deleteSingleEmail(a, w, r, email, userID, currentUsername)
+	}
+}
+
+func getEmailRestriction(direction, email string) string {
+	out, err := exec.Command("opencli", "email-setup", "email", "restrict", "list", direction).CombinedOutput()
+	if err != nil {
+		return "Error: " + strings.TrimSpace(string(out))
+	}
+	if strings.Contains(string(out), email) {
+		return "REJECT"
+	}
+	return "ACCEPT"
+}
+
+func getSingleEmail(a *appctx.App, w http.ResponseWriter, r *http.Request, email string, userID int, currentUsername string, userDomains map[string]bool, maxEmailQuotaNumeric float64, allocatedUnit string) {
+	ctx := r.Context()
+	sendRestriction := getEmailRestriction("send", email)
+	receiveRestriction := getEmailRestriction("receive", email)
+
+	serverIP := a.GetCachedIPForUserOrPublicIPv4(ctx, currentUsername)
+	dedicatedIP := getDedicatedOrSharedIP(ctx, currentUsername)
+
+	emailLines := GetEmailList(ctx, a, userID, currentUsername, userDomains)
+	currentEmailsList := ""
+	for _, line := range emailLines {
+		if strings.Contains(line, email) {
+			currentEmailsList = line
+			break
+		}
+	}
+
+	if r.URL.Query().Get("output") == "json" {
+		web.WriteJSON(w, http.StatusOK, map[string]any{
+			"title": email, "current_emails_list": currentEmailsList,
+			"max_email_quota_numeric": maxEmailQuotaNumeric, "allocated_unit": allocatedUnit,
+			"server_ip": serverIP, "dedicated_ip": dedicatedIP,
+			"send_restriction": sendRestriction, "receive_restriction": receiveRestriction,
 		})
+		return
 	}
+
+	renderSingleAccountPage(a, w, r, currentEmailsList, maxEmailQuotaNumeric, allocatedUnit, serverIP, dedicatedIP, sendRestriction, receiveRestriction)
 }
 
-func createPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		// List user's domains for the domain picker
-		rows, _ := a.DB.Query(`SELECT domain_url FROM domains WHERE user_id = ? ORDER BY domain_url`, user.ID)
-		defer rows.Close()
-		var domains []string
-		for rows.Next() {
-			var d string
-			_ = rows.Scan(&d)
-			domains = append(domains, d)
+func postSingleEmail(a *appctx.App, w http.ResponseWriter, r *http.Request, email string, userID int, currentUsername, maxEmailQuota string, maxEmailQuotaNumeric float64, allocatedUnit string) {
+	ctx := r.Context()
+	_ = r.ParseForm()
+	gb := r.Form.Get("gb")
+	format := r.Form.Get("format")
+	incoming := r.Form.Get("incoming")
+	outgoing := r.Form.Get("outgoing")
+	emailPassword := r.Form.Get("email_password")
+
+	var actionsTaken []string
+
+	if gb != "" {
+		msg, ok := emailSetQuota(email, gb, format, maxEmailQuota, maxEmailQuotaNumeric, allocatedUnit)
+		if !ok {
+			http.Error(w, "ERROR: Invalid quota format. e.g. (B (byte), k (kibibyte), M (mebibyte), G (gibibyte) or T (tebibyte))", http.StatusBadRequest)
+			return
 		}
-		web.Render(w, r, a, "user/emails_create.html", web.PageData{
-			Title: "Create Email Account", ActiveNav: "emails", User: user,
-			Extra: map[string]any{"Domains": domains},
-		})
+		actionsTaken = append(actionsTaken, msg)
 	}
+
+	type restrictionCmd struct {
+		field, value, verb, direction, logMsg string
+	}
+	for _, c := range []restrictionCmd{
+		{"incoming", "suspend", "add", "receive", "suspended incoming emails"},
+		{"incoming", "allow", "del", "receive", "unsuspended incoming emails"},
+		{"outgoing", "suspend", "add", "send", "suspended outgoing emails"},
+		{"outgoing", "allow", "del", "send", "unsuspended outgoing emails"},
+	} {
+		formVal := incoming
+		if c.field == "outgoing" {
+			formVal = outgoing
+		}
+		if formVal == c.value {
+			_ = exec.CommandContext(ctx, "opencli", "email-setup", "email", "restrict", c.verb, c.direction, email).Run()
+			actionsTaken = append(actionsTaken, c.logMsg)
+		}
+	}
+
+	if emailPassword != "" {
+		threshold := validators.ClampPasswordStrength(a.Config.Get("password_strength", ""), 50)
+		if !validators.IsPasswordStrongEnough(emailPassword, threshold) {
+			http.Error(w, "ERROR: Password does not meet the required strength.", http.StatusBadRequest)
+			return
+		}
+		_ = exec.CommandContext(ctx, "opencli", "email-setup", "email", "update", email, emailPassword).Run()
+		actionsTaken = append(actionsTaken, "updated password")
+	}
+
+	ipAddress := reqip.ClientIP(r)
+	_ = logger.RecordUserAction(a.Config, currentUsername, strings.Join(actionsTaken, "; ")+" for email "+email, ipAddress)
+	InvalidateEmailCache(ctx, a, userID, currentUsername)
+	web.FlashRedirect(a, w, r, "success", web.Tr(a, r, "Settings saved for email %(email)s", "email", email), r.URL.Path)
 }
 
-func createAction(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		user := auth.FromContext(r)
-		localPart := strings.TrimSpace(r.FormValue("local_part"))
-		domain := strings.TrimSpace(r.FormValue("domain"))
-		password := strings.TrimSpace(r.FormValue("password"))
-		quota := strings.TrimSpace(r.FormValue("quota"))
+func deleteSingleEmail(a *appctx.App, w http.ResponseWriter, r *http.Request, email string, userID int, currentUsername string) {
+	ctx := r.Context()
 
-		if localPart == "" || domain == "" || password == "" {
-			web.Render(w, r, a, "user/emails.html", web.PageData{
-				Title: "Email Accounts", ActiveNav: "emails", User: user,
-				Error: "All fields are required.",
-			})
-			return
-		}
-		if quota == "" {
-			quota = "unlimited"
-		}
-
-		email := localPart + "@" + domain
-		_, err := a.DB.Exec(
-			`INSERT INTO email_accounts (email, domain, user_id, password, quota) VALUES (?, ?, ?, ?, ?)`,
-			email, domain, user.ID, password, quota)
-		if err != nil {
-			web.Render(w, r, a, "user/emails.html", web.PageData{
-				Title: "Email Accounts", ActiveNav: "emails", User: user,
-				Error: "Failed to create account: " + err.Error(),
-			})
-			return
-		}
-		http.Redirect(w, r, "/emails", http.StatusFound)
+	out, err := exec.CommandContext(ctx, "opencli", "email-setup", "email", "del", email).CombinedOutput()
+	if err == nil {
+		ipAddress := reqip.ClientIP(r)
+		_ = logger.RecordUserAction(a.Config, currentUsername, "deleted email "+email, ipAddress)
+		InvalidateEmailCache(ctx, a, userID, currentUsername)
+		web.FlashRedirect(a, w, r, "success", web.Tr(a, r, "Email %(email)s deleted successfully.", "email", email), "/emails")
+		return
 	}
+	web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "ERROR: Failed to delete email %(email)s: %(output)s", "email", email, "output", strings.TrimSpace(string(out))), "/emails")
 }
 
-func deleteAction(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		id := r.FormValue("id")
-		_, _ = a.DB.Exec(`DELETE FROM email_accounts WHERE id = ? AND user_id = ?`, id, auth.FromContext(r).ID)
-		http.Redirect(w, r, "/emails", http.StatusFound)
+// DELETE (select-then-confirm page)
+
+// handleEmailsDelete mirrors emails_delete().
+func handleEmailsDelete(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	_, currentUsername, _, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
+
+	address := r.PathValue("address")
+	var currentEmailsList []string
+	if address == "" {
+		domains, _ := a.AllDomainsForUser(ctx, userID)
+		currentEmailsList = GetEmailList(ctx, a, userID, currentUsername, domainSet(domains))
+	} else if !isValidEmail(address) {
+		http.Error(w, "Invalid email format", http.StatusBadRequest)
+		return
+	}
+
+	renderDeletePage(a, w, r, address, currentEmailsList)
 }
 
-func detailPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		id := r.URL.Query().Get("id")
-		var acct emailAccount
-		err := a.DB.QueryRow(
-			`SELECT id, email, domain, COALESCE(quota,'unlimited'), COALESCE(usage,'0'),
-			 COALESCE(created_at,'') FROM email_accounts WHERE id = ? AND user_id = ?`,
-			id, user.ID).Scan(&acct.ID, &acct.Email, &acct.Domain, &acct.Quota, &acct.Usage, &acct.Created)
-		if err != nil {
-			http.Redirect(w, r, "/emails", http.StatusFound)
-			return
-		}
-		web.Render(w, r, a, "user/emails_detail.html", web.PageData{
-			Title: "Email: " + acct.Email, ActiveNav: "emails", User: user,
-			Extra: map[string]any{"Account": acct},
-		})
+// SERVER INFO
+
+// handleEmailsServerInfo mirrors emails_server_info().
+func handleEmailsServerInfo(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	address := r.PathValue("address")
+	if !isValidEmail(address) {
+		http.Error(w, "Invalid email format", http.StatusBadRequest)
+		return
 	}
+
+	scheme := "http"
+	if a.ForceDomain != "" && sysinfo.HasSSL(r.Context(), a.Cache, a.ForceDomain) {
+		scheme = "https"
+	}
+
+	renderInfoPage(a, w, r, address, scheme, a.ForceDomain)
 }
 
-func changePassword(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		id := r.FormValue("id")
-		password := r.FormValue("password")
-		_, _ = a.DB.Exec(`UPDATE email_accounts SET password = ? WHERE id = ? AND user_id = ?`,
-			password, id, auth.FromContext(r).ID)
-		http.Redirect(w, r, "/emails", http.StatusFound)
-	}
-}
+// CONNECT DEVICES
 
-func aliasesPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		rows, _ := a.DB.Query(
-			`SELECT id, source_email, dest_email, domain FROM email_aliases
-			 WHERE user_id = ? ORDER BY source_email`, user.ID)
-		defer rows.Close()
-		var aliases []emailAlias
-		for rows.Next() {
-			var al emailAlias
-			_ = rows.Scan(&al.ID, &al.Source, &al.Dest, &al.Domain)
-			aliases = append(aliases, al)
-		}
-		web.Render(w, r, a, "user/emails_aliases.html", web.PageData{
-			Title: "Email Aliases", ActiveNav: "emails", User: user,
-			Extra: map[string]any{"Aliases": aliases},
-		})
+// handleEmailConfiguration mirrors email_configuration().
+func handleEmailConfiguration(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	_, currentUsername, _, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
-}
 
-func createAlias(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		user := auth.FromContext(r)
-		source := r.FormValue("source")
-		dest := r.FormValue("destination")
-		if source == "" || dest == "" {
-			http.Redirect(w, r, "/emails/aliases", http.StatusFound)
-			return
-		}
-		domain := strings.SplitN(source, "@", 2)
-		d := ""
-		if len(domain) > 1 {
-			d = domain[1]
-		}
-		_, _ = a.DB.Exec(`INSERT INTO email_aliases (source_email, dest_email, domain, user_id) VALUES (?, ?, ?, ?)`,
-			source, dest, d, user.ID)
-		http.Redirect(w, r, "/emails/aliases", http.StatusFound)
+	account := r.PathValue("account")
+	if !isValidEmail(account) {
+		http.Error(w, "Invalid email format", http.StatusBadRequest)
+		return
 	}
-}
 
-func deleteAlias(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		id := r.FormValue("id")
-		_, _ = a.DB.Exec(`DELETE FROM email_aliases WHERE id = ? AND user_id = ?`, id, auth.FromContext(r).ID)
-		http.Redirect(w, r, "/emails/aliases", http.StatusFound)
+	configType := strings.ToLower(r.PathValue("type"))
+	if configType != "thunderbird" && configType != "outlook" && configType != "apple" {
+		web.FlashRedirect(a, w, r, "error", "Error: Invalid configuration type.", "/emails")
+		return
 	}
-}
 
-func deliverabilityPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		// List domains with mock deliverability status
-		rows, _ := a.DB.Query(`SELECT domain_url FROM domains WHERE user_id = ? ORDER BY domain_url`, user.ID)
-		defer rows.Close()
-		type delivCheck struct {
-			Domain string
-			SPF    string
-			DKIM   string
-			DMARC  string
-		}
-		var checks []delivCheck
-		for rows.Next() {
-			var d string
-			_ = rows.Scan(&d)
-			checks = append(checks, delivCheck{
-				Domain: d,
-				SPF:    "Not Configured",
-				DKIM:   "Not Configured",
-				DMARC:  "Not Configured",
-			})
-		}
-		web.Render(w, r, a, "user/emails_deliverability.html", web.PageData{
-			Title: "Email Deliverability", ActiveNav: "emails", User: user,
-			Extra: map[string]any{"Checks": checks},
-		})
+	sslParam := strings.ToLower(r.URL.Query().Get("ssl"))
+	if sslParam == "" {
+		sslParam = "true"
 	}
-}
+	sslEnabled := sslParam == "1" || sslParam == "true" || sslParam == "yes"
 
-func webmailRedirect(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		email := r.URL.Query().Get("email")
-		if email == "" {
-			http.Redirect(w, r, "/emails", http.StatusFound)
-			return
-		}
-		// In production, generate a signed URL to Roundcube/SnappyMail
-		http.Redirect(w, r, "https://webmail."+strings.SplitN(email, "@", 2)[1], http.StatusFound)
+	var incomingPort, outgoingPort int
+	var encryption, sslTrueFalse string
+	if sslEnabled {
+		incomingPort, outgoingPort, encryption, sslTrueFalse = 993, 465, "SSL/TLS", "<true />"
+	} else {
+		incomingPort, outgoingPort, encryption, sslTrueFalse = 143, 587, "STARTTLS", "<false />"
 	}
+
+	mailHost := getDedicatedOrSharedIP(ctx, currentUsername)
+	username, domain, _ := strings.Cut(account, "@")
+
+	var content, filename, mimetype string
+
+	switch configType {
+	case "thunderbird":
+		content = fmt.Sprintf(
+			"[InternetEmail]\nEmailAddress=%s\nUserName=%s\nIncomingServer=%s\nIncomingProtocol=IMAP\nIncomingPort=%d\nIncomingSecurity=%s\nOutgoingServer=%s\nOutgoingPort=%d\nOutgoingSecurity=%s\nAuthentication=normal password\nDescription=Thunderbird Profile\nNote=Password will be requested on first login.\n",
+			account, account, mailHost, incomingPort, encryption, mailHost, outgoingPort, encryption,
+		)
+		filename = username + "_thunderbird_profile.txt"
+		mimetype = "text/plain"
+
+	case "outlook":
+		content = fmt.Sprintf(
+			"Outlook Email Configuration:\n\nEmail Address: %s\nUsername: %s\n\nIncoming Server (IMAP): %s\nPort: %d\nEncryption: %s\n\nOutgoing Server (SMTP): %s\nPort: %d\nEncryption: %s\n\nAuthentication: Normal Password\nNote: Password is not stored. You will be prompted on first send/receive.\n",
+			account, account, mailHost, incomingPort, encryption, mailHost, outgoingPort, encryption,
+		)
+		filename = username + "_outlook_profile.txt"
+		mimetype = "text/plain"
+
+	default: // apple
+		payloadUUID := uuid.New().String()
+		innerUUID := uuid.New().String()
+		outerUUID := uuid.New().String()
+		payloadIdentifierBase := mailHost + "." + domain
+		description := account + " Secure Email Setup"
+		content = fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <key>PayloadContent</key>
+        <array>
+            <dict>
+                <key>EmailAccountDescription</key>
+                <string>%s</string>
+                <key>EmailAccountName</key>
+                <string>%s</string>
+                <key>EmailAccountType</key>
+                <string>EmailTypeIMAP</string>
+                <key>EmailAddress</key>
+                <string>%s</string>
+                <key>IncomingMailServerAuthentication</key>
+                <string>EmailAuthPassword</string>
+                <key>IncomingMailServerHostName</key>
+                <string>%s</string>
+                <key>IncomingMailServerPortNumber</key>
+                <integer>%d</integer>
+                <key>IncomingMailServerUseSSL</key>
+                %s
+                <key>IncomingMailServerUsername</key>
+                <string>%s</string>
+                <key>OutgoingMailServerAuthentication</key>
+                <string>EmailAuthPassword</string>
+                <key>OutgoingMailServerHostName</key>
+                <string>%s</string>
+                <key>OutgoingMailServerPortNumber</key>
+                <integer>%d</integer>
+                <key>OutgoingMailServerUseSSL</key>
+                %s
+                <key>OutgoingMailServerUsername</key>
+                <string>%s</string>
+                <key>OutgoingPasswordSameAsIncomingPassword</key>
+                <true />
+                <key>PayloadDescription</key>
+                <string>%s</string>
+                <key>PayloadDisplayName</key>
+                <string>%s</string>
+                <key>PayloadIdentifier</key>
+                <string>%s.%s</string>
+                <key>PayloadOrganization</key>
+                <string>%s</string>
+                <key>PayloadType</key>
+                <string>com.apple.mail.managed</string>
+                <key>PayloadUUID</key>
+                <string>%s</string>
+                <key>PayloadVersion</key>
+                <integer>1</integer>
+                <key>IncomingMailServerIMAPPathPrefix</key>
+                <string>INBOX</string>
+            </dict>
+        </array>
+        <key>PayloadDescription</key>
+        <string>%s</string>
+        <key>PayloadDisplayName</key>
+        <string>%s</string>
+        <key>PayloadIdentifier</key>
+        <string>%s.%s</string>
+        <key>PayloadOrganization</key>
+        <string>%s</string>
+        <key>PayloadType</key>
+        <string>Configuration</string>
+        <key>PayloadUUID</key>
+        <string>%s</string>
+        <key>PayloadVersion</key>
+        <integer>1</integer>
+    </dict>
+</plist>`,
+			account, username, account, mailHost, incomingPort, sslTrueFalse, account,
+			mailHost, outgoingPort, sslTrueFalse, account,
+			description, description, payloadIdentifierBase, innerUUID, domain, innerUUID,
+			description, description, payloadIdentifierBase, outerUUID, domain, payloadUUID,
+		)
+		filename = username + "_apple_mail.mobileconfig"
+		mimetype = "application/x-apple-aspen-config"
+	}
+
+	ipAddress := reqip.ClientIP(r)
+	_ = logger.RecordUserAction(a.Config, currentUsername, "downloaded "+configType+" configuration for email "+username, ipAddress)
+
+	w.Header().Set("Content-Type", mimetype)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	_, _ = w.Write([]byte(content))
 }

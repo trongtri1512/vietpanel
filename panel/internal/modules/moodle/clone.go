@@ -1,0 +1,187 @@
+package moodle
+
+import (
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/appkit"
+	"vietpanel/panel/internal/core/cmsclone"
+	"vietpanel/panel/internal/core/mysqlmanager"
+	"vietpanel/panel/internal/core/webserver"
+	"vietpanel/panel/internal/modules/crons"
+	"vietpanel/panel/internal/web"
+)
+
+// mirrors drupal/clone.go's overall shape (site-limit check, DB create+dump-pipe, config rewrite, sites-table insert, cron registration) via internal/core/cmsclone, but the file-copy step here is NOT a plain "copy the docroot" like every other module's clone (see install.go's package doc comment and its approotHostPath/datarootHostPath/symlink construction) - Moodle's docroot is a symlink, not a real directory: the actual code lives in a sibling "<slug>_moodleapp/" directory and user data lives in a separate sibling "<slug>_moodledata/" directory, so this clone resolves both sibling directories itself from the source domain name using the same appkit.SiteSlug() call install.go used to create them, and cmsclone.ValidDocroot is never called here since there's no source_folder/docroot form field to validate
+
+var (
+	cloneMoodleDBNameRE     = regexp.MustCompile(`CFG->dbname\s*=\s*'[^']*'`)
+	cloneMoodleDBUserRE     = regexp.MustCompile(`CFG->dbuser\s*=\s*'[^']*'`)
+	cloneMoodleDBPasswordRE = regexp.MustCompile(`CFG->dbpass\s*=\s*'[^']*'`)
+	cloneMoodleWwwrootRE    = regexp.MustCompile(`CFG->wwwroot\s*=\s*'[^']*'`)
+	cloneMoodleDatarootRE   = regexp.MustCompile(`CFG->dataroot\s*=\s*'[^']*'`)
+)
+
+// handleMoodleClone is cmsapp.HandleClone adapted for Moodle's approot/dataroot/symlink layout (see install.go)
+func handleMoodleClone(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	websiteCount, _ := appkit.CountUserWebsites(a, userID)
+	if !cmsclone.WithinSiteLimit(ctx, a, userID, websiteCount) {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "You have reached the maximum number of sites allowed" + a.UpgradeMessageForUser(ctx, userID)})
+		return
+	}
+
+	providedDomain := r.FormValue("source_domain")
+	dstDomain := r.FormValue("target_domain")
+	srcDB := r.FormValue("source_db")
+	dstFolder := r.FormValue("subdirectory")
+
+	dstDB := mysqlmanager.WithPrefix(a.Config, userContext, strings.ToLower(web.FormOr(r, "target_db", "moodle_clone_"+appkit.RandomString(6))))
+	dstDBUser := mysqlmanager.WithPrefix(a.Config, userContext, strings.ToLower(web.FormOr(r, "target_db_user", dstDB)))
+	dstDBUserPassword := web.FormOr(r, "target_db_user_password", appkit.RandomString(16))
+
+	if providedDomain == "" || dstDomain == "" || srcDB == "" {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Missing required form fields"})
+		return
+	}
+
+	domainID, docroot, phpVersion, dstDomainWithSubdir, ok := cmsclone.ResolveDestination(ctx, a, dstDomain, dstFolder)
+	if !ok {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Destination domain not found in database"})
+		return
+	}
+
+	srcDomain := strings.Split(providedDomain, "/")[0]
+
+	if !cmsclone.ValidDomain(srcDomain) || !cmsclone.ValidDomain(dstDomain) || !cmsclone.ValidDB(srcDB) || !cmsclone.ValidDB(dstDB) || !cmsclone.ValidDB(dstDBUser) {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid input"})
+		return
+	}
+	if !a.CheckDomainBelongsToUser(ctx, userID, srcDomain) || !a.CheckDomainBelongsToUser(ctx, userID, dstDomain) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	dumpCmd, mysqlVersion, dumpCmdErr := cmsclone.SelectDumpCommand(userContext)
+	if dumpCmdErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": dumpCmdErr.Error()})
+		return
+	}
+
+	htmlVolume := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_html_data/_data/"
+	srcSlug := appkit.SiteSlug(providedDomain)
+	dstSlug := appkit.SiteSlug(dstDomainWithSubdir)
+
+	srcApprootHostPath := filepath.Join(htmlVolume, srcSlug+"_moodleapp")
+	srcDatarootHostPath := filepath.Join(htmlVolume, srcSlug+"_moodledata")
+	dstApprootHostPath := filepath.Join(htmlVolume, dstSlug+"_moodleapp")
+	dstApprootContainerPath := "/var/www/html/" + dstSlug + "_moodleapp"
+	dstDatarootHostPath := filepath.Join(htmlVolume, dstSlug+"_moodledata")
+	dstDatarootContainerPath := "/var/www/html/" + dstSlug + "_moodledata"
+
+	if info, statErr := os.Stat(srcApprootHostPath); statErr != nil || !info.IsDir() {
+		web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "Source Moodle app directory not found: " + srcApprootHostPath})
+		return
+	}
+
+	if mkErr := os.MkdirAll(dstApprootHostPath, 0o755); mkErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to copy Moodle files: " + mkErr.Error()})
+		return
+	}
+	if cpErr := exec.CommandContext(ctx, "cp", "-a", srcApprootHostPath+"/.", dstApprootHostPath+"/").Run(); cpErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to copy Moodle app files: " + cpErr.Error()})
+		return
+	}
+	if mkErr := os.MkdirAll(dstDatarootHostPath, 0o755); mkErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create Moodle data directory: " + mkErr.Error()})
+		return
+	}
+	if cpErr := exec.CommandContext(ctx, "cp", "-a", srcDatarootHostPath+"/.", dstDatarootHostPath+"/").Run(); cpErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to copy Moodle data files: " + cpErr.Error()})
+		return
+	}
+	cmsclone.ChownRecursive(ctx, userContext, dstApprootHostPath, dstDatarootHostPath)
+	_ = exec.Command("chmod", "-R", "777", dstDatarootHostPath).Run()
+
+	// the symlink target must be the container-visible path (/var/www/html/...), not the host filesystem path - same gotcha install.go's own symlink call documents, since a host-path symlink resolves fine via `ls` on the host but is broken from inside the php-fpm container, which only sees its own /var/www/html/ bind mount
+	const wwwBaseDirectory = "/var/www/html/"
+	dstHostOSPath := strings.Replace(filepath.Clean(docroot), wwwBaseDirectory, htmlVolume, 1)
+	if _, statErr := os.Lstat(dstHostOSPath); statErr == nil {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Destination path " + docroot + " already exists."})
+		_ = os.RemoveAll(dstApprootHostPath)
+		_ = os.RemoveAll(dstDatarootHostPath)
+		return
+	}
+	if symErr := os.Symlink(dstApprootContainerPath+"/public", dstHostOSPath); symErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Error creating web root symlink: " + symErr.Error()})
+		_ = os.RemoveAll(dstApprootHostPath)
+		_ = os.RemoveAll(dstDatarootHostPath)
+		return
+	}
+
+	escapedPassword, dbErr := cmsclone.CreateDatabaseAndDump(ctx, userContext, mysqlVersion, dumpCmd, srcDB, dstDB, dstDBUser, dstDBUserPassword)
+	if dbErr != nil {
+		if cmsclone.DumpStageFailed(dbErr) {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]any{"status": "error", "step": "command_failed"})
+		} else {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]any{"status": "error", "details": dbErr.Error()})
+		}
+		return
+	}
+
+	configFile := filepath.Join(dstApprootHostPath, "config.php")
+	content, readErr := os.ReadFile(configFile)
+	if readErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]any{"status": "error", "details": readErr.Error()})
+		return
+	}
+	strContent := string(content)
+	strContent = cloneMoodleDBNameRE.ReplaceAllString(strContent, `CFG->dbname   = '`+dstDB+`'`)
+	strContent = cloneMoodleDBUserRE.ReplaceAllString(strContent, `CFG->dbuser   = '`+dstDBUser+`'`)
+	strContent = cloneMoodleDBPasswordRE.ReplaceAllString(strContent, `CFG->dbpass   = '`+escapedPassword+`'`)
+	strContent = cloneMoodleWwwrootRE.ReplaceAllString(strContent, `CFG->wwwroot   = 'https://`+dstDomainWithSubdir+`'`)
+	strContent = cloneMoodleDatarootRE.ReplaceAllString(strContent, `CFG->dataroot  = '`+dstDatarootContainerPath+`'`)
+	if writeErr := os.WriteFile(configFile, []byte(strContent), 0o644); writeErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]any{"status": "error", "details": writeErr.Error()})
+		return
+	}
+	if !strings.Contains(strContent, dstDB) {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]any{"status": "error", "step": "Failed to set 'dbname' in config.php"})
+		return
+	}
+
+	webServer := webserver.GetEnvFileValue(userContext, "WEB_SERVER")
+	isLitespeed := strings.Contains(strings.ToLower(webServer), "litespeed")
+	phpContainer := webServer
+	if !isLitespeed {
+		phpContainer = "php-fpm-" + phpVersion
+	}
+	cronComment := moodleCronComment(dstDomainWithSubdir)
+	cronCommand := "php " + dstApprootContainerPath + "/admin/cli/cron.php"
+	_ = crons.AddJob(ctx, userContext, cronComment, "0 * * * * *", phpContainer, cronCommand, true)
+
+	adminEmail := web.FormOr(r, "admin_email", "admin@"+dstDomain)
+	moodleVersion := web.FormOr(r, "moodle_version", "latest")
+	// Rewrites hardcoded source-domain URLs left in page/content body text (the config-file rewrite above only fixes the DB connection settings, not application data) - the generic equivalent of wp-cli's search-replace, which this CMS's own CLI has no built-in version of.
+	cmsclone.SearchReplaceDatabase(ctx, userContext, dstDB, "https://"+providedDomain, "https://"+dstDomainWithSubdir)
+
+	cmsclone.FinalizeSite(ctx, w, r, cmsclone.FinalizeParams{
+		App: a, WriteJSON: web.WriteJSON, UserID: userID, Username: currentUsername,
+		CMSDisplayName: "Moodle", CMSType: "moodle",
+		ProvidedDomain: providedDomain, DstDomainWithSubdir: dstDomainWithSubdir, DomainID: domainID,
+		AdminEmail: adminEmail, Version: moodleVersion,
+		SrcPath: srcApprootHostPath, DstPath: dstApprootHostPath, DstDB: dstDB,
+	})
+}

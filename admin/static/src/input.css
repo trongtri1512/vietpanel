@@ -1,7 +1,6 @@
+/* static/src/input.css */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-[x-cloak] {
-  display: none !important;
-}
+@custom-variant dark (&:where(.dark, .dark *));

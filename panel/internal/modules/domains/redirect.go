@@ -1,0 +1,177 @@
+package domains
+
+import (
+	"net/http"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/web"
+)
+
+// httpURLRE requires the whole value to be a scheme plus at least one non-whitespace char, not just a prefix check, so a redirect_url can't smuggle a newline into the Caddyfile line insertOrReplaceRedirect() splices this into
+var httpURLRE = regexp.MustCompile(`^https?://\S+$`)
+
+func domainConfPath(domainURL string) string {
+	return "/etc/openpanel/caddy/domains/" + domainURL + ".conf"
+}
+
+func reloadCaddyWebserver(r *http.Request) {
+	_ = exec.CommandContext(r.Context(), "podman", "exec", "caddy", "caddy", "reload", "--config", "/etc/caddy/Caddyfile").Run()
+}
+
+// handleDeleteRedirect removes a domain's redirect rule.
+func handleDeleteRedirect(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	currentUsername, _, err := injected(a, ctx, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	_ = r.ParseForm()
+	domainURL := r.Form.Get("domain_name")
+	redirectURL := r.Form.Get("redirect_url")
+
+	if !a.CheckDomainBelongsToUser(ctx, userID, domainURL) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+	if redirectURL == "" {
+		web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Domain %(domain_url)s does not have a redirect URL configured.", "domain_url", domainURL), "/domains")
+		return
+	}
+
+	var ownerUserID int
+	var actualDomainURL string
+	if scanErr := a.DB.QueryRowContext(ctx, "SELECT user_id, domain_url FROM domains WHERE domain_url = ?", domainURL).Scan(&ownerUserID, &actualDomainURL); scanErr != nil || ownerUserID != userID {
+		web.FlashRedirect(a, w, r, "error", "Unauthorized", "/domains")
+		return
+	}
+	domainURL = actualDomainURL
+
+	path := domainConfPath(domainURL)
+	content, readErr := readTextFile(path)
+	if readErr != nil {
+		web.FlashRedirect(a, w, r, "error", readErr.Error(), "/domains")
+		return
+	}
+
+	redirectLine := "redir " + redirectURL
+	newContent := strings.ReplaceAll(content, redirectLine, "")
+
+	if writeErr := writeTextFile(path, newContent); writeErr != nil {
+		web.FlashRedirect(a, w, r, "error", writeErr.Error(), "/domains")
+		return
+	}
+
+	reloadCaddyWebserver(r)
+	_ = logger.RecordUserAction(a.Config, currentUsername, "deleted the redirect link "+redirectURL+" for domain "+domainURL, reqip.ClientIP(r))
+	web.FlashRedirect(a, w, r, "success", web.Tr(a, r, "Successfully deleted the redirect link %(redirect_url)s for domain %(domain_url)s", "redirect_url", redirectURL, "domain_url", domainURL), "/domains")
+}
+
+// handleSetRedirect sets or replaces a domain's redirect rule.
+func handleSetRedirect(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	currentUsername, _, err := injected(a, ctx, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		domainURL := r.Form.Get("domain_name")
+		redirectURL := r.Form.Get("redirect_url")
+
+		if domainURL == "" {
+			web.FlashRedirect(a, w, r, "error", "Domain name not provided.", "/domains")
+			return
+		}
+		if !a.CheckDomainBelongsToUser(ctx, userID, domainURL) {
+			http.Error(w, "You do not own this domain.", http.StatusForbidden)
+			return
+		}
+		if !httpURLRE.MatchString(redirectURL) {
+			web.FlashRedirect(a, w, r, "error", "Invalid URL. Please provide a URL with 'http://' or 'https://' prefix.", "/domains")
+			return
+		}
+
+		path := domainConfPath(domainURL)
+		content, readErr := readTextFile(path)
+		if readErr != nil {
+			http.Error(w, readErr.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		updated := insertOrReplaceRedirect(content, redirectURL)
+		if writeErr := writeTextFile(path, updated); writeErr != nil {
+			http.Error(w, writeErr.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		reloadCaddyWebserver(r)
+		_ = logger.RecordUserAction(a.Config, currentUsername, "created a redirect link "+redirectURL+" for domain "+domainURL, reqip.ClientIP(r))
+		web.FlashRedirect(a, w, r, "success", web.Tr(a, r, "Successfully created redirect from domain %(domain_url)s to %(redirect_url)s", "domain_url", domainURL, "redirect_url", redirectURL), "/domains")
+		return
+	}
+
+	domainName := r.URL.Query().Get("domain")
+	if domainName == "" {
+		domainsList, _ := a.AllDomainsForUser(ctx, userID)
+		renderRedirectSelectPage(a, w, r, domainsList)
+		return
+	}
+	if !a.CheckDomainBelongsToUser(ctx, userID, domainName) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	redirectURL := getRedirectURL(domainName)
+	domainsList, _ := a.AllDomainsForUser(ctx, userID)
+	renderRedirectEditPage(a, w, r, domainName, redirectURL, domainsList)
+}
+
+// insertOrReplaceRedirect finds the `log {`/`import domain_log` anchor line(s) in a vhost config and either replaces an existing `redir ` line right before it or inserts a new one, supporting both the legacy inline block and the newer import style (see openpanel/openpanel#645)
+func insertOrReplaceRedirect(content, redirectURL string) string {
+	lines := strings.Split(content, "\n")
+	redirectLine := "redir " + redirectURL
+
+	var anchors []int
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		if strings.HasPrefix(trimmed, "log {") || strings.HasPrefix(trimmed, "import domain_log") {
+			anchors = append(anchors, i)
+		}
+	}
+
+	for i := len(anchors) - 1; i >= 0; i-- {
+		idx := anchors[i]
+		indent := lines[idx][:len(lines[idx])-len(strings.TrimLeft(lines[idx], " \t"))]
+		if idx > 0 && strings.HasPrefix(strings.TrimLeft(lines[idx-1], " \t"), "redir ") {
+			lines[idx-1] = indent + redirectLine
+		} else {
+			before := append([]string{}, lines[:idx]...)
+			after := append([]string{}, lines[idx:]...)
+			lines = append(before, append([]string{indent + redirectLine}, after...)...)
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func readTextFile(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	return string(content), err
+}
+
+func writeTextFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0o644)
+}

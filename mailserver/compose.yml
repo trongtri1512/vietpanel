@@ -1,0 +1,74 @@
+services:
+  mailserver:
+    image: ghcr.io/docker-mailserver/docker-mailserver:latest
+    container_name: openadmin_mailserver
+    hostname: "${OVERRIDE_HOSTNAME:-local.host}"
+    env_file: mailserver.env
+    ports:
+      - "25:25"       # SMTP  (explicit TLS => STARTTLS)
+      - "143:143"     # IMAP4 (explicit TLS => STARTTLS)
+      - "465:465"     # ESMTP (implicit TLS)
+      - "587:587"     # ESMTP (explicit TLS => STARTTLS)
+      - "993:993"     # IMAP4 (implicit TLS)
+      - "110:110"     # POP3
+      - "995:995"     # POP3 (with TLS)
+      - "11334:11334" # https://docker-mailserver.github.io/docker-mailserver/latest/config/security/rspamd/#web-interface
+    volumes:
+      - /var/mail/:/var/mail/
+      - ./docker-data/dms/mail-state/:/var/mail-state/
+      - ./docker-data/dms/mail-logs/:/var/log/mail/
+      - ./docker-data/dms/config/:/tmp/docker-mailserver/
+      - /etc/localtime:/etc/localtime:ro
+      - /home/:/home/
+      - /etc/openpanel/caddy/ssl/:/etc/openpanel/caddy/ssl/:ro # needed for SSL
+      - ./openpanel/accounts.sh:/usr/local/bin/helpers/accounts.sh:ro
+      - ./openpanel/utils.sh:/usr/local/bin/helpers/utils.sh:ro
+    restart: always
+    depends_on:
+      - postfwd
+    stop_grace_period: 1m
+    healthcheck:
+      test: "ss --listening --tcp | grep -P 'LISTEN.+:smtp' || exit 1"
+      timeout: 3s
+      retries: 1
+    networks:
+      - network
+    cap_add:
+      - NET_ADMIN
+  
+  roundcube:
+    image: roundcube/roundcubemail
+    container_name: openadmin_roundcube
+    hostname: localhost
+    env_file: mailserver.env
+    restart: always
+    depends_on:
+      - mailserver
+    volumes:
+      - ./roundcube-plugins/dovecot_impersonate:/var/www/html/plugins/dovecot_impersonate:ro
+      - ./roundcube-plugins/autologin.php:/var/www/html/public_html/autologin.php:ro
+    environment:
+      - ROUNDCUBEMAIL_DEFAULT_HOST=${OVERRIDE_HOSTNAME:+ssl://}${OVERRIDE_HOSTNAME:-mailserver}
+      - ROUNDCUBEMAIL_DEFAULT_PORT=${OVERRIDE_HOSTNAME:+993}
+      - ROUNDCUBEMAIL_SMTP_SERVER=${OVERRIDE_HOSTNAME:+ssl://}${OVERRIDE_HOSTNAME:-mailserver}
+      - ROUNDCUBEMAIL_SMTP_PORT=${OVERRIDE_HOSTNAME:+465}
+      - ROUNDCUBEMAIL_PLUGINS=archive,zipdownload,autologon,dovecot_impersonate
+    ports:
+      - "8080:80"
+    networks:
+      - network
+
+  postfwd:
+    image: postfwd/postfwd:stable
+    container_name: postfwd
+    restart: always
+    networks:
+      - network
+    volumes:
+      - ./postfwd:/etc/postfwd
+    command: >
+      /usr/sbin/postfwd --config /etc/postfwd/postfwd.cf --daemon --foreground --port 10040
+
+networks:
+  network:
+    driver: bridge

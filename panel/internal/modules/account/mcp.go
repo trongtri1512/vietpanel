@@ -1,0 +1,142 @@
+package account
+
+import (
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/flash"
+	"vietpanel/panel/internal/core/i18n"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/mcptokens"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/core/session"
+	"vietpanel/panel/internal/web"
+)
+
+// handleMCPSettings renders the MCP token management page - the actual /mcp JSON-RPC endpoint lives in mcp_rpc.go
+func handleMCPSettings(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserID(r)
+	ctx := r.Context()
+
+	tokens, err := mcptokens.GetTokensForUser(ctx, a.DB, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	_, origin := rpIDAndOrigin(r)
+	mcpURL := origin + "/mcp"
+
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+	newToken, _ := sess.Values["mcp_new_token"].(string)
+	if newToken != "" {
+		delete(sess.Values, "mcp_new_token")
+		_ = a.Sessions.Save(r, w, sess)
+	}
+
+	renderMCPPage(a, w, r, tokens, mcpURL, newToken)
+}
+
+// handleMCPCreateToken mints a new MCP token for this account.
+func handleMCPCreateToken(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserID(r)
+	ctx := r.Context()
+
+	_ = r.ParseForm()
+	name := strings.TrimSpace(r.Form.Get("name"))
+	if name == "" {
+		name = "MCP token"
+	}
+	if len(name) > 100 {
+		name = name[:100]
+	}
+	readOnly := r.Form.Get("read_only") == "on"
+	expiresInDays, _ := strconv.Atoi(r.Form.Get("expires_in_days"))
+
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+
+	rawToken, err := mcptokens.CreateTokenForUser(ctx, a.DB, userID, name, readOnly, expiresInDays)
+	if err != nil {
+		flash.Add(sess, "error", "Could not create token: database is unavailable. Please try again.")
+		_ = a.Sessions.Save(r, w, sess)
+		http.Redirect(w, r, "/account/mcp", http.StatusFound)
+		return
+	}
+
+	data, injectErr := a.InjectData(ctx, userID)
+	if injectErr == nil {
+		username, _ := data["current_username"].(string)
+		scopeNote := ""
+		if readOnly {
+			scopeNote = ", read-only"
+		}
+		expiryNote := ""
+		if expiresInDays > 0 {
+			expiryNote = ", expires in " + strconv.Itoa(expiresInDays) + "d"
+		}
+		_ = logger.RecordUserAction(a.Config, username, "created a new MCP token ("+name+scopeNote+expiryNote+")", reqip.ClientIP(r))
+		checkIfUserShouldBeNotified(a, ctx, userID, username, "notify_api_token_change", mcpTokenEmail(a, r, username, name, tokenScope(readOnly, expiresInDays), true))
+	}
+
+	sess.Values["mcp_new_token"] = rawToken
+	flash.Add(sess, "success", web.Tr(a, r, "Token \"%(name)s\" created. Copy it below - it will not be shown again.", "name", name))
+	_ = a.Sessions.Save(r, w, sess)
+
+	http.Redirect(w, r, "/account/mcp", http.StatusFound)
+}
+
+// handleMCPRevokeToken revokes one of this account's MCP tokens.
+func handleMCPRevokeToken(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserID(r)
+	ctx := r.Context()
+
+	tokenID, convErr := strconv.Atoi(r.PathValue("id"))
+	if convErr != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	name := rowName(ctx, a, "SELECT name FROM mcp_tokens WHERE id = ? AND user_id = ?", tokenID, userID)
+	deleted, err := mcptokens.RevokeToken(ctx, a.DB, tokenID, userID)
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+
+	if err == nil && deleted {
+		data, injectErr := a.InjectData(ctx, userID)
+		if injectErr == nil {
+			username, _ := data["current_username"].(string)
+			_ = logger.RecordUserAction(a.Config, username, "revoked MCP token #"+strconv.Itoa(tokenID), reqip.ClientIP(r))
+			checkIfUserShouldBeNotified(a, ctx, userID, username, "notify_api_token_change", mcpTokenEmail(a, r, username, name, "", false))
+		}
+		flash.Add(sess, "success", "Token revoked.")
+	} else {
+		flash.Add(sess, "error", "Token not found.")
+	}
+	_ = a.Sessions.Save(r, w, sess)
+
+	http.Redirect(w, r, "/account/mcp", http.StatusFound)
+}
+
+// RegisterMCP wires the /account/mcp* token-management routes onto mux, gated behind the "mcp" feature flag
+func RegisterMCP(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "mcp")(h)
+	}
+	mux.Handle("GET /account/mcp", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleMCPSettings(a, w, r) }))
+	mux.Handle("POST /account/mcp/create", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleMCPCreateToken(a, w, r) }))
+	mux.Handle("POST /account/mcp/{id}/revoke", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleMCPRevokeToken(a, w, r) }))
+	mux.Handle("POST /account/mcp/bulk", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		web.ServeBulkDispatch(a, mux, w, r, mcpBulkActions(web.RequestTranslator(a, r)), func(_, _, id string) (*web.BulkCall, web.BulkResult) {
+			return web.Call(web.BulkCall{Method: http.MethodPost, Path: "/account/mcp/" + url.PathEscape(id) + "/revoke"})
+		})
+	}))
+}
+
+func mcpBulkActions(t i18n.Translator) []web.BulkAction {
+	return []web.BulkAction{
+		{Key: "revoke", Label: t.Get("Revoke"), Confirm: t.Get("Revoke the selected tokens? MCP clients using them stop working immediately."), Danger: true},
+	}
+}

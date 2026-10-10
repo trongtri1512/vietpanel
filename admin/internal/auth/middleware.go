@@ -1,80 +1,140 @@
 package auth
 
 import (
-	"context"
+	"crypto/hmac"
 	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/gorilla/csrf"
-
-	"vietpanel/admin/internal/db"
+	"vietpanel/admin/internal/server"
 )
 
-type ctxKey int
-
-const userKey ctxKey = 1
-
-// LoadAdmin attaches the session user (if any) to every request.
-func LoadAdmin(m *Manager, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if u := m.CurrentUser(r); u != nil {
-			r = r.WithContext(context.WithValue(r.Context(), userKey, u))
-		}
-		next.ServeHTTP(w, r)
-	})
+// Options bundles the config-driven knobs the middleware needs, injected explicitly instead of a global config singleton so it's easy to test and see at the call site
+type Options struct {
+	// disables non-GET requests while the panel is running in demo mode
+	DemoMode bool
+	// terminates a session if the client's IP changes mid-session
+	ValidateSessionIP bool
 }
 
-func FromContext(r *http.Request) *db.User {
-	u, _ := r.Context().Value(userKey).(*db.User)
-	return u
+// demoModeBlocked rejects non-GET requests with a flash message while demo mode is on, redirecting back to the referring page or /dashboard
+func demoModeBlocked(w http.ResponseWriter, r *http.Request, mgr *Manager, opts Options) bool {
+	if !opts.DemoMode || r.Method == http.MethodGet {
+		return false
+	}
+	AddFlash(w, r, mgr, "This functionality is disabled in demo mode.", "warning")
+	referer := r.Referer()
+	if referer == "" {
+		referer = "/dashboard"
+	}
+	http.Redirect(w, r, referer, http.StatusSeeOther)
+	return true
 }
 
-// RequireLogin redirects anonymous users to /login, carrying the original
-// path in ?next= (always a same-origin relative path by construction).
-func RequireLogin(next http.HandlerFunc) http.HandlerFunc {
+// RequireLogin redirects anonymous requests to /login?next=<relative path>. A relative path keeps the redirect same-origin so there's no need for a separate same-domain guard.
+func RequireLogin(mgr *Manager, opts Options, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if FromContext(r) == nil {
-			target := "/login"
-			if r.URL.Path != "/" {
-				target += "?next=" + url.QueryEscape(r.URL.Path)
-			}
-			http.Redirect(w, r, target, http.StatusFound)
+		if !IsAuthenticated(r) {
+			redirectToLogin(w, r)
+			return
+		}
+		if demoModeBlocked(w, r, mgr, opts) {
 			return
 		}
 		next(w, r)
 	}
 }
 
-// CSRF protects all routes; the admin panel has no cookie-free API surface
-// yet, so nothing is excluded.
-func CSRF(secret []byte, sessionName string, secure bool, next http.Handler) http.Handler {
-	protect := csrf.Protect(
-		secret,
-		csrf.CookieName(sessionName+"_CSRF"),
-		csrf.Path("/"),
-		csrf.Secure(secure),
-	)(next)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// gorilla/csrf assumes HTTPS unless told otherwise, but the panel
-		// usually runs plain HTTP (dev, or behind Caddy's TLS-terminating
-		// proxy), so mark the request as plaintext when the client-facing
-		// scheme isn't https.
-		if requestScheme(r) != "https" {
-			r = csrf.PlaintextHTTPRequest(r)
+// RequireAdmin is RequireLogin plus a 403 for the "reseller" role
+func RequireAdmin(mgr *Manager, opts Options, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !IsAuthenticated(r) {
+			redirectToLogin(w, r)
+			return
 		}
-		protect.ServeHTTP(w, r)
-	})
+		if demoModeBlocked(w, r, mgr, opts) {
+			return
+		}
+		if CurrentUser(r).Role == "reseller" {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
 }
 
-// requestScheme returns the client-facing scheme, trusting X-Forwarded-Proto
-// first since a TLS-terminating proxy makes r.TLS nil even over https.
-func requestScheme(r *http.Request) string {
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		return strings.ToLower(strings.TrimSpace(strings.SplitN(proto, ",", 2)[0]))
+func redirectToLogin(w http.ResponseWriter, r *http.Request) {
+	next := r.URL.RequestURI()
+	http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+}
+
+// ValidateSessionIPMiddleware terminates a session if the client's current IP no longer matches the one the session was established from, skipped for /api, /login, /send_email, /static, and gated by opts.ValidateSessionIP
+func ValidateSessionIPMiddleware(mgr *Manager, opts Options) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !opts.ValidateSessionIP || shouldSkipIPValidation(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if IsAuthenticated(r) {
+				currentIP := server.GetClientIP(r)
+				sessionIP, ok := SessionUserIP(mgr, r)
+				if ok && sessionIP != "" && sessionIP != currentIP {
+					_ = LogoutUser(w, r, mgr)
+					AddFlash(w, r, mgr, "Your session has expired due to an IP address change. Please log in again.", "danger")
+					http.Redirect(w, r, "/login", http.StatusSeeOther)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
-	if r.TLS != nil {
-		return "https"
+}
+
+func shouldSkipIPValidation(path string) bool {
+	switch {
+	case path == "/login", path == "/send_email":
+		return true
+	case len(path) >= 4 && path[:4] == "/api":
+		return true
+	case len(path) >= 8 && path[:8] == "/static/":
+		return true
+	default:
+		return false
 	}
-	return "http"
+}
+
+// BasicAuthMiddleware gates every request behind an HTTP Basic Auth prompt when enabled, before the panel's own session login, like an old-style htaccess prompt covering /login too. /api, /send_email, /imav are exempt since they're authenticated by their own bearer/HMAC/proxy scheme, and /api's Authorization header would collide with a Basic challenge anyway.
+func BasicAuthMiddleware(enabled bool, username, password string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if !enabled {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if shouldSkipBasicAuth(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			gotUser, gotPass, ok := r.BasicAuth()
+			if !ok || !hmac.Equal([]byte(gotUser), []byte(username)) || !hmac.Equal([]byte(gotPass), []byte(password)) {
+				w.Header().Set("WWW-Authenticate", `Basic realm="OpenAdmin"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func shouldSkipBasicAuth(path string) bool {
+	switch {
+	case path == "/send_email":
+		return true
+	case strings.HasPrefix(path, "/imav/"):
+		return true
+	case strings.HasPrefix(path, "/api/"):
+		return true
+	default:
+		return false
+	}
 }

@@ -1,0 +1,107 @@
+package opencart
+
+import (
+	"net/http"
+	"strconv"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/appkit"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/mysqlmanager"
+	"vietpanel/panel/internal/core/podmanmanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/modules/cmsapp"
+	"vietpanel/panel/internal/web"
+)
+
+// handleOpenCartCacheClean deletes every cache.* file under system/storage/cache/ - OpenCart has no CLI cache-clear command, this is what the admin "Refresh Cache" button does under the hood
+func handleOpenCartCacheClean(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	domain, docroot, phpContainer, ok := cmsapp.RequestParams(ctx, a, r, userID, userContext)
+	if !ok {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "domain and docroot are required, or you do not own this domain"})
+		return
+	}
+
+	argv := podmanmanager.PodmanArgv(userContext, "exec", phpContainer, "sh", "-c",
+		`find "$1/system/storage/cache" -maxdepth 1 -name 'cache.*' -delete`, "sh", docroot)
+	out, runErr := podmanmanager.Command(ctx, userContext, argv).CombinedOutput()
+	if runErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Clearing cache failed", "details": strings.TrimSpace(string(out))})
+		return
+	}
+
+	_ = logger.RecordUserAction(a.Config, currentUsername, "cleared OpenCart cache for "+domain, reqip.ClientIP(r))
+	web.WriteJSON(w, http.StatusOK, map[string]string{"message": "Cache cleared successfully."})
+}
+
+// handleOpenCartLogin generates a one-time admin login link, mirrors joomla's approach with a lazily-created token table plus the login helper PHP deployed at install time
+func handleOpenCartLogin(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	domain := r.URL.Query().Get("domain")
+	docroot := r.URL.Query().Get("docroot")
+	if domain == "" || docroot == "" {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "domain and docroot are required"})
+		return
+	}
+	mainDomain := domain
+	if idx := strings.Index(domain, "/"); idx != -1 {
+		mainDomain = domain[:idx]
+	}
+	if !a.CheckDomainBelongsToUser(ctx, userID, mainDomain) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	dbInfo := extractOpenCartDatabaseInfoForLogin(userContext, docroot)
+	if dbInfo["error"] != "" {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": dbInfo["error"]})
+		return
+	}
+	dbName := dbInfo["database_name"]
+
+	_, _ = mysqlmanager.Exec(ctx, userContext,
+		"CREATE TABLE IF NOT EXISTS `oc_openpanel_login_tokens` ("+
+			"token_hash CHAR(64) PRIMARY KEY, user_id INT UNSIGNED NOT NULL, expires INT UNSIGNED NOT NULL)", dbName)
+
+	rows, queryErr := mysqlmanager.Exec(ctx, userContext,
+		"SELECT user_id FROM `oc_user` WHERE status = 1 ORDER BY user_id ASC LIMIT 1", dbName)
+	if queryErr != nil || len(rows) == 0 {
+		web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "No active admin account found"})
+		return
+	}
+	userIDStr := mysqlmanager.ToString(rows[0][0])
+
+	token := appkit.RandomString(32)
+	tokenHash := appkit.SHA256Hex(token)
+	const ttlSeconds = 600
+	_, insErr := mysqlmanager.Exec(ctx, userContext,
+		"INSERT INTO `oc_openpanel_login_tokens` (token_hash, user_id, expires) VALUES ('"+
+			tokenHash+"', "+userIDStr+", UNIX_TIMESTAMP() + "+strconv.Itoa(ttlSeconds)+")", dbName)
+	if insErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Unable to create login link", "details": insErr.Error()})
+		return
+	}
+
+	loginLink := "https://" + domain + "/" + openpanelLoginFileName + "?op_login=" + token
+	maskedLink := loginLink
+	if len(loginLink) > 10 {
+		maskedLink = loginLink[:len(loginLink)-10] + "*****"
+	}
+	_ = logger.RecordUserAction(a.Config, currentUsername, "generated auto-login link for OpenCart admin: "+maskedLink, reqip.ClientIP(r))
+	web.WriteJSON(w, http.StatusOK, map[string]string{"login_link": loginLink})
+}

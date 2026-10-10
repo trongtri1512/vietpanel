@@ -1,50 +1,134 @@
+// Package docker handles container list/create/edit/delete, image management, and logs, built on the podmanmanager CLI layer and this package's own status.go/compose.go helpers. MySQL/webserver switching, changing a service's image tag, and the interactive web terminal live here too but are wired up by their own Register* functions, each gated behind its own feature flag independently of "docker" - see registry.go.
 package docker
 
 import (
+	"encoding/json"
 	"net/http"
-	"vietpanel/panel/internal/app"
+
+	appctx "vietpanel/panel/internal/app"
 	"vietpanel/panel/internal/auth"
-	"vietpanel/panel/internal/web"
+	"vietpanel/panel/internal/core/flash"
+	"vietpanel/panel/internal/core/session"
 )
 
-type containerRow struct {
-	ID     string
-	Name   string
-	Image  string
-	Status string
-	Ports  string
-}
+// Register wires the docker module's routes onto mux, with every route gated behind the "docker" feature flag via auth.RequireLogin
+func Register(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "docker")(h)
+	}
 
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /docker", auth.Require(list(a)))
-	mux.HandleFunc("GET /docker/new", auth.Require(newPage(a)))
-	mux.HandleFunc("GET /docker/terminal", auth.Require(terminal(a)))
-}
-
-func list(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// In production this queries podman; in dev show empty list.
-		web.Render(w, r, a, "user/docker.html", web.PageData{
-			Title: "Docker", ActiveNav: "docker", User: auth.FromContext(r),
-			Extra: map[string]any{"Containers": []containerRow{}},
-		})
+	mux.Handle("GET /containers", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainersList(a, w, r)
+	}))
+	mux.Handle("/containers/new", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleAddContainer(a, w, r)
+	}))
+	mux.Handle("/containers/edit/{service}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleEditContainer(a, w, r)
+	}))
+	mux.Handle("/containers/delete/{service}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteContainer(a, w, r)
+	}))
+	mux.Handle("GET /containers/logs", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainerLogs(a, w, r)
+	}))
+	mux.Handle("GET /containers/logs/{container_name}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainerLogs(a, w, r)
+	}))
+	mux.Handle("GET /containers/status", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainersStatus(a, w, r)
+	}))
+	mux.Handle("POST /containers/bulk", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainersBulk(a, w, r)
+	}))
+	for _, action := range []string{"start", "stop", "restart", "cpu", "ram", "pids"} {
+		action := action
+		mux.Handle("POST /containers/"+action+"/{container_name}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+			handleManageContainer(a, w, r, action)
+		}))
 	}
 }
 
-func newPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		web.Render(w, r, a, "user/docker_create.html", web.PageData{
-			Title: "New Container", ActiveNav: "docker", User: auth.FromContext(r),
-		})
-	}
+// RegisterServicesJSON wires GET /json/services onto mux. It backs containers.html plus base.html's site-wide fetchServiceData helper, which the services module's own cards and cache's widgets also call - so it must work whenever either "docker" or "services" is enabled. That's why it's split out from Register, gated on both feature names, and registered once from modules.RegisterAll rather than from either module's own Register (which would either miss the other module, or double-register and panic if both are enabled).
+func RegisterServicesJSON(mux *http.ServeMux, a *appctx.App) {
+	mux.Handle("GET /json/services", auth.RequireLogin(a, "docker", "services")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleServicesStats(a, w, r)
+	})))
 }
 
-func terminal(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.URL.Query().Get("id")
-		web.Render(w, r, a, "user/docker_terminal.html", web.PageData{
-			Title: "Terminal: " + id, ActiveNav: "docker", User: auth.FromContext(r),
-			Extra: map[string]any{"ContainerID": id},
-		})
+// RegisterTerminal wires the interactive web terminal's routes onto mux, gated behind its own "terminal" feature flag rather than "docker" - it grants shell access inside a user's containers, a materially bigger privilege than the rest of the module, so admins can enable/disable it independently
+func RegisterTerminal(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "terminal")(h)
 	}
+
+	mux.Handle("GET /containers/terminal", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleDockerTerminal(a, w, r)
+	}))
+	mux.Handle("GET /containers/terminal/{container_name}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleDockerTerminal(a, w, r)
+	}))
+	mux.Handle("GET /ws/containers/terminal/{container_name}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleDockerTerminalWS(a, w, r)
+	}))
+}
+
+// RegisterChangeImage wires the "change a service's image tag" routes onto mux, gated behind its own "change_image" feature flag
+func RegisterChangeImage(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "change_image")(h)
+	}
+
+	mux.Handle("GET /containers/image/change", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainersChangeImage(a, w, r)
+	}))
+	mux.Handle("/containers/image/change/{service}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainersChangeImage(a, w, r)
+	}))
+	mux.Handle("GET /containers/image/tags/{service}", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainerImageTags(a, w, r)
+	}))
+}
+
+// RegisterChangeWS wires the webserver-swap routes onto mux, gated behind its own "change_ws" feature flag
+func RegisterChangeWS(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "change_ws")(h)
+	}
+
+	mux.Handle("/containers/webserver", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainersWebserver(a, w, r)
+	}))
+}
+
+// RegisterChangeDB wires the MySQL/MariaDB-swap routes onto mux, gated behind its own "change_db" feature flag
+func RegisterChangeDB(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "change_db")(h)
+	}
+
+	mux.Handle("/containers/mysql", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleContainersMySQL(a, w, r)
+	}))
+}
+
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// redirectWithFlashes is like flashAndRedirect but for handlers that queue more than one flash message before their final redirect (e.g. a "container stopped with a warning" message followed by a separate success/error message once the rest of the operation finishes)
+func redirectWithFlashes(a *appctx.App, w http.ResponseWriter, r *http.Request, path string, flashes ...[2]string) {
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+	for _, f := range flashes {
+		flash.Add(sess, f[0], f[1])
+	}
+	_ = a.Sessions.Save(r, w, sess)
+	http.Redirect(w, r, path, http.StatusFound)
 }

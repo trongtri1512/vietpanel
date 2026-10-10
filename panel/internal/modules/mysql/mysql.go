@@ -1,142 +1,252 @@
-// Package mysql handles database management: list, create, and delete MySQL
-// databases for the logged-in user.
+// Package mysql implements database/user CRUD, the creation wizard, privilege management, export/import, table optimize/repair, per-service configuration, remote access, and the process list - all built on internal/core/mysqlmanager's per-user connection pool
 package mysql
 
 import (
-	"net/http"
+	"context"
+	"strconv"
 	"strings"
+	"time"
 
-	"vietpanel/panel/internal/app"
-	"vietpanel/panel/internal/auth"
-	"vietpanel/panel/internal/web"
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/cache"
+	"vietpanel/panel/internal/core/mysqlmanager"
+	"vietpanel/panel/internal/core/webserver"
+	"vietpanel/panel/internal/modules/docker"
 )
 
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /databases", auth.Require(list(a)))
-	mux.HandleFunc("GET /databases/new", auth.Require(createPage(a)))
-	mux.HandleFunc("POST /databases/new", auth.Require(createAction(a)))
-	mux.HandleFunc("GET /databases/detail", auth.Require(detail(a)))
-	mux.HandleFunc("POST /databases/delete", auth.Require(deleteAction(a)))
-}
-
-type dbRow struct {
-	ID     int
-	Name   string
-	User   string
-	Host   string
-	Port   string
-	Engine string
-	Size   string
-}
-
-func (d dbRow) ConnectionString() string {
-	return d.User + ":" + d.Name + "@" + d.Host + ":" + d.Port + "/" + d.Name
-}
-
-func list(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := a.DB.Query(`SELECT id, db_name, db_user FROM databases WHERE user_id = ? ORDER BY db_name`,
-			auth.FromContext(r).ID)
-		if err != nil {
-			web.Render(w, r, a, "user/databases.html", web.PageData{
-				Title: "Databases", ActiveNav: "databases", Error: err.Error(),
-			})
-			return
+// stripQuotes strips a single layer of matching quotes, used here on raw config values before splitting them into restricted-name lists
+func stripQuotes(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 {
+		if (strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`)) ||
+			(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
+			return s[1 : len(s)-1]
 		}
-		defer rows.Close()
-		var dbs []dbRow
-		for rows.Next() {
-			var d dbRow
-			if err := rows.Scan(&d.ID, &d.Name, &d.User); err != nil {
-				continue
-			}
-			d.Host = "127.0.0.1"
-			d.Port = "3306"
-			d.Engine = "MySQL"
-			d.Size = "-"
-			dbs = append(dbs, d)
+	}
+	return s
+}
+
+// restrictedNames holds the admin-editable, space-separated lists of usernames/database names that are off-limits to account-level MySQL operations, parsed once from config, not per-request
+type restrictedNames struct {
+	users     []string
+	usersSQL  string
+	databases []string
+	dbsSQL    string
+}
+
+var restricted restrictedNames
+
+// loadRestrictedNames parses the mysql_restricted_usernames/mysql_restricted_databases config values, called once from Register()
+func loadRestrictedNames(a *appctx.App) {
+	usersRaw := stripQuotes(a.Config.Get("mysql_restricted_usernames",
+		"mysql.sys mysql sys mariadb.sys phpmyadmin mysql.session mysql.infoschema root debian-sys-maint healthcheck percona.telemetry"))
+	restricted.users = splitTrimQuotes(usersRaw)
+	restricted.usersSQL = sqlQuotedList(restricted.users)
+
+	dbsRaw := stripQuotes(a.Config.Get("mysql_restricted_databases",
+		"information_schema performance_schema mysql phpmyadmin sys mariadb.sys"))
+	restricted.databases = splitTrimQuotes(dbsRaw)
+	restricted.dbsSQL = sqlQuotedList(restricted.databases)
+}
+
+func splitTrimQuotes(raw string) []string {
+	var out []string
+	for _, f := range strings.Fields(raw) {
+		f = strings.Trim(strings.TrimSpace(f), `"'`)
+		out = append(out, f)
+	}
+	return out
+}
+
+func sqlQuotedList(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = "'" + n + "'"
+	}
+	return strings.Join(quoted, ", ")
+}
+
+func isRestrictedUser(name string) bool {
+	lower := strings.ToLower(name)
+	for _, u := range restricted.users {
+		if u == lower {
+			return true
 		}
-		web.Render(w, r, a, "user/databases.html", web.PageData{
-			Title: "Databases", ActiveNav: "databases", User: auth.FromContext(r),
-			Extra: map[string]any{"Databases": dbs},
-		})
+	}
+	return false
+}
+
+func isRestrictedDatabase(name string) bool {
+	for _, d := range restricted.databases {
+		if d == name {
+			return true
+		}
+	}
+	return false
+}
+
+// mysqlStartupTime is the max SELECT 1 retry attempts when retry=true, read once at Register() time from the mysql_startup_time config value
+var mysqlStartupTime = 10
+
+// mysqlImportMaxSizeGB is the max upload size for a database import, read once at Register() time from the mysql_import_max_size_gb config value
+var mysqlImportMaxSizeGB = "1"
+
+func loadTuningConfig(a *appctx.App) {
+	if v, err := strconv.Atoi(a.Config.Get("mysql_startup_time", "10")); err == nil {
+		mysqlStartupTime = v
+	}
+	mysqlImportMaxSizeGB = a.Config.Get("mysql_import_max_size_gb", "1")
+}
+
+// escapeMySQLString applies the minimal escaping needed for a value interpolated into a single-quoted SQL string literal (backslash first, so it doesn't double-escape the quote's own escape)
+func escapeMySQLString(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `'`, `\'`)
+	return value
+}
+
+// GetMySQLVersion returns the configured MySQL server type (mysql/mariadb), memoized 6h
+func GetMySQLVersion(ctx context.Context, a *appctx.App, userContext string) string {
+	version, _ := cache.Memoize(ctx, a.Cache, "get_mysql_version:"+userContext, 6*time.Hour, func() (string, error) {
+		return webserver.GetEnvFileValue(userContext, "MYSQL_TYPE"), nil
+	})
+	return version
+}
+
+// CheckMySQLInsideContainer confirms the per-user mysqld actually answers SELECT 1, optionally retrying once a second for up to mysqlStartupTime attempts (the wp-install-style call site)
+func CheckMySQLInsideContainer(ctx context.Context, userContext string, retry bool) bool {
+	attempt := 0
+	for {
+		if _, err := mysqlmanager.Exec(ctx, userContext, "SELECT 1", ""); err == nil {
+			return true
+		}
+		attempt++
+		if retry && attempt < mysqlStartupTime {
+			time.Sleep(time.Second)
+			continue
+		}
+		return false
 	}
 }
 
-func createPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		web.Render(w, r, a, "user/databases_create.html", web.PageData{
-			Title: "New Database", ActiveNav: "databases", User: auth.FromContext(r),
-		})
+// CheckMySQLNotTemporary is the fallback check once CheckMySQLInsideContainer's own retries are exhausted: it just keeps polling SELECT 1 a bit longer (up to 30s) and uses the database as soon as it answers - previously this scraped the container's logs for mysqld's "Temporary server stopped" line, dropped because a container that's simply been up and healthy for a while never logs that line at all, producing a false "not ready" - mysqlVersion is unused now but kept in the signature to avoid churning every CMS installer's call site
+func CheckMySQLNotTemporary(ctx context.Context, userContext, mysqlVersion string) bool {
+	const attempts = 6
+	for i := 0; i < attempts; i++ {
+		if _, err := mysqlmanager.Exec(ctx, userContext, "SELECT 1", ""); err == nil {
+			return true
+		}
+		time.Sleep(5 * time.Second)
+	}
+	return false
+}
+
+// resolveContainerHealth wraps docker.GetContainerStatus()'s Health field to patch over one staleness window: Podman's HEALTHCHECK only re-runs on its own interval, so a container can already be answering queries fine while the cached health status still reads "starting"/"unhealthy" for a few more seconds - rather than trust that stale field, do one live SELECT 1 and treat that as authoritative, the same "check real runtime state instead of a racy signal" pattern used for the PHP extensions/info start-check and Varnish's enable-action check
+func resolveContainerHealth(ctx context.Context, userContext string, status docker.ContainerStatus) string {
+	if status.Health == "healthy" || status.State != "running" {
+		return status.Health
+	}
+	if CheckMySQLInsideContainer(ctx, userContext, false) {
+		return "healthy"
+	}
+	return status.Health
+}
+
+// toStringCell converts one mysqlmanager.Exec result cell to a string - the MySQL driver hands back []byte for VARCHAR/TEXT columns when scanned into `any` (not string), so every textual column read via Exec needs this rather than a bare type assertion
+func toStringCell(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case uint64:
+		return strconv.FormatUint(t, 10)
+	case int32:
+		return strconv.FormatInt(int64(t), 10)
+	default:
+		return ""
 	}
 }
 
-func createAction(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		user := auth.FromContext(r)
-		dbName := strings.TrimSpace(r.FormValue("db_name"))
-		dbUser := strings.TrimSpace(r.FormValue("db_user"))
-		if dbName == "" || dbUser == "" {
-			web.Render(w, r, a, "user/databases_create.html", web.PageData{
-				Title: "New Database", ActiveNav: "databases", User: user,
-				Error: "Database name and user are required.",
-			})
-			return
-		}
-		_, err := a.DB.Exec(`INSERT INTO databases (db_name, db_user, user_id) VALUES (?, ?, ?)`,
-			dbName, dbUser, user.ID)
-		if err != nil {
-			web.Render(w, r, a, "user/databases_create.html", web.PageData{
-				Title: "New Database", ActiveNav: "databases", User: user,
-				Error: "Failed to create database: " + err.Error(),
-			})
-			return
-		}
-		http.Redirect(w, r, "/databases", http.StatusFound)
+// toFloatCell converts one mysqlmanager.Exec result cell (typically a ROUND(...) aggregate) to a float64, tolerating the driver's []byte encoding the same way mysqlmanager.ToInt does for integers
+func toFloatCell(v any) float64 {
+	switch t := v.(type) {
+	case float64:
+		return t
+	case float32:
+		return float64(t)
+	case []byte:
+		f, _ := strconv.ParseFloat(string(t), 64)
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(t, 64)
+		return f
+	default:
+		return 0
 	}
 }
 
-func detail(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.URL.Query().Get("id")
-		if id == "" {
-			http.Redirect(w, r, "/databases", http.StatusFound)
-			return
+// mysqlContainerStatusDetail builds the explanatory text shown in the databases/users table's empty-state row while the service isn't running/healthy - computed once server-side instead of duplicating a 9-branch chain in two templates, returns "" for the running+healthy case where the real table rows render instead - plain untranslated English text, matching every flash message in this codebase since translation isn't wired up for either yet
+func mysqlContainerStatusDetail(containerState, healthStatus string) string {
+	switch containerState {
+	case "not_found":
+		return "Service installation is underway and may take up to one minute."
+	case "created":
+		return "Service has been created but not yet started. Start it from the Services page."
+	case "restarting":
+		return "Service is restarting. This may indicate a configuration error or a crash — check the logs on the Services page."
+	case "paused":
+		return "Service is paused. Resume it from the Services page."
+	case "exited":
+		return "Service has stopped. This is usually caused by resource exhaustion — increase resource limits for this service and then restart it from the Services page."
+	case "removing":
+		return "Service is being deleted. Please wait for the process to complete."
+	case "dead":
+		return "Service has crashed and cannot recover. This is usually caused by resource exhaustion — check the logs on the Services page."
+	case "running":
+		switch healthStatus {
+		case "healthy":
+			return ""
+		case "unhealthy":
+			return "Service is unhealthy. Try restarting it from Services, or contact your administrator."
+		case "starting":
+			return "Service is active, but the databases are still initializing."
+		default:
+			return "Unable to retrieve service status. Please contact your administrator."
 		}
-		var d dbRow
-		err := a.DB.QueryRow(`SELECT id, db_name, db_user FROM databases WHERE id = ? AND user_id = ?`,
-			id, auth.FromContext(r).ID).Scan(&d.ID, &d.Name, &d.User)
-		if err != nil {
-			http.Redirect(w, r, "/databases", http.StatusFound)
-			return
-		}
-		d.Host = "127.0.0.1"
-		d.Port = "3306"
-		d.Engine = "MySQL"
-		d.Size = "-"
-		web.Render(w, r, a, "user/databases_detail.html", web.PageData{
-			Title: "DB: " + d.Name, ActiveNav: "databases", User: auth.FromContext(r),
-			Extra: map[string]any{"DB": d},
-		})
+	default:
+		return "Unable to retrieve service status. Please contact your administrator."
 	}
 }
 
-func deleteAction(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		id := r.FormValue("id")
-		if id == "" {
-			http.Error(w, "missing id", http.StatusBadRequest)
-			return
-		}
-		_, _ = a.DB.Exec(`DELETE FROM databases WHERE id = ? AND user_id = ?`, id, auth.FromContext(r).ID)
-		http.Redirect(w, r, "/databases", http.StatusFound)
+// isSystemMySQLDatabase reports whether name is a built-in system database: these get a "System Database" badge instead of import/export/optimize/repair/delete actions, and are excluded from the zero-user-databases health-toast warning
+func isSystemMySQLDatabase(name string) bool {
+	switch name {
+	case "information_schema", "mysql", "phpmyadmin", "performance_schema", "sys", "mariadb.sys":
+		return true
+	default:
+		return false
+	}
+}
+
+// mysqlWarningFlashMessage builds the shorter flash message as a catalog template with %(service)s and %(state)s placeholders, shown above the databases/users table - distinct from mysqlContainerStatusDetail()'s longer table-body text, even though both branch on the same two fields
+func mysqlWarningFlashMessage(mysqlVersion, containerState, healthStatus string) string {
+	switch {
+	case containerState == "not_found":
+		return "%(service)s service is not yet installed. Starting it in the background.."
+	case containerState != "running":
+		return "%(service)s service is not accessible. Current status: %(state)s."
+	case healthStatus == "unhealthy":
+		return "%(service)s is running but still initializing. If it stays in this state for more than 60s, check the logs."
+	case healthStatus == "starting":
+		return "%(service)s is starting. It is not ready to handle queries yet."
+	case healthStatus != "healthy":
+		return "%(service)s is running, but health status is unknown. It may or may not be ready to handle queries."
+	default:
+		return ""
 	}
 }

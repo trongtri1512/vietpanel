@@ -1,0 +1,196 @@
+package appinstall
+
+import (
+	"database/sql"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"os/exec"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/web"
+)
+
+// RegisterPM2Clone wires the /pm2/clone route onto mux.
+func RegisterPM2Clone(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "helpers")(h)
+	}
+	mux.Handle("POST /pm2/clone/{site_name...}", requireLogin(func(w http.ResponseWriter, r *http.Request) { handlePM2Clone(a, w, r) }))
+}
+
+// readPrefixedEnvValues reads envFile and returns every PREFIX+KEY="value" line's KEY -> value, quotes stripped - the read-side counterpart of what handlePM2Update/HandleInstall write
+func readPrefixedEnvValues(envFile, prefix string) map[string]string {
+	values := map[string]string{}
+	content, err := os.ReadFile(envFile)
+	if err != nil {
+		return values
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(line, prefix)
+		key, value, found := strings.Cut(rest, "=")
+		if !found {
+			continue
+		}
+		values[key] = strings.Trim(value, `"`)
+	}
+	return values
+}
+
+// handlePM2Clone copies an existing app's files and settings onto a new domain/subdirectory, for quick clone/staging copies. Reuses HandleInstall (a direct Go call, not a network request) to create the new container/compose entry/proxy/DB row exactly like a fresh install, then copies the source docroot's files in - HandleInstall never touches docroot files itself, so this can run right after without racing anything it wrote.
+func handlePM2Clone(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	currentUsername, userContext, err := injectedContext(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	siteName := strings.ToLower(r.PathValue("site_name"))
+
+	var lookup pm2SiteLookup
+	row := a.DB.QueryRowContext(ctx, `
+		SELECT sites.type, sites.site_name, sites.container
+		FROM sites
+		JOIN domains ON domains.domain_url = SUBSTRING_INDEX(sites.site_name, '/', 1)
+		WHERE sites.container LIKE ? AND domains.user_id = ?`, "%"+siteName+"%", userID)
+	if scanErr := row.Scan(&lookup.Type, &lookup.SiteName, &lookup.Container); scanErr != nil {
+		web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "Application not found"})
+		return
+	}
+	kind, ok := kindByAppType(lookup.Type)
+	if !ok {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Only NodeJS, Python, or Ruby applications can be cloned"})
+		return
+	}
+
+	targetDomainID := r.FormValue("target_domain_id")
+	targetSubdirectory := strings.ToLower(strings.TrimSpace(r.FormValue("target_subdirectory")))
+	targetServiceName := strings.ToLower(strings.TrimSpace(r.FormValue("target_service_name")))
+	startupFile := strings.TrimSpace(r.FormValue("startup_file"))
+	if targetDomainID == "" || targetServiceName == "" || startupFile == "" {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Target domain, service name, and startup file are required"})
+		return
+	}
+
+	var targetTopDomain string
+	var targetDocrootNull sql.NullString
+	if scanErr := a.DB.QueryRowContext(ctx, "SELECT domain_url, docroot FROM domains WHERE domain_id = ?", targetDomainID).
+		Scan(&targetTopDomain, &targetDocrootNull); scanErr != nil {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Target domain not found"})
+		return
+	}
+	if !a.CheckDomainBelongsToUser(ctx, userID, targetTopDomain) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+	targetDocroot := targetDocrootNull.String
+
+	srcDomain, srcSubdirectory, _ := strings.Cut(lookup.SiteName, "/")
+	var srcDocrootNull sql.NullString
+	if scanErr := a.DB.QueryRowContext(ctx, "SELECT docroot FROM domains WHERE domain_url = ?", srcDomain).Scan(&srcDocrootNull); scanErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Source domain not found"})
+		return
+	}
+	srcDocroot := srcDocrootNull.String
+	srcPath := srcDocroot
+	if srcSubdirectory != "" {
+		srcPath += "/" + srcSubdirectory
+	}
+
+	// read the source app's current settings to carry over onto the clone - the same PREFIX+KEY="value" lines handlePM2Update writes
+	srcPrefix := strings.ToUpper(lookup.Container) + "_" + kind.PyOrNode + "_"
+	envFile := "/home/" + userContext + "/.env"
+	src := readPrefixedEnvValues(envFile, srcPrefix)
+
+	targetPath := targetDocroot
+	if targetSubdirectory != "" {
+		targetPath += "/" + targetSubdirectory
+	}
+	targetSiteName := targetTopDomain
+	if targetSubdirectory != "" {
+		targetSiteName += "/" + targetSubdirectory
+	}
+
+	const wwwBase = "/var/www/html/"
+	hostBase := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_html_data/_data/"
+	srcHostPath := strings.Replace(srcPath, wwwBase, hostBase, 1)
+	dstHostPath := strings.Replace(targetPath, wwwBase, hostBase, 1)
+
+	// copy the source app's files into place *before* triggering the install below - HandleInstall only considers it successful once the container is observed running, and the container immediately exits if its startup file doesn't exist yet, which HandleInstall would treat as a failed install and roll back. A fresh install avoids this via git_repo_url or a later file upload, but a clone needs its real files to land before the container-start check runs.
+	if info, statErr := os.Stat(srcHostPath); statErr != nil || !info.IsDir() {
+		web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "Source folder not found on disk: " + srcPath})
+		return
+	}
+	if mkErr := os.MkdirAll(dstHostPath, 0o755); mkErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to prepare target folder: " + mkErr.Error()})
+		return
+	}
+	if cpErr := exec.CommandContext(ctx, "cp", "-a", srcHostPath+"/.", dstHostPath+"/").Run(); cpErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to copy application files: " + cpErr.Error()})
+		return
+	}
+	_ = exec.CommandContext(ctx, "chown", "-R", userContext+":"+userContext, dstHostPath).Run()
+
+	installForm := url.Values{
+		"domain_id":    {targetDomainID},
+		"service_name": {targetServiceName},
+		"subdirectory": {targetSubdirectory},
+		"startup_file": {startupFile},
+		"version":      {orDefault(src["TAG"], "latest")},
+		"requirements": {src["REQUIREMENTS"]},
+		"custom_cmd":   {src["CUSTOM_CMD"]},
+		"git_repo_url": {src["GIT_URL"]},
+		"cpu_limit":    {orDefault(src["CPU"], "1.0")},
+		"mem_limit":    {orDefault(strings.TrimSuffix(src["RAM"], "G"), "1.0")},
+		"pids_limit":   {orDefault(src["PIDS"], "100")},
+	}
+
+	installReq := httptest.NewRequest(http.MethodPost, "/"+kind.AppType+"/install", strings.NewReader(installForm.Encode()))
+	installReq = installReq.WithContext(ctx)
+	installReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	installRec := httptest.NewRecorder()
+	HandleInstall(kind, a, installRec, installReq)
+
+	installOutput := installRec.Body.String()
+	if strings.Contains(installOutput, `"error"`) {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Clone failed: " + firstNDJSONError(installOutput)})
+		return
+	}
+
+	_ = logger.RecordUserAction(a.Config, currentUsername, "cloned "+kind.DisplayAppType+" application from "+lookup.SiteName+" to "+targetSiteName, reqip.ClientIP(r))
+	web.WriteJSON(w, http.StatusOK, map[string]any{"status": "success", "target": targetSiteName})
+}
+
+func orDefault(value, def string) string {
+	if value == "" {
+		return def
+	}
+	return value
+}
+
+// firstNDJSONError pulls the value out of the first `{"error":"..."}` line HandleInstall's ndjson stream emitted, for a one-line summary instead of the whole stream
+func firstNDJSONError(ndjson string) string {
+	for _, line := range strings.Split(ndjson, "\n") {
+		if !strings.Contains(line, `"error"`) {
+			continue
+		}
+		if _, after, found := strings.Cut(line, `"error":"`); found {
+			if end := strings.Index(after, `"`); end != -1 {
+				return after[:end]
+			}
+		}
+		return line
+	}
+	return "unknown error"
+}

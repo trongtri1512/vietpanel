@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en" class="h-full" style="color-scheme: ">
+{{template "chrome_head" .}}
+<body class="bg-white-50 h-full antialiased dark:bg-gray-950">
+    <script defer src="/static/dist/js/flowbite312.min.js"></script>
+
+<div class="flex min-h-svh w-full">
+    {{template "chrome_sidebar" .}}
+    <div class="w-full overflow-hidden">
+        {{template "chrome_topbar" .}}
+
+    <main id="no_margin_for_iframe" class="bg-white-50 antialiased dark:bg-gray-950 text-gray-800 dark:text-white min-h-[90vh]">
+        {{template "chrome_flashes" .}}
+
+<div class="border-b border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950 sm:p-6 lg:p-8">
+    <header>
+        <div  class="flex flex-col gap-2 text-center sm:flex-row sm:items-center sm:justify-between sm:text-start">
+            <div class="grow">
+                <h1 class="mb-1 text-xl font-bold">API Access</h1>
+                <h2 class="text-sm font-medium text-slate-500">Browse and test every API endpoint with the interactive reference below.</h2>
+            </div>
+            <div class="flex flex-none items-center justify-center gap-2 rounded-sm px-2 sm:justify-end sm:bg-transparent sm:px-0">
+
+                {{if eq .APIStatus "on"}}
+<a href="/static/openapi.yaml" class="relative inline-flex items-center justify-center rounded border px-3 py-2 text-center text-sm font-medium shadow-sm dark:border-gray-800 dark:text-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900/60 sm:w-fit gap-x-1.5 whitespace-nowrap border-black bg-black text-white hover:bg-gray-800">
+    Download spec
+</a>
+<form method="POST">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <input type="hidden" name="action" value="off">
+<button class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out disabled:pointer-events-none disabled:shadow-none outline outline-offset-2 outline-0 focus-visible:outline-2 outline-indigo-500 dark:outline-indigo-500 border-transparent text-white dark:text-gray-900 bg-indigo-600 dark:bg-indigo-500 hover:bg-indigo-500 dark:hover:bg-indigo-600 disabled:bg-indigo-100 disabled:text-gray-400 disabled:dark:bg-indigo-800 disabled:dark:text-indigo-400" type="submit">Disable API access</button>
+</form>
+{{end}}
+            </div>
+        </div>
+    </header>
+
+</div>
+
+
+
+
+
+
+        <!-- Page body -->
+        <div class="page-body">
+
+<div class="container-xl">
+
+{{if eq .BasicAuthEnabled "on"}}
+
+
+
+<div class="container-xl d-flex flex-column justify-content-center">
+            <div class="empty">
+              <div class="empty-img"><svg  xmlns="http://www.w3.org/2000/svg"  width="128"  height="128"  viewBox="0 0 24 24"  fill="none"  stroke="currentColor"  stroke-width="2"  stroke-linecap="round"  stroke-linejoin="round"  class="icon-tabler icons-tabler-outline icon-tabler-api-off"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M4 13h5" /><path d="M12 16v-4m0 -4h3a2 2 0 0 1 2 2v1c0 .554 -.225 1.055 -.589 1.417m-3.411 .583h-1" /><path d="M20 8v8" /><path d="M9 16v-5.5a2.5 2.5 0 0 0 -5 0v5.5" /><path d="M3 3l18 18" /></svg>
+              </div>
+                <p class="empty-title">API Access is Disabled because BasicAuth is enabled</p>
+                <p class="empty-subtitle text-secondary">
+                  To enable API access please first disable Basic Authentication on <a href="/settings/open-admin"> OpenAdmin Settings</a>.
+                </p>
+                <p class="empty-subtitle text-secondary">
+                  Be sure to consult the <a href="https://openpanel.com/docs/articles/dev-experience/vietadmin-api" target="_blank">API Documentation</a> before proceeding.
+                </p>
+              <div class="empty-action">
+                <a href="/settings/open-admin" class="btn btn-primary">
+                  <svg  xmlns="http://www.w3.org/2000/svg"  width="24"  height="24"  viewBox="0 0 24 24"  fill="none"  stroke="currentColor"  stroke-width="2"  stroke-linecap="round"  stroke-linejoin="round"  class="icon icon-tabler icons-tabler-outline icon-tabler-toggle-right"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M16 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M2 6m0 6a6 6 0 0 1 6 -6h8a6 6 0 0 1 6 6v0a6 6 0 0 1 -6 6h-8a6 6 0 0 1 -6 -6z" /></svg>
+                  Disable HTTP BasicAuth
+                </a>
+              </div>
+            </div>
+          </div>
+
+</div>
+
+
+
+
+{{else if eq .APIStatus "on"}}
+
+<link rel="stylesheet" href="/static/vendor/swagger-ui/swagger-ui.css">
+<script src="/static/vendor/swagger-ui/swagger-ui-bundle.js"></script>
+<script src="/static/vendor/swagger-ui/swagger-ui-standalone-preset.js"></script>
+
+<style>
+    /* Swagger UI ships its own complete dark theme (html.dark-mode) plus a
+       lightbulb toggle that flips it based on the OS color-scheme
+       preference at mount time. We don't want a second, independent theme
+       control -- the disable-topbar-explore script below keeps
+       html.dark-mode in sync with this panel's own dark/light toggle
+       instead, so the built-in toggle button is hidden since clicking it
+       would fight that sync. */
+    .swagger-ui .topbar .dark-mode-toggle { display: none; }
+    .swagger-ui .topbar .download-url-input[disabled],
+    .swagger-ui .topbar .download-url-button[disabled] { opacity: .5; cursor: not-allowed; }
+    #swagger-ui-container { min-height: 60vh; }
+</style>
+
+<div id="swagger-ui-container" class="p-2 sm:p-4">
+    <div id="swagger-ui"></div>
+</div>
+
+<script>
+    // Swagger UI's own dark theme is keyed off a `dark-mode` class on
+    // <html>, seeded once from the OS color-scheme preference by its
+    // bundled (now-hidden) toggle button -- not from this panel's own
+    // dark/light setting. Mirror the panel's `dark` class onto it instead,
+    // so Swagger UI always matches what the user has chosen for the panel.
+    function syncSwaggerDarkMode() {
+        var isDark = document.documentElement.classList.contains('dark');
+        document.documentElement.classList.toggle('dark-mode', isDark);
+    }
+
+    window.addEventListener('load', function () {
+        syncSwaggerDarkMode();
+
+        window.ui = SwaggerUIBundle({
+            url: '/static/openapi.yaml',
+            dom_id: '#swagger-ui',
+            presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+            layout: 'StandaloneLayout',
+            deepLinking: true,
+            onComplete: function () {
+                {{if .Token}}
+                window.ui.preauthorizeApiKey('bearerAuth', {{.Token}});
+                {{end}}
+                // Re-sync: Swagger UI's own toggle component may have just
+                // overridden dark-mode with its OS-preference guess during
+                // mount, above.
+                syncSwaggerDarkMode();
+                // This page only ever serves this panel's own spec -- the
+                // topbar's URL field and "Explore" button would otherwise
+                // let a user point Swagger UI at an arbitrary spec/URL.
+                var urlInput = document.getElementById('download-url-input');
+                if (urlInput) { urlInput.disabled = true; }
+                var exploreBtn = document.querySelector('.download-url-button');
+                if (exploreBtn) { exploreBtn.disabled = true; }
+            }
+        });
+
+        // Keep it in sync live as the user flips the panel's own toggle.
+        new MutationObserver(syncSwaggerDarkMode).observe(document.documentElement, {
+            attributes: true, attributeFilter: ['class']
+        });
+    });
+</script>
+
+{{else}}
+
+
+
+<div
+    style="
+        font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+        height: 90vh;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    "
+>
+    <div>
+        <style>
+            .next-error-h1 {
+                border-right: 1px solid rgba(0, 0, 0, 0.3);
+            }
+            @media (prefers-color-scheme: dark) {
+                .next-error-h1 {
+                    border-right: 1px solid rgba(255, 255, 255, 0.3);
+                }
+            }
+        </style>
+        <div style="display: inline-block;">
+
+<h1 style="display: inline-block; margin: 0; padding: 0; font-size: 24px; font-weight: 500; vertical-align: top; line-height: 49px;"><svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler icons-tabler-outline icon-tabler-api-off"><path stroke="none" d="M0 0h24v24H0z" fill="none"></path><path d="M4 13h5"></path><path d="M12 16v-4m0 -4h3a2 2 0 0 1 2 2v1c0 .554 -.225 1.055 -.589 1.417m-3.411 .583h-1"></path><path d="M20 8v8"></path><path d="M9 16v-5.5a2.5 2.5 0 0 0 -5 0v5.5"></path><path d="M3 3l18 18"></path></svg></h1>
+
+          <h2 style="scroll-mt-10 font-semibold text-gray-900 dark:text-gray-50">API Access Disabled</h2>
+          <p class="mt-1 text-sm leading-6 text-gray-500">Enable API access to create and manage users and plans.</p>
+          <p class="mt-1 text-sm leading-6 text-gray-500">Be sure to consult the <a href="https://openpanel.com/docs/articles/dev-experience/vietadmin-api" target="_blank" class="inline-flex items-center gap-1 text-indigo-600 hover:underline hover:underline-offset-4 dark:text-indigo-400">Documentation<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-4 shrink-0"><path d="M10 6V8H5V19H16V14H18V20C18 20.5523 17.5523 21 17 21H4C3.44772 21 3 20.5523 3 20V7C3 6.44772 3.44772 6 4 6H10ZM21 3V11H19L18.9999 6.413L11.2071 14.2071L9.79289 12.7929L17.5849 5H13V3H21Z"></path></svg></a> before proceeding.</p>
+              <div class="mt-4">
+
+
+<form method="POST">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <input type="hidden" name="action" value="on">
+
+                <button type="submit" id="post_to_enable_api_access" class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out disabled:pointer-events-none disabled:shadow-none outline outline-offset-2 outline-0 focus-visible:outline-2 outline-indigo-500 dark:outline-indigo-500 border-transparent text-white dark:text-gray-900 bg-indigo-600 dark:bg-indigo-500 hover:bg-indigo-500 dark:hover:bg-indigo-600 disabled:bg-indigo-100 disabled:text-gray-400 disabled:dark:bg-indigo-800 disabled:dark:text-indigo-400">Enable API access</button>
+</form>
+              </div>
+
+
+          </div>
+    </div>
+</div>
+
+
+
+
+{{end}}
+</div>
+
+    </main>
+
+    {{template "chrome_after_main" .}}
+    </div>
+</div>
+{{template "chrome_scripts_bottom" .}}
+</body>
+</html>

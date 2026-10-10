@@ -1,0 +1,436 @@
+// This file implements listing domains (with SSL/status/WAF/HSTS
+// detection), adding a domain, and the feature-toggle actions
+// (waf/hsts/cloudflare/dns/suspend/unsuspend/delete). Deliberately out of scope for
+// this pass (see the migration backlog): the DNS zone editor, Caddyfile
+// editor, VirtualHosts editor, SSL certificate management page, access log
+// viewer, and GoAccess stats viewer -- each of those is its own substantial
+// file-editing page.
+package handlers
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gorilla/csrf"
+
+	"vietpanel/admin/internal/activity"
+	"vietpanel/admin/internal/auth"
+	"vietpanel/admin/internal/paneldb"
+	"vietpanel/admin/internal/webtemplates"
+)
+
+// Domains bundles the /domains handlers.
+type Domains struct {
+	MySQL    *sql.DB
+	Sessions *auth.Manager
+}
+
+// CaddyDomainsConfDir is the directory holding each domain's per-domain
+// Caddy config snippet.
+var CaddyDomainsConfDir = "/etc/openpanel/caddy/domains"
+
+// readCaddyFileForDomain does a substring-sniffing read of a domain's
+// Caddy config, not a real parse.
+func readCaddyFileForDomain(domainURL string) (ssl, status, waf, hsts string, cloudflare bool) {
+	ssl, status, waf, hsts = "none", "suspended", "none", "off"
+
+	content, err := os.ReadFile(CaddyDomainsConfDir + "/" + domainURL + ".conf")
+	if err != nil {
+		return ssl, status, waf, hsts, false
+	}
+	s := string(content)
+
+	switch {
+	case strings.Contains(s, "on_demand"):
+		ssl = "automatic"
+	case strings.Contains(s, "fullchain.pem"):
+		ssl = "custom"
+	}
+
+	switch {
+	case strings.Contains(s, "reverse_proxy"):
+		status = "active"
+	case strings.Contains(s, "file_server"):
+		status = "suspended"
+	}
+
+	switch {
+	case strings.Contains(s, "SecRuleEngine On"):
+		waf = "on"
+	case strings.Contains(s, "SecRuleEngine Off"):
+		waf = "off"
+	}
+
+	if strings.Contains(s, "Strict-Transport-Security") {
+		hsts = "on"
+	}
+
+	return ssl, status, waf, hsts, cloudflareOnlyRe.MatchString(s)
+}
+
+// cloudflareRun is a var so tests can skip the real opencli call
+var cloudflareRun = func(args ...string) (string, error) {
+	out, err := exec.Command("opencli", append([]string{"domains-cloudflare"}, args...)...).CombinedOutput()
+	return string(out), err
+}
+
+// cloudflareBulk enables or disables several domains in one opencli call, opencli prints an Enabled:/Disabled: line per domain it changed
+func cloudflareBulk(action string, items []string) []BulkResult {
+	results := make([]BulkResult, len(items))
+	var domains []string
+	for i, item := range items {
+		results[i].Item = item
+		if isDomain(item) {
+			domains = append(domains, item)
+		} else {
+			results[i].Message = "Invalid domain."
+		}
+	}
+	if len(domains) == 0 {
+		return results
+	}
+
+	out, _ := cloudflareRun(append([]string{action}, domains...)...)
+	changed := map[string]bool{}
+	notFound := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		name := strings.TrimSuffix(line[strings.LastIndex(line, "/")+1:], ".conf")
+		switch {
+		case strings.HasPrefix(line, "Enabled: "), strings.HasPrefix(line, "Disabled: "):
+			changed[name] = true
+		case strings.HasPrefix(line, "ERROR: Domain config not found"):
+			notFound[name] = true
+		}
+	}
+	reloadFailed := strings.Contains(out, "Failed to reload Caddy")
+
+	done := "Restricted to Cloudflare."
+	if action == "disable" {
+		done = "Cloudflare restriction removed."
+	}
+	for i := range results {
+		d := results[i].Item
+		if results[i].Message != "" {
+			continue
+		}
+		switch {
+		case changed[d] && !reloadFailed:
+			results[i].OK, results[i].Message = true, done
+		case changed[d]:
+			results[i].Message = "Caddy reload failed."
+		case notFound[d]:
+			results[i].Message = "Domain config not found."
+		default:
+			results[i].Message = "opencli failed: " + firstLine(strings.TrimSpace(out))
+		}
+	}
+	return results
+}
+
+// same check opencli domains-cloudflare status does
+var cloudflareOnlyRe = regexp.MustCompile(`(?m)^[ \t]*import[ \t]+cloudflare-only([ \t]|$)`)
+
+// annotateDomainsWithWebserverInfo sets "webserver" and "varnish" on each
+// domain row, reusing the same .env-based detection as the /users/<username>
+// page (readEnvFile, WEB_SERVER, PROXY_HTTP_PORT presence). The webserver
+// config is per user, not per domain, so this looks it up at most once per
+// owner username and reuses that for every domain the owner has.
+func annotateDomainsWithWebserverInfo(db *sql.DB, domains []paneldb.RowMap) {
+	type webserverInfo struct {
+		webserver string
+		varnish   string
+	}
+	cache := map[string]webserverInfo{}
+
+	for _, dom := range domains {
+		username, _ := dom["username"].(string)
+		info, ok := cache[username]
+		if !ok {
+			context, _ := queryContextByUsername(db, username)
+			env := readEnvFile(context)
+			info.webserver = env["WEB_SERVER"]
+			if _, hasVarnish := env["PROXY_HTTP_PORT"]; hasVarnish {
+				info.varnish = "on"
+			} else {
+				info.varnish = "off"
+			}
+			cache[username] = info
+		}
+		dom["webserver"] = info.webserver
+		dom["varnish"] = info.varnish
+	}
+}
+
+type domainsListPageData struct {
+	webtemplates.Chrome
+	Domains       []paneldb.RowMap
+	PHPVersions   map[string]interface{}
+	MySQLIsDown   bool
+	SortCol       string
+	SortDirection string
+	CSRFToken     string
+	Flashes       []auth.Flash
+}
+
+// ServeList handles GET /domains, /domains/.
+func (d *Domains) ServeList(w http.ResponseWriter, r *http.Request) {
+	domains, err := paneldb.GetAllDomains(d.MySQL)
+	mysqlIsDown := err != nil
+	if mysqlIsDown {
+		domains = nil
+	}
+
+	tlsIndex := getCaddyTLSIndex()
+	for _, dom := range domains {
+		domainURL, _ := dom["domain_url"].(string)
+		ssl, status, waf, hsts, cloudflare := readCaddyFileForDomain(domainURL)
+		dom["ssl"] = ssl
+		dom["status"] = status
+		dom["waf"] = waf
+		dom["hsts"] = hsts
+		dom["cloudflare"] = cloudflare
+
+		health := checkDomainSSLHealth(domainURL, ssl, tlsIndex)
+		dom["ssl_problem"] = health.Status
+		if !health.NotAfter.IsZero() {
+			dom["ssl_expires"] = health.NotAfter.Format("2006-01-02")
+		}
+	}
+	annotateDomainsWithWebserverInfo(d.MySQL, domains)
+
+	columnKeyMap := map[string]string{
+		"id": "domain_id", "name": "domain_url", "docroot": "docroot",
+		"status": "status", "php": "php_version", "waf": "waf",
+		"ssl": "ssl", "hsts": "hsts", "owner": "username",
+		"webserver": "webserver",
+	}
+	if sortCol := r.URL.Query().Get("sort"); sortCol != "" {
+		if key, ok := columnKeyMap[sortCol]; ok {
+			desc := strings.EqualFold(r.URL.Query().Get("direction"), "desc")
+			sortRowMaps(domains, key, desc)
+		}
+	}
+
+	if r.URL.Query().Get("output") == "json" {
+		writeJSON(w, map[string]interface{}{"domains": domains})
+		return
+	}
+
+	chrome := buildChrome(r, "Domains")
+	chrome.BulkActions = DomainsBulkActions(d.ownerPHPVersions(domains))
+	webtemplates.Render(w, "domains_list.html", domainsListPageData{
+		Chrome:        chrome,
+		Domains:       domains,
+		PHPVersions:   phpVersionsEOL(),
+		MySQLIsDown:   mysqlIsDown,
+		SortCol:       r.URL.Query().Get("sort"),
+		SortDirection: r.URL.Query().Get("direction"),
+		CSRFToken:     csrf.Token(r),
+		Flashes:       auth.PopFlashes(w, r, d.Sessions),
+	})
+}
+
+// HandleAdd handles POST /domains/add.
+func (d *Domains) HandleAdd(w http.ResponseWriter, r *http.Request) {
+	domain := r.FormValue("domain")
+	username := r.FormValue("username")
+
+	if domain == "" || username == "" {
+		auth.AddFlash(w, r, d.Sessions, "Domain and username are required.", "error")
+		http.Redirect(w, r, "/domains", http.StatusSeeOther)
+		return
+	}
+
+	args := []string{"opencli", "domains-add", domain, username}
+	// custom docroot is an Enterprise feature, Community always gets /var/www/html/<domain>
+	if docroot := strings.TrimSpace(r.FormValue("docroot")); docroot != "" && chromeSite.LicenseType == "Enterprise" {
+		if errMsg := validateDocroot(docroot); errMsg != "" {
+			activity.Fail(r.Context())
+			auth.AddFlash(w, r, d.Sessions, errMsg, "error")
+			http.Redirect(w, r, "/domains#add", http.StatusSeeOther)
+			return
+		}
+		args = append(args, "--docroot", docroot)
+	}
+
+	success, output := runOpenCLI("", args...)
+	if success {
+		auth.AddFlash(w, r, d.Sessions, "Domain \""+domain+"\" added for user \""+username+"\".", "info")
+	} else {
+		activity.Fail(r.Context())
+		auth.AddFlash(w, r, d.Sessions, "Failed to add domain: "+output, "error")
+	}
+	http.Redirect(w, r, "/domains", http.StatusSeeOther)
+}
+
+const docrootPrefix = "/var/www/html/"
+
+var docrootRe = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
+// validateDocroot returns an error message, empty when the docroot is ok
+func validateDocroot(docroot string) string {
+	if !strings.HasPrefix(docroot, docrootPrefix) || len(docroot) == len(docrootPrefix) {
+		return "Docroot must start with " + docrootPrefix + " followed by a folder name."
+	}
+	if !docrootRe.MatchString(docroot) {
+		return "Docroot can only contain letters, numbers, dots, dashes, underscores and slashes."
+	}
+	for _, part := range strings.Split(docroot, "/") {
+		if part == ".." {
+			return "Docroot can't contain '..'."
+		}
+	}
+	return ""
+}
+
+var dnsAllowedActions = map[string]bool{
+	"check": true, "reload": true, "create": true, "delete": true, "default": true,
+}
+
+// HandleToggleFeature handles POST /domains/{feature}/toggle, mirroring
+// toggle_feature().
+func (d *Domains) HandleToggleFeature(w http.ResponseWriter, r *http.Request) {
+	feature := strings.ToLower(r.PathValue("feature"))
+	domainName := r.FormValue("domain_name")
+	domain := strings.SplitN(domainName, "/", 2)[0]
+
+	var cliArgs []string
+	var action, fallbackErr string
+
+	switch feature {
+	case "waf":
+		action = "disable"
+		if r.FormValue("modsec_action") == "On" {
+			action = "enable"
+		}
+		cliArgs = []string{"opencli", "waf", "domain", domain, action}
+
+	case "hsts":
+		action = "disable"
+		if r.FormValue("hsts_action") == "On" {
+			action = "enable"
+		}
+		cliArgs = []string{"opencli", "domains-hsts", domain, action}
+
+	case "cloudflare":
+		action = "disable"
+		if r.FormValue("cloudflare_action") == "enable" {
+			action = "enable"
+		}
+		cliArgs = []string{"opencli", "domains-cloudflare", action, domain}
+		// the script prints errors to stdout, so stderr is usually empty
+		fallbackErr = "Caddy reload failed, run 'opencli domains-cloudflare " + action + " " + domain + "' for details."
+
+	case "dns":
+		newStatus := r.FormValue("dns_action")
+		if !dnsAllowedActions[newStatus] {
+			auth.AddFlash(w, r, d.Sessions, "Error: '"+newStatus+"' is not a valid DNS action", "error")
+			http.Redirect(w, r, "/domains", http.StatusSeeOther)
+			return
+		}
+		cliArgs = []string{"opencli", "domains-dns", newStatus, domain}
+		switch {
+		case strings.HasSuffix(newStatus, "e"):
+			action = newStatus + "d"
+		case newStatus == "check":
+			action = "checked"
+		default:
+			action = newStatus + "ed"
+		}
+
+	case "suspend":
+		cliArgs = []string{"opencli", "domains-suspend", domain}
+		action = "executed"
+	case "unsuspend":
+		cliArgs = []string{"opencli", "domains-unsuspend", domain}
+		action = "executed"
+	case "delete":
+		cliArgs = []string{"opencli", "domains-delete", domain}
+		action = "executed"
+
+	default:
+		auth.AddFlash(w, r, d.Sessions, "Unknown feature: "+feature, "error")
+		http.Redirect(w, r, "/domains", http.StatusSeeOther)
+		return
+	}
+
+	success, output := runOpenCLI(fallbackErr, cliArgs...)
+	if success {
+		auth.AddFlash(w, r, d.Sessions, "Successfully "+action+" "+strings.ToUpper(feature)+" for domain "+domain, "info")
+	} else {
+		auth.AddFlash(w, r, d.Sessions, "Failed to "+action+" "+strings.ToUpper(feature)+" for domain: "+output, "error")
+	}
+	http.Redirect(w, r, "/domains", http.StatusSeeOther)
+}
+
+// --- PHP version EOL info (cached, matches @lru_cache(maxsize=1)) ---
+
+var (
+	phpVersionsOnce sync.Once
+	phpVersionsData map[string]interface{}
+)
+
+// PHPVersionsEOLURL is the upstream endpoint for PHP version end-of-life data.
+var PHPVersionsEOLURL = "https://api.openpanel.com/php-versions/"
+
+// phpVersionsEOLFetch is a var (not a direct call) so tests can stub out
+// the real network call -- consistent with the other external-command vars
+// in this package (dropCacheRun, timedatectlRun, etc.).
+var phpVersionsEOLFetch = fetchPHPVersionsEOL
+
+// phpVersionsEOL fetches once per process lifetime and never expires within
+// that lifetime, keyed by PHP version name.
+func phpVersionsEOL() map[string]interface{} {
+	phpVersionsOnce.Do(func() {
+		phpVersionsData = phpVersionsEOLFetch()
+	})
+	return phpVersionsData
+}
+
+func fetchPHPVersionsEOL() map[string]interface{} {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(PHPVersionsEOLURL)
+	if err != nil {
+		return map[string]interface{}{}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return map[string]interface{}{}
+	}
+
+	var parsed struct {
+		Data map[string]struct {
+			Name            string `json:"name"`
+			StatusLabel     string `json:"statusLabel"`
+			IsEOLVersion    bool   `json:"isEOLVersion"`
+			IsSecureVersion bool   `json:"isSecureVersion"`
+			IsLatestVersion bool   `json:"isLatestVersion"`
+			IsFutureVersion bool   `json:"isFutureVersion"`
+			IsNextVersion   bool   `json:"isNextVersion"`
+		} `json:"data"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&parsed) != nil {
+		return map[string]interface{}{}
+	}
+
+	out := make(map[string]interface{}, len(parsed.Data))
+	for _, v := range parsed.Data {
+		out[v.Name] = map[string]interface{}{
+			"statusLabel":     v.StatusLabel,
+			"isEOLVersion":    v.IsEOLVersion,
+			"isSecureVersion": v.IsSecureVersion,
+			"isLatestVersion": v.IsLatestVersion,
+			"isFutureVersion": v.IsFutureVersion,
+			"isNextVersion":   v.IsNextVersion,
+		}
+	}
+	return out
+}

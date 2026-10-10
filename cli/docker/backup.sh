@@ -1,0 +1,206 @@
+#!/bin/bash
+################################################################################
+# Script Name: backup.sh
+# Description: Generates a backup for all users.
+# Usage: vietcli docker-backup
+# Author: Stefan Pejcic
+# Created: 22.07.2025
+# Last Modified: 07.10.2026
+# Company: VietPanel, LLC.
+# Copyright (c) openpanel.com
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+################################################################################
+
+readonly LOG_FILE="/var/log/openpanel/admin/docker-backup.log"
+
+# shellcheck disable=SC1091
+. /usr/local/vietcli/lib/podman.sh
+
+log() {
+    local message="$1"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') : $message" | tee -a "$LOG_FILE"
+}
+
+# --no-deps since we start docker-proxy ourselves, otherwise podman-compose run can tear down the whole stack (mariadb included)
+COMPOSE_RUN_FLAGS=(--rm --no-deps --entrypoint backup)
+
+# https://github.com/stefanpejcic/VietPanel/discussions/1146#discussioncomment-18528896
+DOCKER_PROXY_WAIT_SECS=15
+DOCKER_PROXY_SETTLE_SECS=2
+
+
+is_proxy_running() {
+    local context="$1"
+    [[ "$(podman_ctx "$context" inspect -f '{{.State.Running}}' docker-proxy 2>/dev/null)" == "true" ]]
+}
+
+is_proxy_ready() {
+    local context="$1"
+    podman_ctx "$context" exec docker-proxy sh -c 'nc -z 127.0.0.1 2375' >/dev/null 2>&1
+}
+
+wait_for_proxy_ready() {
+    local context="$1"
+    local waited=0
+    while (( waited < DOCKER_PROXY_WAIT_SECS )); do
+        if is_proxy_running "$context" && is_proxy_ready "$context"; then
+            log "docker-proxy is ready for context: $context (after ${waited}s)"
+            sleep "$DOCKER_PROXY_SETTLE_SECS"
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    log "ERROR: docker-proxy not ready for context: $context within ${DOCKER_PROXY_WAIT_SECS}s"
+    podman_ctx "$context" logs --tail 20 docker-proxy 2>&1 | tee -a "$LOG_FILE"
+    return 1
+}
+
+ensure_docker_proxy_running() {
+    local context="$1"
+
+    if ! is_proxy_running "$context"; then
+        log "docker-proxy not running for context: $context — starting it"
+
+        local start_output start_exit
+        start_output=$(podman_compose_ctx "$context" up -d docker-proxy 2>&1)
+        start_exit=$?
+        echo "$start_output" | tee -a "$LOG_FILE"
+
+        if [ $start_exit -ne 0 ]; then
+            log "ERROR: failed to start docker-proxy for context: $context | exit code: $start_exit"
+            return 1
+        fi
+    fi
+
+    wait_for_proxy_ready "$context"
+}
+
+run_for_user() {
+    local username="$1"
+    source /usr/local/vietcli/db.sh
+    username_query="SELECT server FROM users WHERE username = '$(mysql_escape "$username")'"
+    context=$(mariadb -D "$mysql_database" -e "$username_query" -sN)
+    if [ -z "$context" ]; then
+        context=$username
+    fi
+
+    cd /home/"$context"/ || { log "ERROR: Cannot cd into /home/$context/"; return 1; }
+
+    if ! ensure_docker_proxy_running "$context"; then
+        log "Backup FAILED for user: $username (context: $context) — docker-proxy unavailable"
+        return 1
+    fi
+    start_user_time=$(date +%s)
+    # todo: switch to podman run so backups can use admin-set cpu/ram instead of the user's own
+    local backup_output backup_exit
+    backup_output=$(podman_compose_ctx "$context" run "${COMPOSE_RUN_FLAGS[@]}" backup 2>&1)
+    backup_exit=$?
+    end_user_time=$(date +%s)
+    duration=$((end_user_time - start_user_time))
+
+    log "--- backup container output for user: $username ---"
+    echo "$backup_output" | tee -a "$LOG_FILE"
+    log "--- end of backup container output for user: $username ---"
+
+    local down_output down_exit
+    down_output=$(podman_compose_ctx "$context" down backup 2>&1)
+    down_exit=$?
+    if [ $down_exit -ne 0 ]; then
+        log "WARNING: failed to bring down backup service for user: $username (context: $context) | exit code: $down_exit"
+        echo "$down_output" | tee -a "$LOG_FILE"
+    fi
+
+    if [ $backup_exit -ne 0 ]; then
+        log "ERROR: Backup FAILED for user: $username (context: $context) | exit code: $backup_exit | Time taken: ${duration}s"
+        return 1
+    fi
+
+    log "Backup completed for user: $username (context: $context) | Time taken: ${duration}s"
+}
+
+process_user() {
+    local username="$1"
+    log "Processing user: $username"
+
+    if ! run_for_user "$username"; then
+        log "Failed processing user: $username"
+        return 1
+    fi
+
+    return 0
+}
+
+get_active_users() {
+    local users
+    users=$(vietcli user-list --json 2>/dev/null | grep -v 'SUSPENDED' | awk -F'"' '/username/ {print $4}')
+    
+    if [[ -z "$users" ]] || [[ "$users" == "No users." ]]; then
+        log "No active users found in the database"
+        return 1
+    fi
+    
+    echo "$users"
+    return 0
+}
+
+process_all_users() {
+    local users user_count current_index=1
+    local failed_users=()
+    
+    start_time=$(date +%s)
+    log "=== Backup started at $(date '+%Y-%m-%d %H:%M:%S') ==="
+    
+    log "Fetching list of active users..."
+    if ! users=$(get_active_users); then
+        log "ERROR: Could not retrieve active users from the database."
+        return 1
+    fi
+    
+    user_count=$(echo "$users" | wc -w)
+    log "Found $user_count active users to process"
+    
+    for user in $users; do
+        log "Processing user: $user ($current_index/$user_count)"
+        
+        if ! process_user "$user"; then
+            failed_users+=("$user")
+        fi
+        
+        log "------------------------------"
+        ((current_index++))
+    done
+
+    end_time=$(date +%s)
+    total_duration=$((end_time - start_time))
+    
+    if [[ ${#failed_users[@]} -eq 0 ]]; then
+        log "Successfully processed all $user_count users"
+    else
+        log "Failed to process ${#failed_users[@]} users: ${failed_users[*]}"
+        return 1
+    fi
+
+    log "=== Backup finished at $(date '+%Y-%m-%d %H:%M:%S') | Total time: ${total_duration}s ==="
+    return 0
+}
+
+process_all_users

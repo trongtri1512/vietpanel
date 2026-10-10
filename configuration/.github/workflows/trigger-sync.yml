@@ -1,0 +1,39 @@
+name: Import FTP module
+
+on:
+  schedule:
+    - cron: '0 1 * * *'   # daily at 01:00 UTC
+  workflow_dispatch:
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Import FTP module
+        shell: bash
+        run: |
+         
+          # Clean existing folders
+          rm -rf ftp
+
+          # Clone replacements
+          git clone --depth=1 https://github.com/stefanpejcic/OpenPanel-FTP ftp-tmp
+
+          # Move contents only (not the .git folder)
+          mv ftp-tmp ftp
+
+          rm -rf ftp/.git
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add ftp
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: sync FTP module from: stefanpejcic/OpenPanel-FTP"
+            git push origin main
+          else
+            echo "No changes in stefanpejcic/OpenPanel-FTP detected."
+          fi

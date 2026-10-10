@@ -1,0 +1,127 @@
+package dashboard
+
+import (
+	"strings"
+	"testing"
+
+	"vietpanel/panel/internal/core/i18n"
+	"vietpanel/panel/internal/web"
+)
+
+func testTranslator(t *testing.T) i18n.Translator {
+	return i18n.NewManager(t.TempDir(), nil).Translator("en")
+}
+
+func TestBuildDashboardSectionsEmpty(t *testing.T) {
+	sections := buildDashboardSections(testTranslator(t), map[string]bool{}, nil, "classic", nil)
+	if len(sections) != 0 {
+		t.Errorf("expected no sections for an empty allowed set, got %d: %+v", len(sections), sections)
+	}
+}
+
+func TestBuildDashboardSectionsFilesOnly(t *testing.T) {
+	sections := buildDashboardSections(testTranslator(t), map[string]bool{"filemanager": true}, nil, "classic", nil)
+	if len(sections) != 1 || sections[0].Key != "files" {
+		t.Fatalf("expected exactly one 'files' section, got %+v", sections)
+	}
+	for _, item := range sections[0].Items {
+		if item.Key != "filemanager" {
+			t.Errorf("expected only filemanager items, got item with key %q", item.Key)
+		}
+	}
+	// 3 filemanager items in the source list.
+	if len(sections[0].Items) != 3 {
+		t.Errorf("expected 3 filemanager items, got %d: %+v", len(sections[0].Items), sections[0].Items)
+	}
+}
+
+func TestBuildDashboardSectionsPreservesOrder(t *testing.T) {
+	allowed := map[string]bool{"docker": true, "filemanager": true, "account": true}
+	sections := buildDashboardSections(testTranslator(t), allowed, nil, "classic", nil)
+
+	var keys []string
+	for _, s := range sections {
+		keys = append(keys, s.Key)
+	}
+	want := []string{"files", "docker", "account"}
+	if len(keys) != len(want) {
+		t.Fatalf("got sections %v, want %v", keys, want)
+	}
+	for i := range want {
+		if keys[i] != want[i] {
+			t.Errorf("section order[%d] = %q, want %q (full: %v)", i, keys[i], want[i], keys)
+		}
+	}
+}
+
+func TestBuildDashboardSectionsTargetBlank(t *testing.T) {
+	sections := buildDashboardSections(testTranslator(t), map[string]bool{"phpmyadmin": true}, nil, "classic", nil)
+	if len(sections) != 1 {
+		t.Fatalf("expected one section, got %+v", sections)
+	}
+	for _, item := range sections[0].Items {
+		if item.Href == "/phpmyadmin" && item.Target != "_blank" {
+			t.Errorf("expected phpMyAdmin link to open in a new tab, got target=%q", item.Target)
+		}
+	}
+}
+
+// the dashboard mirrors the sidebar: with every feature on, its sections appear in sidebar order, only single-page areas are folded into a neighbouring section
+func TestBuildDashboardSectionsMatchSidebarOrder(t *testing.T) {
+	allowed := map[string]bool{}
+	for _, s := range allSections() {
+		for _, item := range s.Items {
+			allowed[item.Key] = true
+		}
+	}
+
+	var titles, labels []string
+	for _, s := range buildDashboardSections(testTranslator(t), allowed, nil, "modern", nil) {
+		titles = append(titles, s.Title)
+	}
+	for _, item := range web.BuildSidebarNav(allowed, nil, "/dashboard") {
+		if item.Label != "Cron Jobs" && item.Label != "Server Info" {
+			labels = append(labels, item.Label)
+		}
+	}
+	if strings.Join(titles, ",") != strings.Join(labels, ",") {
+		t.Errorf("dashboard sections %v don't match the sidebar %v", titles, labels)
+	}
+
+	for _, s := range buildDashboardSections(testTranslator(t), allowed, nil, "modern", nil) {
+		if len(s.Items) < 2 {
+			t.Errorf("section %q has a single icon, it should join a neighbouring section", s.Title)
+		}
+	}
+}
+
+func TestBuildDashboardSectionsAppKeys(t *testing.T) {
+	allowed := map[string]bool{"wordpress": true, "n8n": true, "nodejs": true, "joomla": true, "websites": true}
+	keys := parseAppKeys("wordpress n8n,nodejs bogus python")
+	for _, style := range []string{"classic", "modern"} {
+		var got []string
+		for _, s := range buildDashboardSections(testTranslator(t), allowed, nil, style, keys) {
+			if s.Key == "websites" {
+				for _, item := range s.Items {
+					got = append(got, item.Key)
+				}
+			}
+		}
+		if strings.Join(got, " ") != "wordpress n8n nodejs" {
+			t.Errorf("%s: expected configured apps in order, got %v", style, got)
+		}
+	}
+}
+
+func TestBuildDashboardSectionsSitesNeedsAnApp(t *testing.T) {
+	for _, style := range []string{"classic", "modern"} {
+		sections := buildDashboardSections(testTranslator(t), map[string]bool{"websites": true}, nil, style, nil)
+		if len(sections) != 0 {
+			t.Errorf("%s: expected no Websites section without any app enabled, got %+v", style, sections)
+		}
+		sections = buildDashboardSections(testTranslator(t), map[string]bool{"websites": true, "nodejs": true}, nil, style, nil)
+		if len(sections) != 1 || len(sections[0].Items) != 1 || sections[0].Items[0].Key != "websites" {
+			t.Errorf("%s: expected only the Sites tile with nodejs enabled, got %+v", style, sections)
+		}
+	}
+}

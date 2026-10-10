@@ -1,0 +1,393 @@
+package wordpress
+
+import (
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/appkit"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/mysqlmanager"
+	"vietpanel/panel/internal/core/podmanmanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/core/webserver"
+	"vietpanel/panel/internal/modules/php"
+	"vietpanel/panel/internal/web"
+)
+
+var backupFolderRE = regexp.MustCompile(`^20\d{2}-`)
+
+type backupDateInfo struct {
+	Date           string `json:"date"`
+	HasDbBackup    bool   `json:"hasDbBackup"`
+	HasFilesBackup bool   `json:"hasFilesBackup"`
+}
+
+// handleGetBackupDates mirrors get_backup_dates().
+func handleGetBackupDates(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	selectedDomain := r.PathValue("selected_domain")
+
+	userID, _, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !a.CheckDomainBelongsToUser(r.Context(), userID, strings.Split(selectedDomain, "/")[0]) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	backupsPath := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_html_data/_data/backups/" + selectedDomain
+	if _, statErr := os.Stat(backupsPath); statErr != nil {
+		if mkErr := os.MkdirAll(backupsPath, 0o755); mkErr != nil {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": mkErr.Error()})
+			return
+		}
+	}
+
+	entries, readErr := os.ReadDir(backupsPath)
+	if readErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": readErr.Error()})
+		return
+	}
+
+	var dates []backupDateInfo
+	for _, entry := range entries {
+		if !entry.IsDir() || !backupFolderRE.MatchString(entry.Name()) {
+			continue
+		}
+		folderPath := filepath.Join(backupsPath, entry.Name())
+		files, _ := os.ReadDir(folderPath)
+		info := backupDateInfo{Date: entry.Name()}
+		for _, f := range files {
+			if strings.HasSuffix(f.Name(), ".sql") {
+				info.HasDbBackup = true
+			}
+			if strings.HasSuffix(f.Name(), ".tar.gz") {
+				info.HasFilesBackup = true
+			}
+		}
+		dates = append(dates, info)
+	}
+
+	web.WriteJSON(w, http.StatusOK, dates)
+}
+
+var backupDateRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$`)
+
+// handleRestoreBackup mirrors restore_backup().
+func handleRestoreBackup(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	selectedDomain := r.PathValue("selected_domain")
+	backupDate := r.URL.Query().Get("backup_date")
+	docroot := r.URL.Query().Get("docroot")
+	phpVersion := r.URL.Query().Get("php_version")
+
+	userID, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	domain := selectedDomain
+	var subdirectory string
+	hasSubdir := false
+	if idx := strings.Index(selectedDomain, "/"); idx != -1 {
+		domain = selectedDomain[:idx]
+		subdirectory = selectedDomain[idx+1:]
+		hasSubdir = true
+	}
+	if !a.CheckDomainBelongsToUser(ctx, userID, domain) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+	// a caller-supplied docroot is only used together with php_version, it gets joined into host paths so it must stay inside the html volume
+	if phpVersion != "" && docroot != "" {
+		if !appkit.SafeDocroot("/var/www/html/" + strings.TrimPrefix(strings.TrimPrefix(docroot, "/var/www/html/"), "/")) {
+			web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid docroot"})
+			return
+		}
+		docroot = strings.TrimPrefix(strings.TrimPrefix(docroot, "/var/www/html/"), "/")
+	}
+
+	if phpVersion == "" || docroot == "" {
+		dom, found, dbErr := lookupDomainByURL(ctx, a, domain)
+		if dbErr != nil {
+			web.WriteJSON(w, http.StatusOK, map[string]string{"error": "An error occurred: " + dbErr.Error()})
+			return
+		}
+		if !found {
+			web.WriteJSON(w, http.StatusOK, map[string]string{"error": "Domain not found."})
+			return
+		}
+		domain = dom.DomainURL
+		docroot = strings.TrimPrefix(dom.Docroot.String, "/var/www/html/")
+		docroot = strings.TrimPrefix(docroot, "/")
+		phpVersion = dom.PHPVersion.String
+	}
+
+	docrootOnHostOS := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_html_data/_data/" + docroot + "/"
+	docrootInContainer := "/var/www/html/" + docroot + "/"
+	backupsPathOnHostOS := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_html_data/_data/backups/" + docroot + "/"
+	backupsPathInContainer := "/var/www/html/backups/" + docroot + "/"
+
+	if hasSubdir {
+		docrootOnHostOS += subdirectory
+		docrootInContainer += subdirectory
+		backupsPathOnHostOS += subdirectory
+		backupsPathInContainer += subdirectory
+	}
+
+	if !backupDateRE.MatchString(backupDate) {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid backup date."})
+		return
+	}
+
+	backupDatePathOnHostOS := filepath.Join(backupsPathOnHostOS, backupDate)
+	backupDatePathInContainer := filepath.Join(backupsPathInContainer, backupDate)
+	databaseSQLPathOnHostOS := filepath.Join(backupDatePathOnHostOS, "database.sql")
+	databaseSQLPathInContainer := filepath.Join(backupDatePathInContainer, "database.sql")
+	targzPathOnHostOS := filepath.Join(backupDatePathOnHostOS, "files.tar.gz")
+
+	webServer := webserver.GetEnvFileValue(userContext, "WEB_SERVER")
+	ipAddress := reqip.ClientIP(r)
+
+	var restoredItems []string
+
+	if _, statErr := os.Stat(targzPathOnHostOS); statErr == nil {
+		if runErr := exec.CommandContext(ctx, "tar", "-xzf", targzPathOnHostOS, "-C", docrootOnHostOS).Run(); runErr != nil {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": runErr.Error()})
+			return
+		}
+		_ = logger.RecordUserAction(a.Config, currentUsername, "restored WordPress files backup from "+backupDatePathInContainer+" on "+selectedDomain, ipAddress)
+		restoredItems = append(restoredItems, "files")
+	}
+
+	isLitespeed := strings.Contains(strings.ToLower(webServer), "litespeed")
+	if isLitespeed {
+		if _, statErr := os.Stat(databaseSQLPathOnHostOS); statErr == nil {
+			wpBase := podmanmanager.BuildWPCLIBaseCommand(userContext, webServer)
+			resetArgv := append(append([]string{}, wpBase...), "db", "reset", "--yes", "--path="+docrootInContainer, "--allow-root", "--skip-themes")
+			_ = podmanmanager.Command(ctx, userContext, resetArgv).Run()
+			importArgv := append(append([]string{}, wpBase...), "db", "import", databaseSQLPathInContainer, "--path="+docrootInContainer, "--allow-root", "--skip-themes")
+			if runErr := podmanmanager.Command(ctx, userContext, importArgv).Run(); runErr == nil {
+				_ = logger.RecordUserAction(a.Config, currentUsername, "restored WordPress database backup from "+databaseSQLPathInContainer+" on "+selectedDomain, ipAddress)
+				restoredItems = append(restoredItems, "database")
+			}
+		}
+	} else if _, statErr := os.Stat(databaseSQLPathOnHostOS); statErr == nil {
+		wpConfigFile := filepath.Join(docrootOnHostOS, "wp-config.php")
+		content, readErr := os.ReadFile(wpConfigFile)
+		if readErr != nil {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": wpConfigFile + " does not exist - failed to retrieve db_name and table prefix."})
+			return
+		}
+		dbNameMatch := dbNameRE.FindStringSubmatch(string(content))
+		tablePrefixMatch := tablePrefixValueRE.FindStringSubmatch(string(content))
+		var dbName, tablePrefix string
+		if dbNameMatch != nil {
+			dbName = dbNameMatch[1]
+		}
+		if tablePrefixMatch != nil {
+			tablePrefix = tablePrefixMatch[1]
+		}
+
+		if dbName != "" && tablePrefix != "" {
+			if rows, execErr := mysqlmanager.Exec(ctx, userContext, "SHOW TABLES IN `"+dbName+"` LIKE '"+tablePrefix+"%'", ""); execErr == nil {
+				var tables []string
+				for _, row := range rows {
+					tables = append(tables, mysqlmanager.ToString(row[0]))
+				}
+				if len(tables) > 0 {
+					var quoted []string
+					for _, t := range tables {
+						quoted = append(quoted, "`"+t+"`")
+					}
+					_, _ = mysqlmanager.Exec(ctx, userContext, "DROP TABLE "+strings.Join(quoted, ", "), dbName)
+				}
+			}
+		}
+
+		if dbName != "" {
+			mysqlVersion := webserver.GetEnvFileValue(userContext, "MYSQL_TYPE")
+			importArgv := podmanmanager.PodmanArgv(userContext, "exec", "-i", mysqlVersion, mysqlVersion, dbName)
+			f, openErr := os.Open(databaseSQLPathOnHostOS)
+			if openErr != nil {
+				web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": openErr.Error()})
+				return
+			}
+			cmd := exec.CommandContext(ctx, importArgv[0], importArgv[1:]...)
+			cmd.Stdin = f
+			cmd.Env = podmanmanager.PodmanEnv(userContext)
+			runErr := cmd.Run()
+			f.Close()
+			if runErr != nil {
+				web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database import failed: " + runErr.Error()})
+				return
+			}
+			_ = logger.RecordUserAction(a.Config, currentUsername, "restored WordPress database backup from "+databaseSQLPathInContainer+" on "+selectedDomain, ipAddress)
+			restoredItems = append(restoredItems, "database")
+		}
+	}
+
+	if len(restoredItems) > 0 {
+		_, _ = w.Write([]byte("Backup restored successfully: " + strings.Join(restoredItems, " and ") + "."))
+		return
+	}
+	_, _ = w.Write([]byte("No files to restore, expected files: " + backupDatePathInContainer + "/files.tar.gz " + databaseSQLPathInContainer + "."))
+}
+
+var (
+	dbNameRE           = regexp.MustCompile(`define\(\s*['"]DB_NAME['"]\s*,\s*['"]([^'"]+)['"]`)
+	tablePrefixValueRE = regexp.MustCompile(`\$table_prefix\s*=\s*['"]([^'"]+)['"]`)
+)
+
+// handleRunBackup mirrors run_wordpress_backup().
+func handleRunBackup(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	selectedDomain := r.PathValue("selected_domain")
+	docroot := r.URL.Query().Get("docroot")
+	if docroot == "" || !appkit.SafeDocroot(docroot) {
+		http.Error(w, "Document root is not provided or invalid.", http.StatusInternalServerError)
+		return
+	}
+
+	userID, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !a.CheckDomainBelongsToUser(ctx, userID, strings.Split(selectedDomain, "/")[0]) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	backupDatabase := r.URL.Query().Get("backup_database") == "true"
+	backupFiles := r.URL.Query().Get("backup_files") == "true"
+
+	if !backupDatabase && !backupFiles {
+		http.Error(w, "No backup options selected.", http.StatusBadRequest)
+		return
+	}
+
+	htmlVolume := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_html_data/_data/"
+	mysqlDumpVolume := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_mysql_dumps/_data/"
+	_ = os.MkdirAll(htmlVolume, 0o755)
+	_ = os.MkdirAll(mysqlDumpVolume, 0o755)
+
+	uid, uidErr := podmanmanager.GetUID(userContext)
+	if uidErr == nil {
+		_ = os.Chown(htmlVolume, uid, uid)
+		_ = os.Chown(mysqlDumpVolume, uid, uid)
+	}
+
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	backupDirectory := filepath.Join(htmlVolume, "backups", selectedDomain, timestamp)
+	inPHPBackupDirectory := filepath.Join("/var/www/html/backups", selectedDomain, timestamp)
+	if mkErr := os.MkdirAll(backupDirectory, 0o755); mkErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": mkErr.Error()})
+		return
+	}
+	if uidErr == nil {
+		_ = exec.CommandContext(ctx, "chown", strconv.Itoa(uid)+":"+strconv.Itoa(uid), backupDirectory).Run()
+	}
+
+	webServer := webserver.GetEnvFileValue(userContext, "WEB_SERVER")
+	isLitespeed := strings.Contains(strings.ToLower(webServer), "litespeed")
+	phpContainer := webServer
+	if !isLitespeed {
+		domainOnly := strings.Split(selectedDomain, "/")[0]
+		phpVersion := php.GetPHPVForDomain(ctx, a, userContext, domainOnly)
+		phpContainer = "php-fpm-" + phpVersion
+	}
+
+	if backupDatabase {
+		wpBase := podmanmanager.BuildWPCLIBaseCommand(userContext, phpContainer)
+
+		prefixArgv := append(append([]string{}, wpBase...), "config", "get", "table_prefix", "--path="+docroot, "--skip-themes", "--allow-root")
+		prefixOut, prefixErr := podmanmanager.Command(ctx, userContext, prefixArgv).Output()
+		tablePrefix := strings.TrimSpace(string(prefixOut))
+		if prefixErr != nil || tablePrefix == "" {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to retrieve table prefix."})
+			return
+		}
+
+		dbNameArgv := append(append([]string{}, wpBase...), "config", "get", "DB_NAME", "--path="+docroot, "--skip-themes", "--allow-root")
+		dbNameOut, dbNameErr := podmanmanager.Command(ctx, userContext, dbNameArgv).Output()
+		dbName := strings.TrimSpace(string(dbNameOut))
+		if dbNameErr != nil || dbName == "" {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to retrieve db_name from wp-cli."})
+			return
+		}
+
+		mysqlVersion := webserver.GetEnvFileValue(userContext, "MYSQL_TYPE")
+		var dumpCmd string
+		switch mysqlVersion {
+		case "mysql":
+			dumpCmd = "mysqldump"
+		case "mariadb":
+			dumpCmd = "mariadb-dump"
+		default:
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Unsupported MYSQL_TYPE: " + mysqlVersion})
+			return
+		}
+
+		rows, execErr := mysqlmanager.Exec(ctx, userContext, "SHOW TABLES IN `"+dbName+"` LIKE '"+tablePrefix+"%'", "")
+		if execErr != nil {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": execErr.Error()})
+			return
+		}
+		var tables []string
+		for _, row := range rows {
+			tables = append(tables, mysqlmanager.ToString(row[0]))
+		}
+		if len(tables) == 0 {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "No matching tables found"})
+			return
+		}
+
+		dumpArgv := podmanmanager.PodmanArgv(userContext, "exec", mysqlVersion, dumpCmd, "-u", "root", "--single-transaction", dbName)
+		dumpArgv = append(dumpArgv, tables...)
+		dumpArgv = append(dumpArgv, "--result-file=/tmp/dumps/database.sql")
+		if _, runErr := podmanmanager.Command(ctx, userContext, dumpArgv).Output(); runErr != nil {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": dumpCmd + " failed: " + runErr.Error()})
+			return
+		}
+
+		mysqlDumpPath := filepath.Join(mysqlDumpVolume, "database.sql")
+		if renameErr := os.Rename(mysqlDumpPath, filepath.Join(backupDirectory, "database.sql")); renameErr != nil {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": renameErr.Error()})
+			return
+		}
+		if uidErr == nil {
+			_ = exec.CommandContext(ctx, "chown", strconv.Itoa(uid)+":"+strconv.Itoa(uid), backupDirectory).Run()
+		}
+	}
+
+	if backupFiles {
+		tarArgv := podmanmanager.PodmanArgv(userContext, "exec", phpContainer, "bash", "-c", "cd "+docroot+" && tar -czf "+inPHPBackupDirectory+"/files.tar.gz .")
+		if runErr := podmanmanager.Command(ctx, userContext, tarArgv).Run(); runErr != nil {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": runErr.Error()})
+			return
+		}
+	}
+
+	var logAction string
+	switch {
+	case backupDatabase && backupFiles:
+		logAction = "generated full backup for WordPress website " + selectedDomain
+	case backupDatabase:
+		logAction = "generated database backup for WordPress website " + selectedDomain
+	case backupFiles:
+		logAction = "generated files backup for WordPress website " + selectedDomain
+	}
+	_ = logger.RecordUserAction(a.Config, currentUsername, logAction, reqip.ClientIP(r))
+	_, _ = w.Write([]byte("Backup completed successfully!"))
+}

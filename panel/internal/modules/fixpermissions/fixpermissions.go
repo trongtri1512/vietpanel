@@ -1,0 +1,73 @@
+// Package fixpermissions runs `opencli files-fix_permissions` over a user-chosen directory under /var/www/html/.
+package fixpermissions
+
+import (
+	"net/http"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/flash"
+	"vietpanel/panel/internal/core/session"
+)
+
+// Register wires the fix-permissions route onto mux, gated behind the "fix_permissions" feature flag
+func Register(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "fix_permissions")(h)
+	}
+	mux.Handle("/fix-permissions", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		handleFixPermissions(a, w, r)
+	}))
+}
+
+func handleFixPermissions(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	injected, err := a.InjectData(ctx, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	username, _ := injected["current_username"].(string)
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		baseDirectory := "/var/www/html"
+		raw := strings.TrimSpace(r.Form.Get("directory"))
+
+		args := []string{"files-fix_permissions", username}
+
+		if raw != "" && raw != "/" {
+			fixDirectory := filepath.Clean(raw)
+			if !isRelativeTo(fixDirectory, baseDirectory) {
+				http.Error(w, "Invalid fix_directory", http.StatusBadRequest)
+				return
+			}
+			relativePath := strings.TrimPrefix(strings.TrimPrefix(fixDirectory, baseDirectory), "/")
+			if relativePath != "" && relativePath != "." {
+				// script does its own /var/www/html -> volume translation, so pass the relative path, not a resolved one
+				args = append(args, relativePath)
+			}
+		}
+
+		_ = exec.CommandContext(ctx, "opencli", args...).Run()
+
+		sess, _ := a.Sessions.Get(r, session.CookieName)
+		flash.Add(sess, "success", "Success.")
+		_ = a.Sessions.Save(r, w, sess)
+	}
+
+	renderFixPermissionsPage(a, w, r)
+}
+
+// isRelativeTo reports whether path equals base or is nested under it.
+func isRelativeTo(path, base string) bool {
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || !strings.HasPrefix(rel, "..")
+}

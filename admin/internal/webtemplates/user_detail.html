@@ -1,0 +1,2367 @@
+<!doctype html>
+<html lang="en" class="h-full" style="color-scheme: ">
+{{template "chrome_head" .}}
+<body class="bg-white-50 h-full antialiased dark:bg-gray-950">
+    <script defer src="/static/dist/js/flowbite312.min.js"></script>
+
+<div class="flex min-h-svh w-full">
+    {{template "chrome_sidebar" .}}
+    <div class="w-full overflow-hidden">
+        {{template "chrome_topbar" .}}
+
+    <main id="no_margin_for_iframe" class="bg-white-50 antialiased dark:bg-gray-950 text-gray-800 dark:text-white min-h-[90vh]">
+        {{template "chrome_flashes" .}}
+
+{{if .User}}
+
+<div
+  x-data="{
+      activeTab: 'stats',
+      exportMode: 'backup',
+      diskInfo: [],
+      diskUsage: [],
+      loading: false,
+      error: null,
+      diskLoaded: false,
+      containerName: '{{lastSegment .Username `_`}}',
+
+      loadDiskUsage() {
+          if (this.diskLoaded) return;
+          this.diskLoaded = true;
+          this.loading = true;
+          this.error = null;
+
+          fetch(`/client/disk/{{.Username}}`)
+              .then(res => res.json())
+              .then(data => {
+                  if (data.error) {
+                      this.error = data.error;
+                      this.diskUsage = [];
+                  } else {
+                      this.diskUsage = Array.isArray(data) ? data : [];
+                  }
+              })
+              .catch(err => {
+                  this.error = 'Failed to load disk info';
+                  console.error(err);
+              })
+              .finally(() => {
+                  this.loading = false;
+              });
+      },
+
+      fetchCustomMessage() {
+          $.ajax({
+              url: '/get_custom_message_for_user/' + this.containerName,
+              type: 'GET',
+              success: function(response) {
+                  $('#custom_message_for_this_user').val(response.custom_message || '');
+              },
+              error: function(xhr) {
+                  if (xhr.status === 404) {
+                      $('#custom_message_for_this_user').val('');
+                  } else {
+                      showMessageModal('Error', (xhr.responseJSON && xhr.responseJSON.error) || 'An error occurred while retrieving the custom message.');
+                  }
+              }
+          });
+      },
+
+      initTabs() {
+          const hash = window.location.hash;
+
+          if (hash === '#services') this.activeTab = 'services';
+          else if (hash === '#activity') this.activeTab = 'activity';
+          else if (hash === '#logins') this.activeTab = 'logins';
+          else if (hash === '#suspend') this.activeTab = 'suspend';
+          else if (hash === '#unsuspend') this.activeTab = 'unsuspend';
+          else if (hash === '#export') this.activeTab = 'export';
+          else if (hash === '#storage') this.activeTab = 'storage';
+          else if (hash === '#edit') this.activeTab = 'edit';
+          else if (hash === '#permissions') this.activeTab = 'permissions';
+          else if (hash === '#delete') this.activeTab = 'delete';
+          else if (hash === '#overview') this.activeTab = 'stats';
+          else this.activeTab = 'stats';
+
+          this.$nextTick(() => {
+              if (this.activeTab === 'storage') this.loadDiskUsage();
+              else if (this.activeTab === 'activity') $store?.activityStore?.fetchLogs();
+              else if (this.activeTab === 'logins') $store?.loginsStore?.fetchloginLogs();
+              else if (this.activeTab === 'edit' || this.activeTab === 'delete') {
+                  $store?.ipStore?.fetchIPs();
+                  $store?.planStore?.fetchPlans();
+                  $store?.resellerStore?.fetchResellers();
+              }
+              else if (this.activeTab === 'stats') this.fetchCustomMessage();
+          });
+      }
+  }"
+  x-init="initTabs()"
+>
+
+    <div class="border-b border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950 sm:p-6 lg:p-8">
+        <header>
+            <div class="flex flex-col gap-2 text-center sm:flex-row sm:items-center sm:justify-between sm:text-start">
+                <div class="grow">
+                    <h1 class="mb-1 text-xl font-bold">{{lastSegment .Username "_"}} {{if contains .Username "SUSPENDED_"}}
+                        <span class="inline-flex items-center gap-x-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold ring-1 bg-red-50 text-red-700 ring-red-500/30 dark:bg-red-400/10 dark:text-red-300 dark:ring-red-400/20 ml-1">Suspended</span>{{end}} <span id="transfer-status-message"></span></h1>
+                    <h2 class="text-sm font-medium text-slate-500">
+                       <span class="inline-flex">
+{{if .CountryCode}}<img class="w-4 h-4 rounded mr-1" src="/static/dist/img/flags/{{lower .CountryCode}}.svg" alt="IP address location: {{.CountryCode}}"></img></span><span>{{.ServerIP}} / {{end}}
+{{if or (eq .PlanCPU "0") (not .PlanCPU)}}&#8734;{{else}}{{.PlanCPU}}{{end}} Cores /
+{{if or (eq .PlanRAM "0g") (not .PlanRAM)}}&#8734;{{else}}{{rstrip .PlanRAM "g"}} GB{{end}} Memory /
+{{if .Disk.DiskHard}}{{.StatsWidget.DiskHardHuman}}{{else}}&#8734;{{end}}
+                    </h2>
+               </div>
+                <div class="flex flex-none items-center justify-center gap-2 rounded-sm px-2 sm:justify-end sm:bg-transparent sm:px-0">
+
+                    {{if not (contains .Username "SUSPENDED_")}}
+
+<div id="tooltip-user-autologin" role="tooltip" class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-xs opacity-0 tooltip dark:bg-gray-700">
+    Login as {{stripSuspendedPrefix .Username}} into VietPanel
+    <div class="tooltip-arrow" data-popper-arrow></div>
+</div>
+
+<a href="/login/token/{{stripSuspendedPrefix .Username}}"
+   target="_blank"
+   data-tooltip-target="tooltip-user-autologin" data-tooltip-placement="left"
+   class="relative inline-flex items-center justify-center rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out cursor-pointer outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 dark:border-gray-800 dark:text-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 sm:w-fit border-black bg-black text-white hover:bg-gray-800 sm:mt-0"
+   x-data="{ spinning: false }"
+   @click="spinning = true; setTimeout(() => spinning = false, 500)">
+
+    <svg version="1.0"
+         style="vertical-align:middle; margin-right:5px;"
+         xmlns="http://www.w3.org/2000/svg"
+         width="24" height="24"
+         viewBox="0 0 213.000000 215.000000"
+         preserveAspectRatio="xMidYMid meet"
+         :class="{'animate-spin': spinning}">
+        <g transform="translate(0.000000,215.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+            <path d="M990 2071 c-39 -13 -141 -66 -248 -129 -53 -32 -176 -103 -272 -158 -206 -117 -276 -177 -306 -264 -17 -50 -19 -88 -19 -460 0 -476 0 -474 94 -568 55 -56 124 -98 604 -369 169 -95 256 -104 384 -37 104 54 532 303 608 353 76 50 126 113 147 184 8 30 12 160 12 447 0 395 -1 406 -22 461 -34 85 -98 138 -317 264 -104 59 -237 136 -295 170 -153 90 -194 107 -275 111 -38 2 -81 0 -95 -5z m205 -561 c66 -38 166 -95 223 -127 l102 -58 0 -262 c0 -262 0 -263 -22 -276 -13 -8 -52 -31 -88 -51 -36 -21 -126 -72 -200 -115 l-135 -78 -3 261 -3 261 -166 95 c-91 52 -190 109 -219 125 -30 17 -52 34 -51 39 3 9 424 256 437 255 3 0 59 -31 125 -69z"></path>
+        </g>
+    </svg>
+    Impersonate
+</a>
+
+                    {{end}}
+
+                </div>
+            </div>
+
+        </header>
+    </div>
+
+    <nav class="flex sm:hidden justify-center w-full overflow-y-auto  [&::-webkit-scrollbar]:w-2  [&::-webkit-scrollbar-track]:bg-gray-100  [&::-webkit-scrollbar-thumb]:bg-gray-300  dark:[&::-webkit-scrollbar-track]:bg-neutral-700  dark:[&::-webkit-scrollbar-thumb]:bg-neutral-500" aria-label="Actions" data-orientation="horizontal" dir="ltr">
+        <div style="position: relative;">
+            <ul data-orientation="horizontal" class="flex items-center justify-start whitespace-nowrap border-b [scrollbar-width:none] [&amp;::-webkit-scrollbar]:hidden border-gray-200 dark:border-gray-800" dir="ltr">
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="activeTab = 'stats'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'stats'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Overview</span>
+                    </a>
+                </li>
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="activeTab = 'services'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'services'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Services</span>
+                    </a>
+                </li>
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="activeTab = 'storage'; loadDiskUsage()"  :class="{'text-blue-600 dark:text-blue-500': activeTab === 'storage'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Storage</span>
+                    </a>
+                </li>
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="$store.activityStore.fetchLogs(); activeTab = 'activity'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'activity'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Activity</span>
+                    </a>
+                </li>
+
+
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="$store.loginsStore.fetchloginLogs(); activeTab = 'logins'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'logins'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Login Log</span>
+                    </a>
+                </li>
+
+{{if contains .Username "SUSPENDED_"}}
+                <li class="flex cursor-pointer">
+
+<form method="POST" action="/user/unsuspend/{{lastSegment .Username "_"}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <button class="" type="submit"><span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Unsuspend</span></button>
+</form>
+
+                </li>
+
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="activeTab = 'permissions'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'permissions'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Permissions</span>
+                    </a>
+                </li>
+{{else}}
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="$store.ipStore.fetchIPs(); $store.planStore.fetchPlans(); activeTab = 'edit'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'edit'}" >
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Edit</span>
+                    </a>
+                </li>
+
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="activeTab = 'permissions'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'permissions'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Permissions</span>
+                    </a>
+                </li>
+
+                {{if eq .LicenseType "Enterprise"}}
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="activeTab = 'export'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'export'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Export</span>
+                    </a>
+                </li>
+                {{end}}
+
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="activeTab = 'suspend'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'suspend'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Suspend</span>
+                    </a>
+                </li>
+{{end}}
+
+                <li class="flex cursor-pointer">
+                    <a class="group relative flex shrink-0 select-none items-center justify-center" @click="activeTab = 'delete'" :class="{'text-red-600 dark:text-red-500': activeTab === 'delete'}">
+                        <span class="-mb-px flex items-center justify-center whitespace-nowrap border-b-2 border-transparent p-3 text-sm font-medium transition-all group-hover:text-gray-700 dark:group-hover:text-gray-400 group-hover:border-gray-300 dark:group-hover:border-gray-400 group-data-active:border-blue-500 group-data-active:text-blue-500 dark:group-data-active:border-blue-500 dark:group-data-active:text-blue-500 outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500">Delete</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+<script>
+  document.addEventListener("alpine:init", () => {
+      Alpine.store("ipStore", {
+          fetchedips: false,
+          fetchIPs() {
+            if (this.fetchedips) return;
+            this.fetchedips = true;
+
+              const ipSelect = document.getElementById('ipSelect');
+              const currentIP = "{{.ServerIP}}";
+              const usernameForIP = "{{.Username}}";
+
+              fetch(`/json/ips`)
+                  .then(response => response.json())
+                  .then(data => {
+                      const ips = data[usernameForIP] ? [data[usernameForIP]] : Object.values(data);
+
+                      ipSelect.innerHTML = '<option disabled value="">Change IP address</option>';
+
+                      ips.forEach(ip => {
+                          const option = document.createElement('option');
+                          option.value = ip;
+                          option.textContent = ip;
+                          if (ip === currentIP) {
+                              option.selected = true;
+                              option.textContent = `${ip} (Current)`;
+                          }
+                          ipSelect.appendChild(option);
+                      });
+                  })
+                  .catch(error => {
+                      console.error('Error fetching IPs:', error);
+                      this.fetchedips = false;
+
+                      ipSelect.innerHTML = '';
+                      const option = document.createElement('option');
+                      option.value = currentIP;
+                      option.textContent = currentIP;
+                      option.selected = true;
+                      ipSelect.appendChild(option);
+                  });
+          }
+      });
+
+    Alpine.store("resellerStore", {
+      fetched: false,
+      fetchResellers() {
+          if (this.fetched) return;
+          this.fetched = true;
+
+          const currentReseller = "{{.User.Owner.String}}";
+          const resellerSelect = document.getElementById('resellerSelect');
+
+          fetch('/resellers?output=json')
+              .then(res => res.json())
+              .then(data => {
+                  resellerSelect.innerHTML = '<option value="">No reseller</option>';
+
+                  data.forEach(r => {
+                      const option = document.createElement('option');
+                      option.value = r.username;
+                      option.textContent = r.username;
+                      if (r.username === currentReseller) {
+                          option.selected = true;
+                      }
+                      resellerSelect.appendChild(option);
+                  });
+              })
+              .catch(err => {
+                  console.error('Error fetching resellers:', err);
+                  this.fetched = false;
+              });
+      }
+  });
+
+  Alpine.store("activityStore", {
+      activities: [],
+      fetchedactivitylogs: false,
+      fetchLogs() {
+
+        if (this.fetchedactivitylogs) return;
+        this.fetchedactivitylogs = true;
+
+          const username = "{{lastSegment .Username `_`}}";
+
+          fetch(`/json/user-activity/${username}`)
+              .then(response => response.json())
+              .then(data => {
+
+                  this.activities = [];
+
+                  if (!data.user_activity || data.user_activity.length === 0) {
+                      this.activities.push({ noActivity: true });
+                      return;
+                  }
+
+                  data.user_activity.forEach(activity => {
+                      const date = this.formatDateString(activity.timestamp);
+                      const ip = activity.ip_address;
+                      let action = activity.action;
+                      let actionClass = '';
+
+                      if (activity.user_type === 'Administrator') {
+                          action = `<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-crown" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M12 6l4 6l5 -4l-2 10h-14l-2 -10l5 4z" /></svg> ` + action;
+
+                          if (action.includes('unsuspended')) {
+                              actionClass = 'text-green bg-dark';
+                          } else if (action.includes('suspended')) {
+                              actionClass = 'text-red bg-dark';
+                          } else if (action.includes('edit') || action.includes('changed')) {
+                              actionClass = 'text-yellow bg-dark';
+                          } else {
+                              actionClass = 'text-teal bg-dark';
+                          }
+                      }
+
+                      this.activities.push({
+                          date: date,
+                          action: action,
+                          ip: ip,
+                          actionClass: actionClass,
+                      });
+                  });
+              })
+              .catch(error => {
+                  this.fetched = false;
+                  console.error('Error fetching activity logs:', error);
+              });
+      },
+
+      formatDateString(rawDate) {
+          const dateObj = new Date(rawDate);
+          let day = dateObj.getDate();
+          const month = dateObj.toLocaleString('en-US', { month: 'long' });
+          const year = dateObj.getFullYear();
+          const hours = dateObj.getHours();
+          const minutes = dateObj.getMinutes();
+
+          day = day < 10 ? '0' + day : day;
+          const formattedHours = hours < 10 ? '0' + hours : hours;
+          const formattedMinutes = minutes < 10 ? '0' + minutes : minutes;
+
+          const currentDate = new Date();
+          const currentYear = currentDate.getFullYear();
+
+          if (year !== currentYear) {
+              return `${day}.${month}.${year} ${formattedHours}:${formattedMinutes}`;
+          } else {
+              return `${day}.${month} ${formattedHours}:${formattedMinutes}`;
+          }
+      }
+  });
+
+  Alpine.store("loginsStore", {
+      logins: [],
+      fetchedloginslogs: false,
+      fetchloginLogs() {
+
+        if (this.fetchedloginslogs) return;
+        this.fetchedloginslogs = true;
+
+          const username = "{{lastSegment .Username `_`}}";
+
+          fetch(`/json/user-logins/${username}`)
+              .then(response => response.json())
+              .then(data => {
+                  this.logins = [];
+
+                  if (!data.user_logins || data.user_logins.length === 0) {
+                      this.logins.push({ noLogins: true });
+                      return;
+                  }
+
+                  data.user_logins.forEach(login => {
+                      const date = this.formatDateString(login.login_time);
+                      const ip = login.ip;
+                      const country = login.country || 'Unknown';
+
+                      this.logins.push({
+                          date: date,
+                          ip: ip,
+                          country: country
+                      });
+                  });
+              })
+              .catch(error => {
+                  this.fetched = false;
+                  console.error('Error fetching login logs:', error);
+              });
+      },
+
+      formatDateString(rawDate) {
+          const dateObj = new Date(rawDate);
+          let day = dateObj.getDate();
+          const month = dateObj.toLocaleString('en-US', { month: 'long' });
+          const year = dateObj.getFullYear();
+          const hours = dateObj.getHours();
+          const minutes = dateObj.getMinutes();
+
+          day = day < 10 ? '0' + day : day;
+          const formattedHours = hours < 10 ? '0' + hours : hours;
+          const formattedMinutes = minutes < 10 ? '0' + minutes : minutes;
+
+          const currentDate = new Date();
+          const currentYear = currentDate.getFullYear();
+
+          if (year !== currentYear) {
+              return `${day}.${month}.${year} ${formattedHours}:${formattedMinutes}`;
+          } else {
+              return `${day}.${month} ${formattedHours}:${formattedMinutes}`;
+          }
+      }
+  });
+
+      Alpine.store("planStore", {
+          plans: [],
+          selectedPlan: parseInt("{{.User.PlanID}}"),
+          plansLoaded: false,
+
+          fetchPlans() {
+              if (this.plansLoaded) return;
+
+              fetch('/plans?output=json')
+                  .then(res => res.json())
+                  .then(data => {
+                      this.plans = (data.plans || data || []).map(p => ({ ...p, showDetails: false }));
+                      this.plansLoaded = true;
+                  })
+                  .catch(err => {
+                      console.error('Failed to fetch plans:', err);
+                  });
+          },
+
+          selectPlan(planId) {
+              this.selectedPlan = planId;
+          }
+      });
+
+  });
+</script>
+
+   <div class="relative w-full p-6 text-left shadow-sm bg-white dark:bg-[#090E1A] border-gray-200 dark:border-gray-900 !p-0">
+      <div class="grid-cols-12 divide-y divide-gray-200 dark:divide-gray-800 md:grid md:divide-x md:divide-y-0">
+
+         <div class="hidden sm:flex p-4 divide-y divide-gray-200 px-2 dark:divide-gray-800 md:col-span-2">
+            <nav aria-label="core navigation links" class="flex flex-1 flex-col space-y-4">
+               <div>
+                  <span class="block h-6 text-xs font-medium leading-6 text-gray-500 dark:text-gray-500">Containers</span>
+                  <ul class="mt-1 space-y-2">
+                     <li>
+                        <a @click="activeTab = 'stats'; window.location.hash = 'stats'"  :class="{'text-blue-600 dark:text-blue-500': activeTab === 'stats'}" class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900">
+                           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chart-column-big size-5 shrink-0" aria-hidden="true">
+                              <path d="M3 3v16a2 2 0 0 0 2 2h16"></path>
+                              <rect x="15" y="5" width="4" height="12" rx="1"></rect>
+                              <rect x="7" y="8" width="4" height="9" rx="1"></rect>
+                           </svg>
+                           Overview
+                        </a>
+                     </li>
+                     <li>
+                        <a @click="activeTab = 'services'; window.location.hash = 'services'"  :class="{'text-blue-600 dark:text-blue-500': activeTab === 'services'}" class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900">
+                           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-compass size-5 shrink-0" aria-hidden="true">
+                              <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"></path>
+                              <circle cx="12" cy="12" r="10"></circle>
+                           </svg>
+                           Services
+                        </a>
+                     </li>
+                     <li>
+                        <a @click="activeTab = 'storage'; loadDiskUsage(); window.location.hash = 'storage'"   :class="{'text-blue-600 dark:text-blue-500': activeTab === 'storage'}" class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900">
+                           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-table2 size-5 shrink-0" aria-hidden="true">
+                              <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"></path>
+                           </svg>
+                           Storage
+                        </a>
+                     </li>
+                  </ul>
+               </div>
+               <div>
+                  <span class="block h-6 text-xs font-medium leading-6 text-gray-500 dark:text-gray-500">Account</span>
+                  <ul class="mt-1 space-y-2">
+                     {{if contains .Username "SUSPENDED_"}}
+                     <li>
+                        <form method="POST" action="/user/unsuspend/{{lastSegment .Username "_"}}">
+                           <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                           <button class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900 w-full" type="submit">Unsuspend</button>
+                        </form>
+                     </li>
+                     <li>
+                        <a @click="activeTab = 'permissions'; window.location.hash = 'permissions'"
+                           :class="{'text-blue-600 dark:text-blue-500': activeTab === 'permissions'}"
+                           class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900">
+                        Permissions
+                        </a>
+                     </li>
+                     {{else}}
+                     <li>
+                        <a @click="$store.ipStore.fetchIPs(); $store.planStore.fetchPlans(); activeTab = 'edit'; window.location.hash = 'edit'"
+                           :class="{'text-blue-600 dark:text-blue-500': activeTab === 'edit'}"
+                           class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900">
+                        Edit
+                        </a>
+                     </li>
+                     <li>
+                        <a @click="activeTab = 'permissions'; window.location.hash = 'permissions'"
+                           :class="{'text-blue-600 dark:text-blue-500': activeTab === 'permissions'}"
+                           class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900">
+                        Permissions
+                        </a>
+                     </li>
+                     {{if eq .LicenseType "Enterprise"}}
+                     <li>
+                        <a @click="activeTab = 'export'; window.location.hash = 'export'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'export'}"  class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900"> Export
+                        </a>
+                     </li>
+                     {{end}}
+                     <li>
+                        <a @click="activeTab = 'suspend'; window.location.hash = 'suspend'" :class="{'text-blue-600 dark:text-blue-500': activeTab === 'suspend'}"  class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900"> Suspend
+                        </a>
+                     </li>
+                     {{end}}
+                     <li>
+                        <a @click="activeTab = 'delete'; window.location.hash = 'delete'" :class="{'text-red-600 dark:text-red-500': activeTab === 'delete'}"  class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900"> Delete
+                        </a>
+                     </li>
+                  </ul>
+               </div>
+
+
+               <div>
+                  <span class="block h-6 text-xs font-medium leading-6 text-gray-500 dark:text-gray-500">Statistics</span>
+                  <ul class="mt-1 space-y-2">
+                     <li>
+                        <a @click="$store.activityStore.fetchLogs(); activeTab = 'activity'; window.location.hash = 'activity'"  :class="{'text-blue-600 dark:text-blue-500': activeTab === 'activity'}" class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900"> Activity Log
+                        </a>
+                     </li>
+
+                     <li>
+                        <a @click="$store.loginsStore.fetchloginLogs(); activeTab = 'logins'; window.location.hash = 'logins'"  :class="{'text-blue-600 dark:text-blue-500': activeTab === 'logins'}" class="cursor-pointer flex items-center gap-x-2.5 rounded p-2 text-sm font-medium transition-opacity hover:bg-gray-200/50 hover:dark:bg-gray-900"> Login Log
+                        </a>
+                     </li>
+                  </ul>
+               </div>
+            </nav>
+         </div>
+
+         <div class="md:col-span-10 h-auto">
+            <div class="relative h-full rounded">
+
+               <!-- DOCKER STATS -->
+               <div x-show="activeTab === 'stats'">
+                  <div class="relative w-full p-6 text-left shadow-sm bg-white dark:bg-[#090E1A] border-gray-200 dark:border-gray-900 overflow-hidden !p-0 sm:mx-auto">
+                     <div class="p-6">
+                        <div class="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+<div
+  x-data="{ hovered: false }"
+  class="flex items-center gap-4 sm:flex-col sm:justify-center sm:gap-1.5"
+>
+  <div class="relative">
+    <div
+      @mouseenter="hovered = true"
+      @mouseleave="hovered = false"
+    >
+      <svg width="86" height="86" viewBox="0 0 64 64" class="-rotate-90 transform" role="progress circle" aria-label="progress bar" aria-valuenow="{{.StatsWidget.DiskUsageRounded}}" aria-valuemin="0" aria-valuemax="100" data-max="100" data-value="{{.StatsWidget.DiskUsageRounded}}">
+        <circle r="29" cx="32" cy="32" stroke-width="6" fill="transparent" stroke="currentColor" stroke-linecap="round" class="transition-colors ease-linear {{.StatsWidget.DiskColorClass}}"></circle>
+        <circle
+          r="29"
+          cx="32"
+          cy="32"
+          stroke-width="6"
+          stroke-dasharray="182.212373908208 182.212373908208"
+          stroke-dashoffset="{{.StatsWidget.DiskOffset}}"
+          fill="transparent"
+          stroke="currentColor"
+          stroke-linecap="round"
+          class="stroke-current transform-gpu transition-all duration-300 ease-in-out"
+        ></circle>
+      </svg>
+      <div class="absolute inset-0 flex items-center justify-center">
+        <template x-if="!hovered">
+          <span class="text-sm font-medium text-gray-900 dark:text-gray-50">{{.StatsWidget.DiskUsageRounded}}%</span>
+        </template>
+        <template x-if="hovered">
+            <button type="button" class="relative items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center font-medium transition-all duration-100 ease-in-out disabled:pointer-events-none disabled:shadow-none outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 shadow-none border-transparent text-gray-900 dark:text-gray-50 group hidden h-10 text-sm sm:flex" @click="activeTab = 'storage'; loadDiskUsage()">Explore</button>
+        </template>
+      </div>
+    </div>
+  </div>
+  <div class="mt-0 text-left sm:mt-2 sm:text-center">
+    <p class="text-sm font-medium text-gray-900 dark:text-gray-50">
+      {{.StatsWidget.DiskUsedHuman}} / {{.StatsWidget.DiskHardHuman}}
+    </p>
+    <p class="text-sm text-gray-500 dark:text-gray-500">Storage used</p>
+  </div>
+</div>
+                           <div class="flex items-center gap-4 sm:flex-col sm:justify-center sm:gap-1.5">
+                              <div class="relative">
+                                <svg width="86" height="86" viewBox="0 0 64 64" class="-rotate-90 transform" role="progress circle" aria-label="progress bar" aria-valuenow="{{.StatsWidget.InodesUsageRounded}}" aria-valuemin="0" aria-valuemax="100" data-max="100" data-value="{{.StatsWidget.InodesUsageRounded}}">
+                                <circle r="29" cx="32" cy="32" stroke-width="6" fill="transparent" stroke="currentColor" stroke-linecap="round" class="transition-colors ease-linear {{.StatsWidget.InodesColorClass}}"></circle>
+                                <circle
+                                    r="29"
+                                    cx="32"
+                                    cy="32"
+                                    stroke-width="6"
+                                    stroke-dasharray="182.212373908208 182.212373908208"
+                                    stroke-dashoffset="{{.StatsWidget.InodesOffset}}"
+                                    fill="transparent"
+                                    stroke="currentColor"
+                                    stroke-linecap="round"
+                                    class="stroke-current transform-gpu transition-all duration-300 ease-in-out"
+                                ></circle>
+                                </svg>
+                                 <div class="absolute inset-0 flex items-center justify-center"><span class="text-sm font-medium text-gray-900 dark:text-gray-50">{{.StatsWidget.InodesUsageRounded}}%</span></div>
+                              </div>
+                              <div class="mt-0 text-left sm:mt-2 sm:text-center">
+                                <p class="text-sm font-medium text-gray-900 dark:text-gray-50">
+                                {{.StatsWidget.InodesUsedHuman}} / {{.StatsWidget.InodesHardHuman}}
+                                </p>
+                                 <p class="text-sm text-gray-500 dark:text-gray-500">Inodes used</p>
+                              </div>
+                           </div>
+<div class="flex items-center gap-4 sm:flex-col sm:justify-center sm:gap-1.5">
+    <div class="relative">
+        <svg width="86" height="86" viewBox="0 0 64 64" class="-rotate-90 transform" role="progress circle" aria-label="CPU usage">
+            <circle r="29" cx="32" cy="32" stroke-width="6" fill="transparent" stroke="currentColor" stroke-linecap="round" class="transition-colors ease-linear stroke-gray-200 dark:stroke-gray-500/40"></circle>
+            <circle
+                r="29"
+                cx="32"
+                cy="32"
+                stroke-width="6"
+                stroke-dasharray="182.212373908208 182.212373908208"
+                stroke-dashoffset="{{.StatsWidget.CPUOffset}}"
+                fill="transparent"
+                stroke="{{.StatsWidget.CPUColor}}"
+                stroke-linecap="round"
+                class="transform-gpu transition-all duration-300 ease-in-out"
+            ></circle>
+        </svg>
+        <div class="absolute inset-0 flex items-center justify-center">
+            <span class="text-sm font-medium text-gray-900 dark:text-gray-50">{{.StatsWidget.CPURatioRounded}}%</span>
+        </div>
+    </div>
+    <div class="mt-0 text-left sm:mt-2 sm:text-center">
+        <p class="text-sm font-medium text-gray-900 dark:text-gray-50">{{.StatsWidget.CPUHumanUsage}} / {{.StatsWidget.CPUHumanTotal}}</p>
+        <p class="text-sm text-gray-500 dark:text-gray-500">CPU usage</p>
+    </div>
+</div>
+<div class="flex items-center gap-4 sm:flex-col sm:justify-center sm:gap-1.5">
+    <div class="relative">
+        <svg width="86" height="86" viewBox="0 0 64 64" class="-rotate-90 transform" role="progress circle" aria-label="RAM usage">
+            <circle r="29" cx="32" cy="32" stroke-width="6" fill="transparent" stroke="currentColor" stroke-linecap="round" class="transition-colors ease-linear stroke-gray-200 dark:stroke-gray-500/40"></circle>
+            <circle
+                r="29"
+                cx="32"
+                cy="32"
+                stroke-width="6"
+                stroke-dasharray="182.212373908208 182.212373908208"
+                stroke-dashoffset="{{.StatsWidget.RAMOffset}}"
+                fill="transparent"
+                stroke="{{.StatsWidget.RAMColor}}"
+                stroke-linecap="round"
+                class="transform-gpu transition-all duration-300 ease-in-out"
+            ></circle>
+        </svg>
+        <div class="absolute inset-0 flex items-center justify-center">
+            <span class="text-sm font-medium text-gray-900 dark:text-gray-50">{{.StatsWidget.RAMPercentRounded}}%</span>
+        </div>
+    </div>
+    <div class="mt-0 text-left sm:mt-2 sm:text-center">
+        <p class="text-sm font-medium text-gray-900 dark:text-gray-50">{{.StatsWidget.RAMHumanUsage}} / {{.StatsWidget.RAMHumanTotal}}</p>
+        <p class="text-sm text-gray-500 dark:text-gray-500">Memory usage</p>
+    </div>
+</div>
+                        </div>
+                     </div>
+                     <div x-data="{ open: false }">
+                      <div class="flex justify-between mt-4 border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-900 dark:bg-gray-950">
+                        <div>
+                          <h4 class="text-sm font-medium text-gray-900 dark:text-gray-50">Last updated:</h4>
+                          <p class="mt-0.5 text-sm text-gray-500 dark:text-gray-500">{{if .Stats}}{{index .Stats "timestamp"}}{{end}}</p>
+                        </div>
+                        <div>
+                          <button id="get_docker_history_usage" @click="open = !open" class="relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded border p-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out disabled:pointer-events-none disabled:shadow-none outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hover:bg-gray-50 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 cursor-pointer">
+                            <span x-text="open ? 'Hide Past Usage' : 'View Past Usage'"></span>
+                          </button>
+                        </div>
+                      </div>
+
+<div id="docker_stats_history" x-show="open" x-cloak class="overflow-x-auto">
+  <div class="w-full overflow-auto whitespace-nowrap border-t border-gray-200 dark:border-gray-800">
+    <table id="usage" class="w-full caption-bottom border-b border-gray-200 dark:border-gray-800">
+      <thead>
+        <tr class="bg-gray-50 dark:bg-gray-900 sm:[&amp;_td:last-child]:pr-6 sm:[&amp;_th:last-child]:pr-6 sm:[&amp;_td:first-child]:pl-6 sm:[&amp;_th:first-child]:pl-6">
+          <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Date</th>
+          <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">CPU %</th>
+          <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">CPU Usage</th>
+          <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Memory %</th>
+          <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Memory Usage</th>
+          <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Tasks</th>
+          <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Bandwidth</th>
+          <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Warning</th>
+        </tr>
+      </thead>
+      <tbody id="usageTableBody" class="divide-y divide-gray-200 dark:divide-gray-800"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const username = '{{lastSegment .Username `_`}}';
+  const fetchButton = document.getElementById("get_docker_history_usage");
+  const tbody = document.getElementById("usageTableBody");
+
+  let alreadyFetched = false;
+
+  fetchButton.addEventListener("click", () => {
+    if (alreadyFetched) return;
+    alreadyFetched = true;
+
+    fetch(`/get_resource_usage_history/${username}`)
+      .then(response => {
+        if (!response.ok) throw new Error('Failed to fetch resource usage history');
+        return response.text();
+      })
+      .then(text => {
+        const lines = text.trim().split('\n').reverse();
+
+        lines.forEach(line => {
+          let data;
+          try {
+            data = JSON.parse(line);
+          } catch(e) {
+            return;
+          }
+
+          const timestamp = data.timestamp;
+          const cpuPercent = data.cpu?.usage?.pct ?? 0;
+          const cpuUsage = data.cpu?.usage?.human ?? '-';
+          const memPercent = data.memory?.usage_pct ?? 0;
+          const memUsage = `${data.memory?.used?.human ?? '-'} / ${data.memory?.total?.human ?? '-'}`;
+          const tasks = `${data.tasks?.current ?? '-'} / ${data.tasks?.limit ?? '-'}`;
+          const bandwidth = data.bandwidth?.total_sent?.human ?? '-';
+          const warning = data.warning ?? '-';
+
+          const tr = document.createElement('tr');
+          tr.className = "sm:[&_td:last-child]:pr-6 sm:[&_td:first-child]:pl-6 hover:bg-white dark:hover:bg-gray-900";
+
+          tr.innerHTML = `
+            <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400 time_readable">${timestamp}</td>
+            <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400">${cpuPercent}</td>
+            <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400">${cpuUsage}</td>
+            <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400">${memPercent}</td>
+            <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400">${memUsage}</td>
+            <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400">${tasks}</td>
+            <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400">${bandwidth}</td>
+            <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400">${warning}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+        updateAllTimestamps();
+      })
+      .catch(error => {
+        console.error(error);
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center p-4 text-red-600">Error loading usage data: ${error.message}</td></tr>`;
+      });
+
+  });
+</script>
+                  </div>
+               </div>
+
+               <div class="p-4 border-t border-gray-200 dark:border-gray-800">
+                  <div class="grid grid-cols-2 gap-4">
+                     <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Username:</span><span class="font-medium flex items-center gap-1">{{firstSegment .Username "_"}}
+                        <a href="#edit" @click="activeTab='edit'; window.location.hash='edit'" class="hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Edit username"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>
+                        </span></div>
+                     <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Email address:</span><span class="font-medium flex items-center gap-1">{{.User.Email}}
+                        <a href="#edit" @click="activeTab='edit'; window.location.hash='edit'" class="hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Edit email address"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>
+                        </span></div>
+                     <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Plan:</span><span class="font-medium">{{if .PlanName}}<a href="/plans/{{.PlanID}}" class="text-blue-500 hover:underline">{{.PlanName}}</a>{{else}}-{{end}}</span></div>
+                     <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50" x-data="{ editing: false }"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Locale:</span>
+                        <span x-show="!editing" class="flex items-center font-medium">
+                        {{if .Locale}}<img class="w-4 h-4 rounded mr-1" src="/static/dist/img/flags/{{localeFlag .Locale}}.svg" alt="Locale: {{.Locale}}"></img> {{upper .Locale}}{{else}}default{{end}}
+                        <a href="#" @click.prevent="editing = true" class="ml-1 hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Change locale"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>
+                        </span>
+                        <form x-show="editing" @click.stop="editing = true" method="POST" action="/users/{{lastSegment .Username `_`}}/account-setting/locale" class="flex items-center gap-2">
+                           <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                           <select name="value" class="text-sm rounded border px-2 py-1 border-gray-300 dark:border-gray-700 dark:bg-gray-700 dark:text-white">
+                              {{range .InstalledLocales}}<option value="{{.}}" {{if eq . $.Locale}}selected{{end}}>{{upper .}}</option>{{end}}
+                           </select>
+                           <button type="submit" class="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600 cursor-pointer">Save</button>
+                        </form>
+                     </div>
+
+                     <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50" x-data="{ editing: false }"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">2FA status:</span><span x-show="!editing" class="font-medium flex items-center gap-1">{{if .User.TwoFAEnabled}}<span class="inline-flex items-center gap-x-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold ring-1 bg-emerald-50 text-emerald-800 ring-emerald-600/30 dark:bg-emerald-400/10 dark:text-emerald-400 dark:ring-emerald-400/20">Active</span><a href="#" @click.prevent="editing = true" class="hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Disable 2FA"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>{{else}}<span class="inline-flex items-center gap-x-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold ring-1 bg-yellow-50 text-yellow-800 ring-yellow-600/30 dark:bg-yellow-400/10 dark:text-yellow-500 dark:ring-yellow-400/20">Inactive</span>{{end}}</span>
+                        {{if .User.TwoFAEnabled}}
+                        <form x-show="editing" @click.stop="editing = true" method="POST" action="/users/{{lastSegment .Username `_`}}/account-setting/twofa" onsubmit="return confirm('Disable Two-Factor Authentication for this user?')">
+                           <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                           <button type="submit" class="px-2 py-1 text-xs text-white bg-red-600 rounded hover:bg-red-700 cursor-pointer">Disable 2FA</button>
+                        </form>
+                        {{end}}
+                     </div>
+
+        {{if index .EnvData "USER_ID"}}
+        <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">User ID (UID):</span><span class="font-medium">{{index .EnvData "USER_ID"}}</span></div>
+        {{else}}
+        <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">User ID (in database):</span><span class="font-medium">{{.User.ID}}</span></div>
+        {{end}}
+
+                     <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">IP address:</span><span class="font-medium flex items-center"> {{.ServerIP}}<span class="hidden sm:flex items-center gap-x-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold ring-1 bg-gray-50 text-gray-800 ring-gray-600/30 dark:bg-gray-400/10 dark:text-gray-500 dark:ring-gray-400/20 ml-1">{{.IPType}}</span>
+                        <a href="#edit" @click="activeTab='edit'; window.location.hash='edit'" class="ml-1 hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Change IP address"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>
+                        </span></div>
+                     <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Geo Location:</span><span class="flex items-center font-medium">
+                        {{if .CountryCode}}<img class="w-4 h-4 rounded mr-1" src="/static/dist/img/flags/{{lower .CountryCode}}.svg" alt="IP address location: {{.CountryCode}}"></img>{{end}} {{.CountryCode}}</span></div>
+
+                     <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Server:</span><span class="font-medium flex items-center gap-1">{{.ServerName}}
+                        {{if eq .LicenseType "Enterprise"}}<a href="#export" @click="activeTab='export'; exportMode='transfer'; window.location.hash='export'" class="hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Transfer to another server"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>{{end}}
+                        </span></div>
+
+                     <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Docker Context:</span><span class="font-medium">{{.DockerCtx}}</span></div>
+                     <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Home dir:</span><span class="font-medium">/home/{{.DockerCtx}}/</span></div>
+
+        {{if index .EnvData "WEB_SERVER"}}
+        <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50" x-data="{ editing: false }"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Web server:</span>
+           <span x-show="!editing" class="font-medium flex gap-1 items-center">{{index .EnvData "WEB_SERVER"}}
+              <a href="#" @click.prevent="editing = true" class="hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Change web server"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>
+           </span>
+           <form x-show="editing" @click.stop="editing = true" method="POST" action="/users/{{lastSegment .Username `_`}}/account-setting/webserver" class="flex items-center gap-2">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <select name="value" class="text-sm rounded border px-2 py-1 border-gray-300 dark:border-gray-700 dark:bg-gray-700 dark:text-white">
+                 {{$currentWS := index .EnvData "WEB_SERVER"}}
+                 {{range .WebserverOptions}}<option value="{{.}}" {{if eq . $currentWS}}selected{{end}}>{{.}}</option>{{end}}
+              </select>
+              <button type="submit" class="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600 cursor-pointer">Save</button>
+           </form>
+        </div>
+        {{end}}
+
+        <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50" x-data="{ editing: false, varnishOn: {{if index .EnvData `PROXY_HTTP_PORT`}}true{{else}}false{{end}} }"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Varnish Caching:</span>
+           <span x-show="!editing" class="font-medium flex items-center gap-1"><span :class="varnishOn ? 'inline-flex items-center gap-x-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold ring-1 bg-emerald-50 text-emerald-800 ring-emerald-600/30 dark:bg-emerald-400/10 dark:text-emerald-400 dark:ring-emerald-400/20' : 'inline-flex items-center gap-x-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-semibold ring-1 bg-gray-50 text-gray-800 ring-gray-600/30 dark:bg-gray-400/10 dark:text-gray-500 dark:ring-gray-400/20'" x-text="varnishOn ? 'Enabled' : 'Disabled'"></span>
+              <a href="#" @click.prevent="editing = true" class="hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Change Varnish caching"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>
+           </span>
+           <form x-show="editing" @click.stop="editing = true" method="POST" action="/users/{{lastSegment .Username `_`}}/account-setting/varnish" class="flex items-center gap-2">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <select name="value" class="text-sm rounded border px-2 py-1 border-gray-300 dark:border-gray-700 dark:bg-gray-700 dark:text-white">
+                 <option value="enable" {{if index .EnvData "PROXY_HTTP_PORT"}}selected{{end}}>Enabled</option>
+                 <option value="disable" {{if not (index .EnvData "PROXY_HTTP_PORT")}}selected{{end}}>Disabled</option>
+              </select>
+              <button type="submit" class="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600 cursor-pointer">Save</button>
+           </form>
+        </div>
+
+        {{if .DefaultPHPVersion}}
+        <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50" x-data="phpDefaultVersionEditor('{{lastSegment .Username `_`}}', '{{.DefaultPHPVersion}}')"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Default PHP version:</span>
+           <span x-show="!editing" class="font-medium flex items-center gap-1"><span x-text="current"></span>
+              <a href="#" @click.prevent="startEdit()" class="hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Change default PHP version"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>
+           </span>
+           <div x-show="editing" class="flex items-center gap-2">
+              <select x-model="selected" class="text-sm rounded border px-2 py-1 border-gray-300 dark:border-gray-700 dark:bg-gray-700 dark:text-white">
+                 <template x-if="loading"><option>Loading…</option></template>
+                 <template x-for="v in versions" :key="v"><option :value="v" x-text="v"></option></template>
+              </select>
+              <button type="button" @click="save()" :disabled="saving" class="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600 disabled:bg-blue-300 cursor-pointer">Save</button>
+              <button type="button" @click="editing = false" class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-700 cursor-pointer">Cancel</button>
+           </div>
+        </div>
+        <script>
+        function phpDefaultVersionEditor(username, currentVersion) {
+            return {
+                editing: false,
+                loading: false,
+                saving: false,
+                versions: [],
+                current: currentVersion,
+                selected: currentVersion,
+
+                startEdit() {
+                    this.editing = true;
+                    this.selected = this.current;
+                    if (this.versions.length === 0) {
+                        this.loading = true;
+                        fetch(`/php/${encodeURIComponent(username)}/available`)
+                            .then(res => res.json())
+                            .then(data => { this.versions = data.versions || []; })
+                            .catch(() => { this.versions = []; })
+                            .finally(() => { this.loading = false; });
+                    }
+                },
+
+                save() {
+                    if (!this.selected || this.selected === this.current) {
+                        this.editing = false;
+                        return;
+                    }
+                    this.saving = true;
+                    fetch(`/php/${encodeURIComponent(username)}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
+                        },
+                        body: new URLSearchParams({ version: this.selected })
+                    })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.version) {
+                                this.current = data.version;
+                                showToast(`Default PHP version updated to ${data.version}`, 'success');
+                            } else {
+                                showToast(data.error || 'Failed to update default PHP version', 'error');
+                            }
+                        })
+                        .catch(() => showToast('Failed to update default PHP version', 'error'))
+                        .finally(() => {
+                            this.saving = false;
+                            this.editing = false;
+                        });
+                }
+            };
+        }
+        </script>
+        {{end}}
+
+        {{if index .EnvData "MYSQL_TYPE"}}
+        <div class="group flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50" x-data="{ editing: false }"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Database type:</span>
+           <span x-show="!editing" class="font-medium flex items-center gap-1">{{if eq (index .EnvData "MYSQL_TYPE") "mysql"}}MySQL{{else if eq (index .EnvData "MYSQL_TYPE") "mariadb"}}MariaDB{{end}}
+              <a href="#" @click.prevent="editing = true" class="hidden group-hover:inline-block text-gray-400 hover:text-gray-600 cursor-pointer" title="Change database type"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>
+           </span>
+           <form x-show="editing" @click.stop="editing = true" method="POST" action="/users/{{lastSegment .Username `_`}}/account-setting/database_type" class="flex items-center gap-2">
+              <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+              <select name="value" class="text-sm rounded border px-2 py-1 border-gray-300 dark:border-gray-700 dark:bg-gray-700 dark:text-white">
+                 <option value="mysql" {{if eq (index .EnvData "MYSQL_TYPE") "mysql"}}selected{{end}}>MySQL</option>
+                 <option value="mariadb" {{if eq (index .EnvData "MYSQL_TYPE") "mariadb"}}selected{{end}}>MariaDB</option>
+              </select>
+              <button type="submit" class="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600 cursor-pointer">Save</button>
+           </form>
+        </div>
+        {{end}}
+
+                     {{if .User.Owner.Valid}}
+                     <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Reseller:</span><span class="font-medium"><a href="/resellers">{{.User.Owner.String}}</a></span></div>
+                     {{end}}
+                     <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Setup time:</span><span class="font-medium">{{formatDateTime .User.RegisteredDate.String}}</span></div>
+
+{{if contains .Username "SUSPENDED_"}}
+  <div class="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"><span class="text-sm capitalize text-gray-600 dark:text-gray-400">Suspended on:</span><span class="font-medium">{{replace (suspendedLabel .Username) "on: " ""}}</span></div>
+{{end}}
+
+                  </div>
+               </div>
+
+               </div>
+               <!-- END DOCKER STATS -->
+
+               <!-- DOCKER SERVICES -->
+            <div x-show="activeTab === 'services'" x-cloak x-data="settingsEditor" x-init="loadColumns()">
+                  <div class="flex flex-col justify-between gap-2 px-4 py-6 sm:flex-row sm:items-center sm:p-6">
+                     <div>
+                     <div class="flex gap-2" x-show="!showEditor">
+                        <div class="relative w-full sm:w-64 [&amp;>input]:py-1.5">
+                            <input x-model="searchQuery" class="relative block w-full appearance-none rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500 bg-white dark:bg-gray-950 disabled:border-gray-300 disabled:bg-gray-100 disabled:text-gray-400 disabled:dark:border-gray-700 disabled:dark:bg-gray-800 disabled:dark:text-gray-500 focus:ring-2 focus:ring-blue-200 focus:dark:ring-blue-700/30 focus:border-blue-500 focus:dark:border-blue-700 [&amp;::-webkit-search-cancel-button]:hidden [&amp;::-webkit-search-decoration]:hidden pl-8" placeholder="Search containers..." type="search"/>
+                            <div class="pointer-events-none absolute bottom-0 left-2 flex h-full items-center justify-center text-gray-400 dark:text-gray-600">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-[1.125rem] shrink-0"><path d="M18.031 16.6168L22.3137 20.8995L20.8995 22.3137L16.6168 18.031C15.0769 19.263 13.124 20 11 20C6.032 20 2 15.968 2 11C2 6.032 6.032 2 11 2C15.968 2 20 6.032 20 11C20 13.124 19.263 15.0769 18.031 16.6168ZM16.0247 15.8748C17.2475 14.6146 18 12.8956 18 11C18 7.1325 14.8675 4 11 4C7.1325 4 4 7.1325 4 11C4 14.8675 7.1325 18 11 18C12.8956 18 14.6146 17.2475 15.8748 16.0247L16.0247 15.8748Z"></path></svg>
+                            </div>
+                        </div>
+                        <!-- Dropdown for Column Visibility -->
+                        <div class="relative">
+                                <button id="dropdownToggleButton" data-dropdown-toggle="dropdownToggle" class="relative items-center justify-center whitespace-nowrap rounded border text-center font-medium shadow-sm transition-all duration-100 ease-in-out disabled:pointer-events-none disabled:shadow-none outline outline-offset-2 outline-0 focus-visible:outline-2 outline-indigo-500 dark:outline-indigo-500 border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hover:bg-gray-50 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 ml-auto hidden gap-x-2 px-2 py-1.5 text-sm sm:text-xs lg:flex cursor-pointer" type="button"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-4"><path d="M5 7C5 6.17157 5.67157 5.5 6.5 5.5C7.32843 5.5 8 6.17157 8 7C8 7.82843 7.32843 8.5 6.5 8.5C5.67157 8.5 5 7.82843 5 7ZM6.5 3.5C4.567 3.5 3 5.067 3 7C3 8.933 4.567 10.5 6.5 10.5C8.433 10.5 10 8.933 10 7C10 5.067 8.433 3.5 6.5 3.5ZM12 8H20V6H12V8ZM16 17C16 16.1716 16.6716 15.5 17.5 15.5C18.3284 15.5 19 16.1716 19 17C19 17.8284 18.3284 18.5 17.5 18.5C16.6716 18.5 16 17.8284 16 17ZM17.5 13.5C15.567 13.5 14 15.067 14 17C14 18.933 15.567 20.5 17.5 20.5C19.433 20.5 21 18.933 21 17C21 15.067 19.433 13.5 17.5 13.5ZM4 16V18H12V16H4Z"></path></svg> Show Columns</button>
+                                <!-- Dropdown menu -->
+                                <div id="dropdownToggle" class="z-10 text-sm shadow-md border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-gray-50 dark:bg-gray-950 divide-y divide-gray-100 rounded-lg shadow-sm w-64 dark:divide-gray-600 hidden">
+                                    <ul class="p-2 space-y-1" aria-labelledby="dropdownToggleButton">
+                                    {{range serviceColumns}}
+                                    <li>
+                                            <div class="flex py-1 rounded-sm hover:bg-gray-100 dark:hover:bg-gray-600">
+                                                <label class="inline-flex items-center w-full cursor-pointer">
+                                                <input type="checkbox" x-model="columns.{{.Key}}" x-on:change="saveColumns" class="sr-only peer">
+                                                <div class="relative w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full rtl:peer-checked:after:translate-x-[-100%] peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-500 peer-checked:bg-blue-600 dark:peer-checked:bg-blue-600"></div>
+                                                <span class="ms-3 text-sm font-medium text-gray-900 dark:text-gray-300">{{.Label}}</span>
+                                                </label>
+                                            </div>
+                                    </li>
+                                    {{end}}
+                                    </ul>
+                                </div>
+                        </div>
+                     </div>
+                     </div>
+                     <div class="relative w-full sm:w-64 [&amp;>input]:py-1.5">
+                        <button
+                        type="button"
+                        @click="showEditor = !showEditor; if (showEditor) { loadEditorData(); }"
+                        class="relative items-center justify-center whitespace-nowrap rounded border text-center font-medium shadow-sm transition-all duration-100 ease-in-out disabled:pointer-events-none disabled:shadow-none outline outline-offset-2 outline-0 focus-visible:outline-2 outline-indigo-500 dark:outline-indigo-500 border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hover:bg-gray-50 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 ml-auto flex gap-x-2 px-2 py-1.5 text-sm sm:text-xs cursor-pointer"
+                        >
+                        <span x-text="showEditor ? 'Close Editor' : 'Edit Services'"></span>
+                        </button>
+                     </div>
+                  </div>
+                  <div class="overflow-x-auto">
+                     <div class="w-full overflow-auto whitespace-nowrap border-t border-gray-200 dark:border-gray-800">
+                        <div x-show="!showEditor">
+                        {{if .Services}}
+                        {{template "bulk_open" (dict "Table" "#user_services_table" "Endpoint" (printf "/containers/%s/bulk" (lastSegment .Username "_")))}}
+                        <table id="user_services_table" class="w-full caption-bottom border-b border-gray-200 dark:border-gray-800">
+                           <thead>
+                              <tr class="whitespace-nowrap border-b px-4 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800 bg-gray-50 py-3 pl-4 sm:pl-6 dark:bg-gray-900">
+{{template "bulk_head_checkbox" .}}
+                                 <th x-show="columns.name" scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Name</th>
+                                 <th x-show="columns.image" scope="col" class="w-10 whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Image</th>
+                                 <th x-show="columns.ports" scope="col" class="w-10 whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Ports</th>
+                                 <th x-show="columns.env" scope="col" class="w-10 whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Env</th>
+                                 <th x-show="columns.cpu" scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">CPU</th>
+                                 <th x-show="columns.ram" scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Memory</th>
+                                 <th x-show="columns.pids" scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">PIDs</th>
+                                 <th x-show="columns.actions" scope="col" class="w-10 whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Actions</th>
+                              </tr>
+                           </thead>
+                           <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                              {{range .Services}}
+                              <tr x-show="searchQuery === '' || '{{.ContainerName | jsStr}}'.toLowerCase().includes(searchQuery.toLowerCase()) || '{{.Name | jsStr}}'.toLowerCase().includes(searchQuery.toLowerCase()) || '{{.Image | jsStr}}'.toLowerCase().includes(searchQuery.toLowerCase())" class="domain_row sm:[&_td:last-child]:pr-6 sm:[&_td:first-child]:pl-6 hover:bg-white dark:hover:bg-gray-900">
+{{template "bulk_row_checkbox" (dict "Key" .Name "Label" .Name)}}
+                                 <td x-show="columns.name">
+                                    <div class="flex flex-col gap-1">
+                                       <span class="font-medium text-gray-900 dark:text-gray-50">{{.ContainerName}}</span>
+                                    </div>
+                                 </td>
+                                 <td x-show="columns.image">
+                                    <div class="flex flex-col gap-1">
+                                       <div class="flex items-center gap-1 text-xs">
+                                          <span class="font-mono font-medium uppercase tabular-nums text-gray-900 dark:text-gray-50">{{.Image}}</span>
+                                          {{if or (contains .Image "httpd") (contains .Image "busybox") (contains .Image "elasticsearch") (contains .Image "mariadb") (contains .Image "memcached") (contains .Image "mysql") (contains .Image "redis") (contains .Image "nginx") (contains .Image "-fpm") (contains .Image "openpanel") (contains .Image "varnish") (contains .Image "offen") (contains .Image "mcuadros") (contains .Image "litespeedtech") (contains .Image "opensearchproject") (contains .Image "openresty") (contains .Image "dpage")}}
+                                          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="remixicon size-3 shrink-0 text-emerald-600 dark:text-emerald-400">
+                                             <path d="M12 1L20.2169 2.82598C20.6745 2.92766 21 3.33347 21 3.80217V13.7889C21 15.795 19.9974 17.6684 18.3282 18.7812L12 23L5.6718 18.7812C4.00261 17.6684 3 15.795 3 13.7889V3.80217C3 3.33347 3.32553 2.92766 3.78307 2.82598L12 1ZM16.4524 8.22183L11.5019 13.1709L8.67421 10.3431L7.25999 11.7574L11.5026 16L17.8666 9.63604L16.4524 8.22183Z"></path>
+                                          </svg>
+                                          {{else}}
+                                          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="remixicon size-3 shrink-0 text-gray-400 dark:text-gray-600">
+                                             <path d="M12 1L20.2169 2.82598C20.6745 2.92766 21 3.33347 21 3.80217V13.7889C21 15.795 19.9974 17.6684 18.3282 18.7812L12 23L5.6718 18.7812C4.00261 17.6684 3 15.795 3 13.7889V3.80217C3 3.33347 3.32553 2.92766 3.78307 2.82598L12 1ZM16.4524 8.22183L11.5019 13.1709L8.67421 10.3431L7.25999 11.7574L11.5026 16L17.8666 9.63604L16.4524 8.22183Z"></path>
+                                          </svg>
+                                          {{end}}
+                                       </div>
+                                    </div>
+                                 </td>
+                                 <td x-show="columns.ports" class="px-2">
+                                    <div class="flex flex-col">
+                                       {{range .Ports}}{{if ne .Published "0"}}<span class="text-xs font-medium text-gray-500 dark:text-gray-500">{{.HostIP}}:{{.Published}} → {{.Target}}</span>{{end}}{{end}}
+                                    </div>
+                                 </td>
+                                 <td x-show="columns.env" class="px-2">
+                                    {{if .Environment}}
+                                    <div class="flex flex-col gap-0.5">
+                                       {{range .Environment}}
+                                       <span x-data="{ revealed: false, key: '{{.Key | lower | jsStr}}', get isSensitive() { return ['password','secret','token','key','pass','pwd','auth','credential','private'].some(k => this.key.includes(k)); } }" class="text-xs text-gray-500 dark:text-gray-500 flex items-center gap-1">
+                                          {{.Key}}:&nbsp;
+                                          <template x-if="isSensitive">
+                                             <span class="inline-flex items-center gap-1">
+                                                <span x-text="revealed ? '{{.Value | jsStr}}' : '••••••••'" :class="revealed ? 'font-medium font-mono text-gray-900 dark:text-gray-50' : 'tracking-widest text-gray-400 dark:text-gray-600 select-none'"></span>
+                                                <button @click="revealed = !revealed" type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 focus:outline-none">
+                                                   <svg x-show="!revealed" xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8M1.173 8a13 13 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13 13 0 0 1 14.828 8q-.086.13-.195.288c-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5s-3.879-1.168-5.168-2.457A13 13 0 0 1 1.172 8z"/><path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0"/></svg>
+                                                   <svg x-show="revealed" xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="m10.79 12.912-1.614-1.615a3.5 3.5 0 0 1-4.474-4.474l-2.06-2.06C.938 6.278 0 8 0 8s3 5.5 8 5.5a7 7 0 0 0 2.79-.588M5.21 3.088A7 7 0 0 1 8 2.5c5 0 8 5.5 8 5.5s-.939 1.721-2.641 3.238l-2.062-2.062a3.5 3.5 0 0 0-4.474-4.474zM5.525 7.646a2.5 2.5 0 0 0 2.829 2.829zm4.95.708-2.829-2.83a2.5 2.5 0 0 1 2.829 2.829zm3.171 6-12-12 .708-.708 12 12z"/></svg>
+                                                </button>
+                                             </span>
+                                          </template>
+                                          <template x-if="!isSensitive">
+                                             <span class="font-medium text-gray-900 dark:text-gray-50">{{.Value}}</span>
+                                          </template>
+                                       </span>
+                                       {{end}}
+                                    </div>
+                                    {{end}}
+                                 </td>
+                                 <td x-show="columns.cpu" x-data="{
+                                    editing: false,
+                                    rawValue: '{{.CPULimit | jsStr}}',
+                                    CPUinputValue: '{{if .CPULimit}}{{.CPULimit | jsStr}}{{else}}0{{end}}',
+                                    get isUnlimited() { return this.rawValue === '' || this.rawValue === '0'; },
+                                    get value() { return this.isUnlimited ? '∞' : this.rawValue; },
+                                    set value(val) { this.rawValue = val; this.CPUinputValue = val; }}"
+                                    class="relative group cursor-pointer p-4 text-sm whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-left">
+                                    <div class="flex gap-2">
+                                       <div id="cpu-{{.Name}}">
+                                          <div class="flex items-center gap-x-2.5">
+                                             <div class="relative" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                                <svg width="28" height="28" viewBox="0 0 28 28" class="-rotate-90 transform">
+                                                   <circle r="12.5" cx="14" cy="14" stroke-width="3" fill="transparent" class="stroke-gray-100 dark:stroke-gray-500/30"></circle>
+                                                   <circle r="12.5" cx="14" cy="14" stroke-width="3" stroke-dasharray="78.54" stroke-dashoffset="78.54" fill="transparent" class="stroke-blue-500 dark:stroke-blue-500 transition-all duration-300"></circle>
+                                                </svg>
+                                                <div class="absolute inset-0 flex items-center justify-center">
+                                                   <span class="text-[11px] font-semibold">0</span>
+                                                </div>
+                                             </div>
+                                          </div>
+                                       </div>
+                                       <div class="flex flex-col gap-0">
+                                          <span class="text-gray-900 dark:text-gray-50">
+                                             <span class="text-xs text-gray-500 dark:text-gray-500">Usage: </span>
+                                             <span class="font-medium" id="cpu-usage-{{.Name}}"></span>
+                                          </span>
+                                          <span class="flex items-center justify-center text-xs text-gray-500 dark:text-gray-500">
+                                             Allocated:&nbsp;
+                                             <span x-show="!editing"><span class="font-medium" x-text="value"></span> cores
+                                             <a href="#" @click.prevent="editing = !editing" class="transform hidden group-hover:inline-block text-gray-400 hover:text-gray-600"><span x-show="!editing"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></span></a>
+                                             </span>
+                                             <form action="/containers/{{lastSegment $.Username `_`}}/cpu/{{.Name}}" method="POST" x-show="editing" @click.stop="editing = true" class="flex items-center gap-2">
+                                                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"/>
+                                                <input x-model="CPUinputValue" title="Max CPUs that this service can use. 0 = unlimited" name="value" type="number" min="0" step=".01" class="w-20 px-2 py-1 border rounded dark:bg-gray-700 dark:text-white" />
+                                                <button type="submit" class="px-2 py-1 text-white bg-blue-500 rounded hover:bg-blue-600">Save</button>
+                                             </form>
+                                          </span>
+                                       </div>
+                                    </div>
+                                 </td>
+                                 <td x-show="columns.ram" x-data="{
+                                    editing: false,
+                                    rawValue: '{{.MemoryLimitGB | jsStr}}',
+                                    RAMinputValue: '{{if .MemoryLimitGB}}{{.MemoryLimitGB | jsStr}}{{else}}0{{end}}',
+                                    get isUnlimited() { return this.rawValue === '' || this.rawValue === '0'; },
+                                    get value() { return this.isUnlimited ? '∞' : this.rawValue + ' GB'; },
+                                    set value(val) { this.rawValue = val; this.RAMinputValue = val; }}"
+                                    class="relative group cursor-pointer p-4 text-sm whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-left">
+                                    <div class="flex gap-2">
+                                       <div id="ram-{{.Name}}">
+                                          <div class="flex items-center gap-x-2.5">
+                                             <div class="relative" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                                <svg width="28" height="28" viewBox="0 0 28 28" class="-rotate-90 transform">
+                                                   <circle r="12.5" cx="14" cy="14" stroke-width="3" fill="transparent" class="stroke-gray-100 dark:stroke-gray-500/30"></circle>
+                                                   <circle r="12.5" cx="14" cy="14" stroke-width="3" stroke-dasharray="78.54" stroke-dashoffset="78.54" fill="transparent" class="stroke-blue-500 dark:stroke-blue-500 transition-all duration-300"></circle>
+                                                </svg>
+                                                <div class="absolute inset-0 flex items-center justify-center">
+                                                   <span class="text-[11px] font-semibold">0</span>
+                                                </div>
+                                             </div>
+                                          </div>
+                                       </div>
+                                       <div class="flex flex-col gap-0">
+                                          <span class="text-gray-900 dark:text-gray-50">
+                                             <span class="text-xs text-gray-500 dark:text-gray-500">Usage: </span>
+                                             <span class="font-medium" id="ram-usage-{{.Name}}"></span>
+                                          </span>
+                                          <span class="flex items-center justify-center text-xs text-gray-500 dark:text-gray-500">
+                                             Allocated:&nbsp;
+                                             <span x-show="!editing"><span class="font-medium" x-text="value"></span>
+                                             <a href="#" @click.prevent="editing = !editing" class="transform hidden group-hover:inline-block text-gray-400 hover:text-gray-600"><span x-show="!editing"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></span></a>
+                                             </span>
+                                             <form action="/containers/{{lastSegment $.Username `_`}}/ram/{{.Name}}" method="POST" x-show="editing" @click.stop="editing = true" class="flex items-center gap-2">
+                                                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"/>
+                                                <input x-model="RAMinputValue" title="Max memory that this service can use. 0 = unlimited" name="value" type="number" min="0" step=".01" class="w-20 px-2 py-1 border rounded dark:bg-gray-700 dark:text-white" />
+                                                <button type="submit" class="px-2 py-1 text-white bg-blue-500 rounded hover:bg-blue-600">Save</button>
+                                             </form>
+                                          </span>
+                                       </div>
+                                    </div>
+                                 </td>
+                                 <td x-show="columns.pids" x-data="{
+                                    editing: false,
+                                    rawValue: '{{.PIDsLimit | jsStr}}',
+                                    PIDSinputValue: '{{if .PIDsLimit}}{{.PIDsLimit | jsStr}}{{else}}0{{end}}',
+                                    get isUnlimited() { return this.rawValue === '' || this.rawValue === '0'; },
+                                    get value() { return this.isUnlimited ? '∞' : this.rawValue; },
+                                    set value(val) { this.rawValue = val; this.PIDSinputValue = val; }}"
+                                    class="group p-4 text-sm whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-left">
+                                    <span x-show="!editing">
+                                       <span id="pids-usage-{{.Name}}">0</span>/<span class="font-medium text-gray-900 dark:text-gray-50" x-text="value"></span>
+                                       <a href="#" @click.prevent="editing = !editing" class="transform hidden group-hover:inline-block text-gray-400 hover:text-gray-600"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-fill" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.5.5 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11z"/></svg></a>
+                                    </span>
+                                    <form action="/containers/{{lastSegment $.Username `_`}}/pids/{{.Name}}" method="POST" x-show="editing" class="inline-flex items-center gap-1">
+                                       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"/>
+                                       <input x-model="PIDSinputValue" title="Max number of processes/threads that this service can use. 0 = unlimited" name="value" type="number" min="0" step="1" class="w-16 px-1 py-0.5 border rounded dark:bg-gray-700 dark:text-white" />
+                                       <button type="submit" class="px-1.5 py-0.5 text-white bg-blue-500 rounded hover:bg-blue-600">Save</button>
+                                    </form>
+                                 </td>
+                                 <td x-show="columns.actions" id="actions-{{.Name}}" x-data="{ pullValue: 'false' }" class="py-1">
+                                    <form method="POST" action="/containers/{{lastSegment $.Username `_`}}/start/{{.ContainerName}}">
+                                       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"/>
+                                       <input type="hidden" name="pull" class="pullInput" :value="pullValue">
+                                       <button type="submit" title="Click to enable" class="w-full relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded border px-2 py-1 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out disabled:pointer-events-none disabled:shadow-none outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hover:bg-gray-50 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600" @contextmenu.prevent="pullValue = 'true'; $nextTick(() => $el.closest('form').submit())"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-4 shrink-0 text-gray-400 dark:text-gray-600"><path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 10.5858L9.17157 7.75736L7.75736 9.17157L10.5858 12L7.75736 14.8284L9.17157 16.2426L12 13.4142L14.8284 16.2426L16.2426 14.8284L13.4142 12L16.2426 9.17157L14.8284 7.75736L12 10.5858Z"></path></svg>Disabled</button>
+                                    </form>
+                                 </td>
+                              </tr>
+                              {{end}}
+                           </tbody>
+                        </table>
+{{template "bulk_bar" .}}
+</div>
+                        {{else}}
+                        <table class="w-full caption-bottom border-b border-gray-200 dark:border-gray-800">
+                           <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                              <tr>
+                                 <td colspan="6" class="p-6 text-center">
+                                    docker-compose.yml file is invalid or missing.
+                                 </td>
+                              </tr>
+                           </tbody>
+                        </table>
+                        {{end}}
+                        </div>
+                        <div x-show="showEditor" x-transition>
+                        <div class="p-4">
+                            <div class="flex flex-col gap-2 text-center sm:flex-row sm:items-center sm:justify-between sm:text-start pb-2">
+                                <span class="text-sm leading-none text-gray-900 dark:text-gray-50 font-medium">Edit docker-compose.yml and .env file for user:</span>
+                                <button type="button" @click="saveEditorData()" class="hidden sm:flex relative  items-center justify-center rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out cursor-pointer outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 dark:border-gray-800 dark:text-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 sm:w-fit border-black bg-black text-white hover:bg-gray-800 sm:mt-0">Save</button>
+                            </div>
+                            <div class="flex gap-2">
+                                <textarea id="docker_compose_file" class="flex min-h-[10rem] w-full rounded border px-3 py-1.5 shadow-sm outline-none transition-colors sm:text-sm text-gray-900 dark:text-gray-50 border-gray-300 dark:border-gray-800 bg-white dark:bg-gray-950 placeholder-gray-400 dark:placeholder-gray-500" rows="20"></textarea>
+                                <textarea id="env_file" class="flex min-h-[10rem] w-full rounded border px-3 py-1.5 shadow-sm outline-none transition-colors sm:text-sm text-gray-900 dark:text-gray-50 border-gray-300 dark:border-gray-800 bg-white dark:bg-gray-950 placeholder-gray-400 dark:placeholder-gray-500" rows="20"></textarea>
+                            </div>
+                            <button type="button" @click="saveEditorData()" class="w-full mt-2 sm:hidden relative inline-flex items-center justify-center rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out cursor-pointer outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 dark:border-gray-800 dark:text-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 sm:w-fit border-black bg-black text-white hover:bg-gray-800 sm:mt-0">Save</button><br>
+                        </div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+<script>
+    const settingsEditor = (() => {
+        const username = "{{lastSegment .Username `_`}}";
+
+        return {
+            searchQuery: '',
+            showEditor: false,
+            columns: {
+                name: true,
+                image: false,
+                ports: false,
+                env: false,
+                cpu: true,
+                ram: true,
+                pids: true,
+                actions: true
+            },
+            saveColumns() {
+                localStorage.setItem('columns-singe-user', JSON.stringify(this.columns));
+            },
+            loadColumns() {
+                const saved = localStorage.getItem('columns-singe-user');
+                if (saved) {
+                    try {
+                        Object.assign(this.columns, JSON.parse(saved));
+                    } catch (e) {
+                        console.warn("Failed to parse columns-singe-user from localStorage", e);
+                    }
+                }
+            },
+            loadEditorData() {
+                fetch(`/settings/defaults/files/${username}`)
+                    .then(res => res.ok ? res.json() : Promise.reject(res))
+                    .then(data => {
+                        document.getElementById('env_file').value = data.env || '';
+                        document.getElementById('docker_compose_file').value = data.compose || '';
+                    })
+                    .catch(err => {
+                        console.error('Failed to load defaults:', err);
+                    });
+            },
+            saveEditorData() {
+                const env = document.getElementById('env_file').value;
+                const compose = document.getElementById('docker_compose_file').value;
+
+                if (!env && !compose) {
+                    showToast("Cannot save empty files. Please restore defaults.", "error");
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('env', env);
+                formData.append('compose', compose);
+
+                fetch(`/settings/defaults/files/${username}`, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    }
+                })
+                .then(res => res.ok ? res.text() : Promise.reject(res))
+                .then(() => {
+                    showToast("Files saved successfully!", 'success');
+                    settingsEditor.showEditor = false;
+                })
+                .catch(err => {
+                    console.error('Save failed:', err);
+                    showToast("Failed to save. Check console for details.", 'error');
+                });
+            }
+        };
+    })();
+</script>
+<script>
+    (function() {
+        const username = "{{lastSegment .Username `_`}}";
+
+        $.ajax({
+            url: `/containers/stats/${username}`,
+            method: 'GET',
+            success: function(response) {
+                if (!response.container_stats || response.container_stats.length === 0) return;
+
+                function formatBytes(bytes) {
+                    if (!bytes) return '0 B';
+                    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    var i = Math.floor(Math.log(bytes) / Math.log(1024));
+                    i = Math.min(i, units.length - 1);
+                    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+                }
+
+                response.container_stats.forEach(function(container) {
+                    var containerName = container.Name;
+                    var containerId = containerName.replace(/\./g, '\\.');
+                    var ramCell = $('#ram-' + containerId);
+                    var actionsCell = $('#actions-' + containerId);
+                    var cpuCell = $('#cpu-' + containerId);
+                    var ramText = $('#ram-usage-' + containerId);
+                    var cpuText = $('#cpu-usage-' + containerId);
+                    var pidsText = $('#pids-usage-' + containerId);
+
+                    var cpuUsage = parseFloat(container.CPU) || 0;
+                    var memUsage = parseFloat(container.MemPerc) || 0;
+                    var pidsUsage = parseInt(container.PIDs !== undefined ? container.PIDs : container.PIDS, 10) || 0;
+
+                    var cpuDashOffset = 78.54 * (1 - cpuUsage / 100);
+                    var memDashOffset = 78.54 * (1 - memUsage / 100);
+
+                    cpuText.html(`${cpuUsage.toFixed(2)}%`);
+                    ramText.html(`${formatBytes(container.MemUsage)}`);
+
+                    var cpuColor = cpuUsage < 50 ? 'stroke-blue-500' : cpuUsage < 80 ? 'stroke-green-500' : cpuUsage < 90 ? 'stroke-orange-500' : 'stroke-red-500';
+                    var cpuInfo = `
+                        <div class="flex gap-2">
+                            <div class="flex items-center gap-x-2.5">
+                                <div class="relative" role="progressbar" aria-valuenow="${cpuUsage}" aria-valuemin="0" aria-valuemax="100">
+                                    <svg width="28" height="28" viewBox="0 0 28 28" class="-rotate-90 transform">
+                                        <circle r="12.5" cx="14" cy="14" stroke-width="3" fill="transparent" class="stroke-gray-100 dark:stroke-gray-500/30"></circle>
+                                        <circle r="12.5" cx="14" cy="14" stroke-width="3" stroke-dasharray="78.54" stroke-dashoffset="${cpuDashOffset}" fill="transparent" class="${cpuColor} transition-all duration-300"></circle>
+                                    </svg>
+                                    <div class="absolute inset-0 flex items-center justify-center">
+                                        <span class="text-[11px] font-semibold">${Math.round(cpuUsage)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    cpuCell.html(cpuInfo);
+
+                    var memColor = memUsage < 50 ? 'stroke-blue-500' : memUsage < 80 ? 'stroke-green-500' : memUsage < 90 ? 'stroke-orange-500' : 'stroke-red-500';
+                    var ramInfo = `
+                        <div class="flex gap-2">
+                            <div class="flex items-center gap-x-2.5">
+                                <div class="relative" role="progressbar" aria-valuenow="${memUsage}" aria-valuemin="0" aria-valuemax="100">
+                                    <svg width="28" height="28" viewBox="0 0 28 28" class="-rotate-90 transform">
+                                        <circle r="12.5" cx="14" cy="14" stroke-width="3" fill="transparent" class="stroke-gray-100 dark:stroke-gray-500/30"></circle>
+                                        <circle r="12.5" cx="14" cy="14" stroke-width="3" stroke-dasharray="78.54" stroke-dashoffset="${memDashOffset}" fill="transparent" class="${memColor} transition-all duration-300"></circle>
+                                    </svg>
+                                    <div class="absolute inset-0 flex items-center justify-center">
+                                        <span class="text-[11px] font-semibold">${Math.round(memUsage)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    ramCell.html(ramInfo);
+
+                    pidsText.html(`${pidsUsage}`);
+
+                    var actionsInfo = `
+                        <form method="POST" action="/containers/${username}/stop/${containerName}"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button type="submit" title="Click to disable" class="w-full relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded border px-2 py-1 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out disabled:pointer-events-none disabled:shadow-none outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hover:bg-gray-50 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-4 shrink-0 text-emerald-600 dark:text-emerald-500"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"></path></svg>Enabled</button></form>
+                        <a href="/terminal/${username}/${containerName}" class="mt-2 w-full relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded border px-2 py-1 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out disabled:pointer-events-none disabled:shadow-none outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hover:bg-gray-50 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-terminal" viewBox="0 0 16 16"><path d="M6 9a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3A.5.5 0 0 1 6 9M3.854 4.146a.5.5 0 1 0-.708.708L4.793 6.5 3.146 8.146a.5.5 0 1 0 .708.708l2-2a.5.5 0 0 0 0-.708z"/><path d="M2 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2zm12 1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/></svg>Terminal</a>
+                    `;
+                    actionsCell.html(actionsInfo);
+                });
+            },
+            error: function(error) {
+                console.error("Error fetching container stats:", error);
+            }
+        });
+    })();
+</script>
+               <!-- END DOCKER SERVICES -->
+
+               <!-- STORAGE -->
+               <div x-show="activeTab === 'storage'" x-cloak>
+
+<template x-if="loading">
+  <div
+    x-data="{
+      messages: [
+        'Loading storage information...',
+        'Fetching data from server...',
+        'Almost there, please wait...',
+        'Preparing your dashboard...',
+        'Why is this taking so long...',
+        'Its taking forever, refresh and try again...'
+      ],
+      messageIndex: 0,
+      get message() { return this.messages[this.messageIndex]; },
+      interval: null,
+      startRotating() {
+        let delay = 1000;
+        const showNext = () => {
+          if (this.messageIndex < this.messages.length - 1) {
+            this.messageIndex++;
+            delay += 1000;
+            this.interval = setTimeout(showNext, delay);
+          } else {
+            this.stopRotating();
+          }
+        };
+        this.interval = setTimeout(showNext, delay);
+      },
+      stopRotating() {
+        if (this.interval) clearTimeout(this.interval);
+      }
+    }"
+    x-init="startRotating()"
+    x-on:remove="stopRotating()"
+    class="p-6 h-72 w-full flex flex-col items-center justify-center text-center text-gray-500 dark:text-gray-400"
+  >
+    <svg class="animate-spin h-8 w-8 text-gray-400 dark:text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+    </svg>
+    <p class="mt-3 font-medium text-gray-900 dark:text-gray-50" x-text="message"></p>
+  </div>
+</template>
+
+<template x-if="error">
+    <div class="text-red-600" x-text="error"></div>
+</template>
+
+<template x-if="!loading && !error">
+    <div>
+<div
+  class="relative w-full p-6 text-left shadow-sm bg-white dark:bg-[#090E1A] mb-8"
+  x-data="{
+    total: {{.Disk.DiskHard}} * 1000,
+
+    parseSize(sizeStr) {
+      if (!sizeStr) return 0;
+      const units = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9 };
+      const regex = /^([\d.]+)\s*(B|KB|MB|GB)$/i;
+      const match = sizeStr.match(regex);
+      if (!match) return 0;
+      const value = parseFloat(match[1]);
+      const unit = match[2].toUpperCase();
+      return value * (units[unit] || 1);
+    },
+
+    getRowSize(type) {
+      const row = diskUsage.find((r) => r.Type === type);
+      return this.parseSize(row && row.Size);
+    },
+    get usedVolumes() {
+      return this.getRowSize('Local Volumes');
+    },
+    get usedContainers() {
+      return this.getRowSize('Containers');
+    },
+    get usedImages() {
+      return this.getRowSize('Images');
+    },
+    get used() {
+      return this.usedVolumes + this.usedContainers + this.usedImages;
+    },
+    get free() {
+      return this.total - this.used;
+    },
+    format(bytes) {
+      if (bytes >= 1e9) return (bytes / 1e9).toFixed(2) + ' GB';
+      if (bytes >= 1e6) return (bytes / 1e6).toFixed(2) + ' MB';
+      if (bytes >= 1e3) return (bytes / 1e3).toFixed(2) + ' KB';
+      return bytes + ' B';
+    },
+    getPercent(part) {
+      if (this.total === 0) return 0;
+      return (part / this.total) * 100;
+    }
+  }"
+>
+  <h1 class="text-sm text-gray-500 dark:text-gray-500">Disk Usage Summary</h1>
+  <p class="mt-1 text-3xl font-semibold text-gray-900 dark:text-gray-50" x-text="format(used) + ' / ' + format(total)"></p>
+
+  <div class="mt-6">
+    <div class="relative flex h-2 w-full items-center">
+      <div class="flex h-full flex-1 items-center gap-0.5 overflow-hidden rounded-full">
+        <div class="h-full bg-blue-500" :style="'width:' + getPercent(usedVolumes) + '%'"></div>
+        <div class="h-full bg-emerald-500" :style="'width:' + getPercent(usedContainers) + '%'"></div>
+        <div class="h-full bg-orange-500" :style="'width:' + getPercent(usedImages) + '%'"></div>
+        <div class="h-full bg-gray-300 dark:bg-gray-700" :style="'width:' + getPercent(free) + '%'"></div>
+      </div>
+    </div>
+  </div>
+
+  <ul class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-500 dark:text-gray-500">
+    <li class="flex items-center space-x-2">
+      <span class="size-3 shrink-0 rounded-sm bg-blue-500"></span>
+      <span><span class="font-medium text-gray-700 dark:text-gray-300" x-text="format(usedVolumes)"></span> Volumes (User Files)</span>
+    </li>
+    <li class="flex items-center space-x-2">
+      <span class="size-3 shrink-0 rounded-sm bg-emerald-500"></span>
+      <span><span class="font-medium text-gray-700 dark:text-gray-300" x-text="format(usedContainers)"></span> Containers (Changes)</span>
+    </li>
+    <li class="flex items-center space-x-2">
+      <span class="size-3 shrink-0 rounded-sm bg-orange-500"></span>
+      <span><span class="font-medium text-gray-700 dark:text-gray-300" x-text="format(usedImages)"></span> Images (System)</span>
+    </li>
+    <li class="flex items-center space-x-2">
+      <span class="size-3 shrink-0 rounded-sm bg-gray-300 dark:bg-gray-700"></span>
+      <span><span class="font-medium text-gray-700 dark:text-gray-300" x-text="format(free)"></span> Free</span>
+    </li>
+  </ul>
+</div>
+
+        <table class="w-full caption-bottom border-b border-tborder-gray-200 dark:border-gray-800">
+            <thead>
+                <tr class="sm:[&_td:last-child]:pr-6 sm:[&_th:last-child]:pr-6 sm:[&_td:first-child]:pl-6 sm:[&_th:first-child]:pl-6">
+                    <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Type</th>
+                    <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Total</th>
+                    <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Active</th>
+                    <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Size</th>
+                    <th class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Reclaimable</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                <template x-for="row in diskUsage" :key="'disk-' + row.Type">
+                    <tr>
+                        <td class="whitespace-nowrap p-4 text-sm font-medium text-gray-900 dark:text-gray-50" x-text="row.Type"></td>
+                        <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400" x-text="row.Total"></td>
+                        <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400" x-text="row.Active"></td>
+                        <td class="whitespace-nowrap p-4 font-medium text-gray-900 dark:text-gray-50" x-text="row.Size"></td>
+                        <td class="whitespace-nowrap p-4 text-sm text-gray-600 dark:text-gray-400" x-text="row.Reclaimable"></td>
+                    </tr>
+                </template>
+                <tr x-show="diskUsage.length === 0">
+                    <td colspan="5" class="p-6 text-center text-sm text-gray-600 dark:text-gray-400">No disk usage data available.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</template>
+               </div>
+               <!-- END STORAGE -->
+
+               <!-- EDIT -->
+               <div x-show="activeTab === 'edit'" class="p-4" x-cloak>
+                  <form action="/user/edit/{{lastSegment .Username "_"}}" method="POST">
+                     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                     <div id="collapseAddNewUser">
+                        <div id="create_user_form" class="sm:mx-auto sm:max-w-4xl">
+                  <div class="grid grid-cols-1 gap-4 sm:grid-cols-6">
+                  <div class="col-span-full sm:col-span-3">
+                    {{template "macro_tooltip" (dict "ID" "new_username" "Label" "Username" "Description" "Can only contain letters and numbers. 3 characters min. - 20 max." "Required" true)}}
+                  <div class="relative w-full mt-2">
+                  <input type="text" class="relative block w-full appearance-none rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500 bg-white dark:bg-gray-950" minlength="3" maxlength="20" pattern="[a-zA-Z0-9]{3,20}" name="new_username" placeholder="Username" value="{{lastSegment .Username "_"}}"/>
+                  </div>
+                  </div>
+                  <div class="col-span-full sm:col-span-3">
+                    {{template "macro_tooltip" (dict "ID" "new_email" "Label" "Email" "Description" "Email address is used to receive important account related notifications and password reset emails." "Required" true)}}
+                  <div class="relative w-full mt-2">
+                  <input type="email" class="relative block w-full appearance-none rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500 bg-white dark:bg-gray-950" autocomplete="off" name="new_email" placeholder="some-email@example.com" value="{{.User.Email}}"/>
+                  </div>
+                  </div>
+                  </div>
+<div x-data="passwordManager()" class="col-span-full mt-4">
+  {{template "macro_tooltip" (dict "ID" "new_password" "Label" "Password" "Description" "Cannot contain apostrophe. 6 characters min. - 30 max. Leave empty to not change password." "Required" false)}}
+  <div class="relative w-full flex mt-2">
+    <input x-ref="passwordInput" x-bind:type="passwordVisible ? 'text' : 'password'" x-model="password" @input="checkStrength()" class="relative block w-full appearance-none border px-2.5 py-2 shadow-sm outline-none rounded-l transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500 bg-white dark:bg-gray-950" autocomplete="new-password" name="new_password" minlength="6" maxlength="30" pattern="[^']{6,30}" placeholder="unchanged if empty"/>
+    <div class="flex">
+      <button @click="generatePassword()" type="button" id="generatePassword" class="relative inline-flex items-center justify-center border px-3 py-2 text-center text-sm font-medium shadow-sm cursor-pointer border-black bg-black text-white hover:bg-gray-800">Generate</button>
+      <button @click="togglePasswordVisibility()" type="button" id="togglePassword" class="relative inline-flex items-center justify-center rounded-r border px-3 py-2 text-center text-sm font-medium shadow-sm cursor-pointer border-black bg-black text-white hover:bg-gray-800">
+        <svg xmlns="http://www.w3.org/2000/svg" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+          <path d="M21 12c-2.4 4 -5.4 6 -9 6s-6.6-2-9-6c2.4-4 5.4-6 9-6s6.6 2 9 6" />
+        </svg>
+      </button>
+    </div>
+  </div>
+  <div class="mt-2 w-full">
+    <div class="h-2 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
+      <div class="h-2 transition-all duration-300 ease-in-out" :class="{ 'bg-gray-300 w-0': strength === '', 'bg-red-500 w-1/4': strength === 'weak', 'bg-yellow-400 w-2/4': strength === 'medium', 'bg-green-500 w-full': strength === 'strong' }"></div>
+    </div>
+    <p class="mt-1 text-xs font-semibold transition-colors duration-200" :class="{ 'text-gray-400': strength === '', 'text-red-600 dark:text-red-400': strength === 'weak', 'text-yellow-600 dark:text-yellow-400': strength === 'medium', 'text-green-600 dark:text-green-400': strength === 'strong' }" x-text="strengthText"></p>
+  </div>
+</div>
+
+<script>
+  function passwordManager() {
+    return {
+      password: '', passwordVisible: false, strength: '', strengthText: '',
+      generatePassword() {
+        const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
+        let result = "";
+        for (let i = 0; i < 16; i++) result += charset.charAt(Math.floor(Math.random() * charset.length));
+        this.password = result;
+        this.passwordVisible = true;
+        this.checkStrength();
+        this.$nextTick(() => this.$refs.passwordInput.focus());
+      },
+      togglePasswordVisibility() { this.passwordVisible = !this.passwordVisible; },
+      checkStrength() {
+        const pwd = this.password;
+        if (!pwd) { this.strength = ''; this.strengthText = ''; return; }
+        let score = 0;
+        if (pwd.length >= 8) score++;
+        if (pwd.length >= 12) score++;
+        if (/[A-Z]/.test(pwd)) score++;
+        if (/[a-z]/.test(pwd)) score++;
+        if (/\d/.test(pwd)) score++;
+        if (/[^A-Za-z0-9]/.test(pwd)) score++;
+        if (score <= 2) { this.strength = 'weak'; this.strengthText = 'Weak password'; }
+        else if (score <= 4) { this.strength = 'medium'; this.strengthText = 'Medium strength'; }
+        else { this.strength = 'strong'; this.strengthText = 'Strong password'; }
+      }
+    };
+  }
+</script>
+
+                  <div class="mx-auto my-6 flex w-full items-center justify-between gap-3 text-sm text-gray-500 dark:text-gray-500 col-span-full"><div class="h-[1px] w-full bg-gray-200 dark:bg-gray-800"></div></div>
+                  <div class="col-span-full sm:col-span-3">
+                                        {{template "macro_tooltip" (dict "ID" "new_ip" "Label" "IP address" "Description" "Change IP address used for user services and domains." "Required" false)}}
+                    <div class="relative w-full mt-2">
+                      <select class="group/trigger flex w-full select-none items-center justify-between gap-2 truncate rounded border px-3 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 mt-2" id="ipSelect" name="new_ip">
+                      <option disabled value="">Change IP address</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="col-span-full sm:col-span-3 mt-4">
+                      {{template "macro_tooltip" (dict "ID" "reseller" "Label" "Reseller" "Description" "Change owner (reseller) for this user." "Required" false)}}
+                      <div class="relative w-full mt-2">
+                          <select class="group/trigger flex w-full select-none items-center justify-between gap-2 truncate rounded border px-3 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 mt-2" id="resellerSelect" name="reseller">
+                              <option value="">No reseller</option>
+                          </select>
+                      </div>
+                  </div>
+
+                  <div class="mx-auto my-6 flex w-full items-center justify-between gap-3 text-sm text-gray-500 dark:text-gray-500 col-span-full"><div class="h-[1px] w-full bg-gray-200 dark:bg-gray-800"></div></div>
+
+<div class="col-span-full mt-4">
+  {{template "macro_tooltip" (dict "ID" "selectedPlan" "Label" "Select a package" "Description" "Change the user's hosting plan to adjust account limits or available features." "Required" false)}}
+
+  <div x-show="$store.planStore.plansLoaded" class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <template x-for="plan in $store.planStore.plans" :key="plan.id">
+      <button type="button" role="radio" :aria-checked="$store.planStore.selectedPlan === plan.id ? 'true' : 'false'" :data-state="$store.planStore.selectedPlan === plan.id ? 'checked' : ''" @click="$store.planStore.selectPlan(plan.id)" class="group relative w-full rounded border p-4 text-left shadow-sm transition focus:outline-none bg-white dark:bg-gray-950 border-gray-300 dark:border-gray-800 data-[state=checked]:border-blue-500 data-[state=checked]:dark:border-blue-500 flex items-start justify-between" tabindex="0">
+        <div x-show="plan.id === $store.planStore.selectedPlan" class="absolute -top-3 flex">
+          <span class="inline-flex items-center rounded-full bg-gray-300 text-black text-xs font-semibold py-1 px-3">Current Plan</span>
+        </div>
+        <div class="flex w-full flex-col justify-between">
+          <div>
+            <label class="text-sm leading-none text-gray-900 dark:text-gray-50 font-medium" x-text="plan.name"></label>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-500" x-text="plan.description"></p>
+          </div>
+          <div class="mt-4">
+            <span @click="plan.showDetails = !plan.showDetails" class="text-sm font-medium text-gray-900 dark:text-gray-50 cursor-pointer">Display Limits</span>
+            <div x-show="plan.showDetails">
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-500" x-text="plan.cpu == 0 ? '∞ Cores' : plan.cpu + ' Cores'"></p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-500" x-text="plan.ram.toLowerCase() === '0g' ? '∞ Memory' : plan.ram + ' Memory'"></p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-500" x-text="plan.disk_limit === '0 GB' ? '∞ Storage' : plan.disk_limit + ' Storage'"></p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-500" x-text="plan.inodes_limit === 0 ? '∞ Inodes' : plan.inodes_limit + ' Inodes'"></p>
+            </div>
+          </div>
+        </div>
+        <div class="relative flex shrink-0 items-center justify-center rounded-full border shadow-sm border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950" :class="$store.planStore.selectedPlan === plan.id ? 'border-0 bg-blue-500' : ''">
+          <span x-show="$store.planStore.selectedPlan === plan.id" class="flex items-center justify-center">
+            <div class="w-3 h-3 rounded-full bg-white"></div>
+          </span>
+        </div>
+      </button>
+    </template>
+  </div>
+  <input type="hidden" name="plan_id" :value="$store.planStore.selectedPlan">
+</div>
+
+                  </div>
+                  <div class="mx-auto my-6 flex w-full items-center justify-between gap-3 text-sm text-gray-500 dark:text-gray-500"><div class="h-[1px] w-full bg-gray-200 dark:bg-gray-800"></div></div>
+                  <div class="flex items-center justify-end space-x-4">
+                  <a href="/users" class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hover:bg-gray-50 dark:hover:bg-gray-900/60">Go back</a>
+                  <button type="submit" class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out border-transparent text-white dark:text-white bg-blue-500 dark:bg-blue-500 hover:bg-blue-600 dark:hover:bg-blue-600 cursor-pointer">Save</button>
+                  </div>
+                        </div>
+                  </form>
+                  <div class="mx-auto my-6 flex w-full items-center justify-between gap-3 text-sm text-gray-500 dark:text-gray-500"><div class="h-[1px] w-full bg-gray-200 dark:bg-gray-800"></div></div>
+                  <br>
+                  <div class="flex flex-col gap-2 text-center sm:flex-row sm:items-center sm:justify-between sm:text-start pb-2">
+                       {{template "macro_tooltip" (dict "ID" "custom_message_for_this_user" "Label" "Custom message for user" "Description" "Plain text or HTML code to be displayed for this user on the Dashboard page." "Required" false)}}
+                    </span> <button type="button" class="hidden sm:flex save_custom_message_btn relative  items-center justify-center rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out cursor-pointer outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 dark:border-gray-800 dark:text-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 sm:w-fit border-black bg-black text-white hover:bg-gray-800 sm:mt-0">Save</button>
+                  </div>
+                  <textarea id="custom_message_for_this_user" class="flex min-h-[4rem] w-full rounded border px-3 py-1.5 shadow-sm outline-none transition-colors sm:text-sm text-gray-900 dark:text-gray-50 border-gray-300 dark:border-gray-800 bg-white dark:bg-gray-950 placeholder-gray-400 dark:placeholder-gray-500" rows="5"></textarea>
+
+<button type="button" class="w-full mt-2 sm:hidden save_custom_message_btn relative inline-flex items-center justify-center rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out cursor-pointer outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 dark:border-gray-800 dark:text-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 sm:w-fit border-black bg-black text-white hover:bg-gray-800 sm:mt-0">Save</button>
+
+<script>
+  const textarea = document.getElementById('custom_message_for_this_user');
+  const saveBtn = document.querySelector('.save_custom_message_btn');
+  var csrf_token = $('meta[name="csrf-token"]').attr('content');
+
+  async function saveCustomMessage() {
+    const message = textarea.value;
+
+    try {
+      const response = await fetch(`/get_custom_message_for_user/${username}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrf_token,
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ custom_message: message }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        showToast(data.message || 'Saved successfully.', 'info');
+      } else {
+        const errorData = await response.json();
+        showToast(errorData.error || `Save failed (${response.status})`, 'error');
+      }
+    } catch (err) {
+      showToast('Error saving custom message for user.', 'error');
+    }
+  }
+
+  saveBtn.addEventListener('click', () => {
+    saveCustomMessage();
+  });
+</script>
+
+                  <br>
+                  <div class="flex flex-col gap-2 text-center sm:flex-row sm:items-center sm:justify-between sm:text-start pb-2">
+                       {{template "macro_tooltip" (dict "ID" "private_notes_for_this_user" "Label" "Private notes" "Description" "Internal notes about this user, visible only to admins/resellers in OpenAdmin. Never shown to the user." "Required" false)}}
+                    </span> <button type="button" class="hidden sm:flex save_private_notes_btn relative  items-center justify-center rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out cursor-pointer outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 dark:border-gray-800 dark:text-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 sm:w-fit border-black bg-black text-white hover:bg-gray-800 sm:mt-0">Save</button>
+                  </div>
+                  <textarea id="private_notes_for_this_user" data-username="{{.Username}}" class="flex min-h-[4rem] w-full rounded border px-3 py-1.5 shadow-sm outline-none transition-colors sm:text-sm text-gray-900 dark:text-gray-50 border-gray-300 dark:border-gray-800 bg-white dark:bg-gray-950 placeholder-gray-400 dark:placeholder-gray-500" rows="5">{{.Notes}}</textarea>
+
+<button type="button" class="w-full mt-2 sm:hidden save_private_notes_btn relative inline-flex items-center justify-center rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out cursor-pointer outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 dark:border-gray-800 dark:text-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 sm:w-fit border-black bg-black text-white hover:bg-gray-800 sm:mt-0">Save</button>
+
+<script>
+  const notesTextarea = document.getElementById('private_notes_for_this_user');
+  const saveNotesBtns = document.querySelectorAll('.save_private_notes_btn');
+  var csrf_token_notes = $('meta[name="csrf-token"]').attr('content');
+
+  async function savePrivateNotes() {
+    const notes = notesTextarea.value;
+    const notesUsername = notesTextarea.dataset.username;
+
+    try {
+      const response = await fetch(`/get_user_notes/${notesUsername}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrf_token_notes,
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ notes: notes }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        showToast(data.message || 'Saved successfully.', 'info');
+      } else {
+        const errorData = await response.json();
+        showToast(errorData.error || `Save failed (${response.status})`, 'error');
+      }
+    } catch (err) {
+      showToast('Error saving private notes for user.', 'error');
+    }
+  }
+
+  saveNotesBtns.forEach(function (btn) {
+    btn.addEventListener('click', () => {
+      savePrivateNotes();
+    });
+  });
+</script>
+                  <br>
+               </div>
+               <!-- END EDIT -->
+
+               <!-- PERMISSIONS -->
+               <div x-show="activeTab === 'permissions'" x-cloak>
+                 <div x-data="{ searchQuery: '', toggleAll: null, customMode: {{if .HasCustomFeatures}}true{{else}}false{{end}} }">
+                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-x-6 pb-3 rounded border-b px-3 py-2 text-sm border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900" x-show="!customMode">
+                     <span class="text-gray-700 dark:text-gray-300">This user's permissions follow their <strong>plan defaults</strong>. To customize permissions for this user only, switch to custom mode. </br>To change permissions for everyone on this plan, use <a href="/features/" class="inline-flex items-center gap-1 text-indigo-600 hover:underline hover:underline-offset-4 dark:text-indigo-400">Feature Manager</a>.</span>
+                     <button type="button" @click="customMode = true" class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-1 text-center text-sm font-medium shadow-sm border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">Switch to Custom</button>
+                   </div>
+                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-x-6 pb-3 rounded border-b px-3 py-2 text-sm border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900" x-show="customMode">
+                     <span class="text-gray-700 dark:text-gray-300">This user has <strong>custom permissions</strong> that override their plan defaults.</span>
+                     <form method="post" action="/user/permissions_reset/{{lastSegment .Username "_"}}">
+                       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                       <button type="submit" class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-1 text-center text-sm font-medium shadow-sm border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">Reset to Plan Defaults</button>
+                     </form>
+                   </div>
+                   <form method="post" action="/user/permissions/{{lastSegment .Username "_"}}">
+                     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-x-6 pb-3 pt-3 p-4">
+                       <div class="relative w-full sm:max-w-[250px] sm:[&>input]:h-[30px]">
+                         <input x-model="searchQuery" class="relative block w-full appearance-none rounded border px-2.5 py-1.5 outline-none transition sm:text-sm border-transparent dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-gray-100 dark:bg-gray-950 pl-8" placeholder="Search features..." type="search">
+                         <div class="pointer-events-none absolute bottom-0 left-2 flex h-full items-center justify-center text-gray-400 dark:text-gray-600">
+                         <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-[1.125rem] shrink-0"><path d="M18.031 16.6168L22.3137 20.8995L20.8995 22.3137L16.6168 18.031C15.0769 19.263 13.124 20 11 20C6.032 20 2 15.968 2 11C2 6.032 6.032 2 11 2C15.968 2 20 6.032 20 11C20 13.124 19.263 15.0769 18.031 16.6168ZM16.0247 15.8748C17.2475 14.6146 18 12.8956 18 11C18 7.1325 14.8675 4 11 4C7.1325 4 4 7.1325 4 11C4 14.8675 7.1325 18 11 18C12.8956 18 14.6146 17.2475 15.8748 16.0247L16.0247 15.8748Z"></path></svg>
+                         </div>
+                       </div>
+                       <div class="flex flex-wrap gap-3 justify-center sm:justify-end">
+                         <span class="inline-flex items-center gap-x-2.5 rounded-full bg-white px-2.5 py-1.5 text-xs ring-1 ring-inset ring-gray-200 dark:bg-gray-950 dark:ring-gray-800">
+                           <button type="button" :disabled="!customMode" @click="toggleAll = true" class="inline-flex items-center gap-1.5 font-medium text-gray-900 dark:text-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">Enable All</button>
+                           <span class="h-4 w-px bg-gray-200 dark:bg-gray-800"></span>
+                           <button type="button" :disabled="!customMode" @click="toggleAll = false" class="inline-flex items-center gap-1.5 font-medium text-gray-900 dark:text-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">Disable All</button>
+                         </span>
+                         <button type="submit" :disabled="!customMode" class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-1 text-center text-sm font-medium shadow-sm border-transparent text-white dark:text-white bg-blue-500 dark:bg-blue-500 hover:bg-blue-600 dark:hover:bg-blue-600 disabled:bg-blue-300 disabled:dark:bg-blue-800 cursor-pointer">Save</button>
+                       </div>
+                     </div>
+                     <fieldset :disabled="!customMode">
+                     <div class="relative overflow-y-auto pb-4">
+                       <table class="w-full caption-bottom border-b border-gray-200 dark:border-gray-800">
+                         <thead>
+                           <tr class="[&_td:last-child]:pr-4 [&_th:last-child]:pr-4 [&_td:first-child]:pl-4 [&_th:first-child]:pl-4 border-y border-gray-200 dark:border-gray-800">
+                             <th class="border-b px-4 font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800 whitespace-nowrap py-1 text-sm sm:text-xs text-left">Status</th>
+                             <th class="border-b px-4 font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800 whitespace-nowrap py-1 text-sm sm:text-xs text-left">Name</th>
+                             <th class="border-b px-4 font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800 whitespace-nowrap py-1 text-sm sm:text-xs text-left">Page</th>
+                             <th class="border-b px-4 font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800 whitespace-nowrap py-1 text-sm sm:text-xs text-left">Module</th>
+                           </tr>
+                         </thead>
+                         <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                           {{range .Features}}
+                           <tr x-data="{ enabled: {{if index . "status"}}true{{else}}false{{end}} }"
+                               x-effect="if (typeof toggleAll === 'boolean') enabled = toggleAll"
+                               data-row
+                               data-title="{{index . "title"}}"
+                               data-description="{{index . "description"}}"
+                               x-show="searchQuery === '' || ($el.dataset.title || '').toLowerCase().includes(searchQuery.toLowerCase()) || ($el.dataset.description || '').toLowerCase().includes(searchQuery.toLowerCase())"
+                               class="hover:bg-gray-50 dark:hover:bg-gray-900">
+                             <td class="p-4 text-sm text-right">
+                               <button type="button" @click="enabled = !enabled" :aria-checked="enabled"
+                                 :class="enabled ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-950'"
+                                 class="inline-flex h-5 w-9 items-center rounded-full p-0.5 transition ring-1 ring-inset ring-black/5 dark:ring-gray-800 focus:outline-none">
+                                 <span :class="enabled ? 'translate-x-4' : 'translate-x-0'"
+                                   class="h-4 w-4 transform rounded-full bg-white dark:bg-gray-50 transition"></span>
+                               </button>
+                               <input type="checkbox" x-model="enabled" hidden name="{{index . "name"}}" value="{{index . "name"}}" :checked="enabled">
+                             </td>
+                             <td class="p-4 text-sm relative whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-left">
+                               <div class="flex flex-col gap-1">
+                                 <span class="font-medium text-gray-900 dark:text-gray-50">{{index . "title"}}</span>
+                                 <span class="hidden sm:inline text-xs text-gray-500 dark:text-gray-500">{{index . "description"}}</span>
+                               </div>
+                             </td>
+                             <td class="p-4 text-sm text-gray-900 dark:text-gray-50">{{index . "link"}}</td>
+                             <td class="p-4 text-sm text-gray-900 dark:text-gray-50">
+                               {{if index . "module_enabled"}}
+                               <span class="inline-flex items-center gap-x-2.5 rounded-full bg-white px-2.5 py-1.5 text-xs ring-1 ring-inset ring-gray-200 dark:bg-gray-950 dark:ring-gray-800"><span class="inline-flex items-center gap-1.5 font-medium text-gray-900 dark:text-gray-50"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon -ml-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-500"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"></path></svg>Enabled</span></span>
+                               {{else}}
+                               <a title="This module is disabled. Enable it in Settings → Modules, or this feature will have no effect." href="/settings/modules">
+                               <span class="inline-flex items-center gap-x-2.5 rounded-full bg-white px-2.5 py-1.5 text-xs ring-1 ring-inset ring-gray-200 dark:bg-gray-950 dark:ring-gray-800"><span class="inline-flex items-center gap-1.5 font-medium text-gray-900 dark:text-gray-50"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon -ml-0.5 size-4 shrink-0 text-red-600 dark:text-red-500"><path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 10.5858L9.17157 7.75736L7.75736 9.17157L10.5858 12L7.75736 14.8284L9.17157 16.2426L12 13.4142L14.8284 16.2426L16.2426 14.8284L13.4142 12L16.2426 9.17157L14.8284 7.75736L12 10.5858Z"></path></svg>Disabled</span></span>
+                               </a>
+                               {{end}}
+                             </td>
+                           </tr>
+                           {{end}}
+                         </tbody>
+                       </table>
+                     </div>
+                     </fieldset>
+                   </form>
+                 </div>
+               </div>
+               <!-- END PERMISSIONS -->
+
+            <!-- ACTIVITY -->
+            <div x-show="activeTab === 'activity'" x-cloak x-data="{ searchQuery: '' }">
+               <div class="flex flex-col justify-between gap-2 px-4 py-6 sm:flex-row sm:items-center sm:p-6">
+                  <div class="relative w-full sm:w-64 [&>input]:py-1.5">
+                     <input x-model="searchQuery" class="relative block w-full appearance-none rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 pl-8" placeholder="Search activities..." type="search"/>
+                     <div class="pointer-events-none absolute bottom-0 left-2 flex h-full items-center justify-center text-gray-400 dark:text-gray-600">
+                     <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-[1.125rem] shrink-0"><path d="M18.031 16.6168L22.3137 20.8995L20.8995 22.3137L16.6168 18.031C15.0769 19.263 13.124 20 11 20C6.032 20 2 15.968 2 11C2 6.032 6.032 2 11 2C15.968 2 20 6.032 20 11C20 13.124 19.263 15.0769 18.031 16.6168ZM16.0247 15.8748C17.2475 14.6146 18 12.8956 18 11C18 7.1325 14.8675 4 11 4C7.1325 4 4 7.1325 4 11C4 14.8675 7.1325 18 11 18C12.8956 18 14.6146 17.2475 15.8748 16.0247L16.0247 15.8748Z"></path></svg>
+                     </div>
+                  </div>
+                     <div class="flex gap-2 relative w-full sm:w-64 [&amp;>input]:py-1.5 justify-end">
+                        <a href="/json/user-activity/{{lastSegment .Username "_"}}?raw=true" target="_blank" class="relative items-center justify-center whitespace-nowrap rounded border text-center font-medium shadow-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hidden gap-x-2 px-2 py-1.5 text-sm sm:text-xs lg:flex cursor-pointer">View Raw</a>
+                        <a href="/json/user-activity/{{lastSegment .Username "_"}}?download=true" class="relative items-center justify-center whitespace-nowrap rounded border text-center font-medium shadow-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hidden gap-x-2 px-2 py-1.5 text-sm sm:text-xs lg:flex cursor-pointer">Download</a>
+                     </div>
+               </div>
+               <div class="overflow-x-auto">
+                  <div class="w-full overflow-auto whitespace-nowrap border-t border-gray-200 dark:border-gray-800">
+                     <table class="w-full caption-bottom border-b border-gray-200 dark:border-gray-800">
+                        <thead>
+                           <tr class="whitespace-nowrap border-b px-4 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800 bg-gray-50 py-3 pl-4 sm:pl-6 dark:bg-gray-900">
+                              <th scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Date</th>
+                              <th scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Action</th>
+                              <th scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-end text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">IP Address</th>
+                           </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                           <template x-if="$store.activityStore.activities.length === 0">
+                              <tr><td colspan="12" class="p-6 text-center">Loading user activity log..</td></tr>
+                           </template>
+                           <template x-for="(activity, index) in $store.activityStore.activities.filter(activity => {
+                              return activity.date.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                              activity.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                              activity.ip.toLowerCase().includes(searchQuery.toLowerCase());
+                              })" :key="activity.timestamp + '-' + index">
+                              <tr :class="activity.actionClass" class="domain_row sm:[&_td:last-child]:pr-6 sm:[&_td:first-child]:pl-6 hover:bg-white dark:hover:bg-gray-900">
+                                 <td class="relative group p-4 text-sm relative whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-left" x-text="activity.date"></td>
+                                 <td class="flex items-center relative group p-4 text-sm relative whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-left truncate max-w-[500px]" x-html="activity.action"></td>
+                                 <td class="relative group p-4 text-sm relative whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-end" x-text="activity.ip"></td>
+                              </tr>
+                           </template>
+                        </tbody>
+                     </table>
+                  </div>
+               </div>
+            </div>
+            <!-- END ACTIVITY -->
+
+<div x-show="activeTab === 'logins'" x-cloak x-data="{ searchQuery: '' }">
+    <div class="flex flex-col justify-between gap-2 px-4 py-6 sm:flex-row sm:items-center sm:p-6">
+        <div class="relative w-full sm:w-64 [&>input]:py-1.5">
+            <input x-model="searchQuery" class="relative block w-full appearance-none rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 pl-8" placeholder="Search logins..." type="search"/>
+            <div class="pointer-events-none absolute bottom-0 left-2 flex h-full items-center justify-center text-gray-400 dark:text-gray-600">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-[1.125rem] shrink-0"><path d="M18.031 16.6168L22.3137 20.8995L20.8995 22.3137L16.6168 18.031C15.0769 19.263 13.124 20 11 20C6.032 20 2 15.968 2 11C2 6.032 6.032 2 11 2C15.968 2 20 6.032 20 11C20 13.124 19.263 15.0769 18.031 16.6168ZM16.0247 15.8748C17.2475 14.6146 18 12.8956 18 11C18 7.1325 14.8675 4 11 4C7.1325 4 4 7.1325 4 11C4 14.8675 7.1325 18 11 18C12.8956 18 14.6146 17.2475 15.8748 16.0247L16.0247 15.8748Z"></path></svg>
+            </div>
+        </div>
+                     <div class="flex gap-2 relative w-full sm:w-64 [&amp;>input]:py-1.5 justify-end">
+                        <a href="/json/user-logins/{{lastSegment .Username "_"}}?raw=true" target="_blank" class="relative items-center justify-center whitespace-nowrap rounded border text-center font-medium shadow-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hidden gap-x-2 px-2 py-1.5 text-sm sm:text-xs lg:flex cursor-pointer">View Raw</a>
+                        <a href="/json/user-logins/{{lastSegment .Username "_"}}?download=true" class="relative items-center justify-center whitespace-nowrap rounded border text-center font-medium shadow-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950 hidden gap-x-2 px-2 py-1.5 text-sm sm:text-xs lg:flex cursor-pointer">Download</a>
+                     </div>
+    </div>
+    <div class="overflow-x-auto">
+        <div class="w-full overflow-auto border-t border-gray-200 dark:border-gray-800">
+                <table class="w-full caption-bottom border-b border-gray-200 dark:border-gray-800">
+                <thead>
+                    <tr class="whitespace-nowrap border-b px-4 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800 bg-gray-50 py-3 pl-4 sm:pl-6 dark:bg-gray-900">
+                        <th scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Date</th>
+                        <th scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">Country</th>
+                        <th scope="col" class="whitespace-nowrap border-b px-4 py-3.5 text-end text-sm font-semibold text-gray-900 dark:text-gray-50 border-gray-200 dark:border-gray-800">IP Address</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                    <template x-if="$store.loginsStore.logins.length === 0">
+                        <tr><td colspan="3" class="p-6 text-center text-gray-500">Loading login logs...</td></tr>
+                    </template>
+                    <template x-if="$store.loginsStore.logins.length > 0 && $store.loginsStore.logins[0].noLogins">
+                        <tr><td colspan="3" class="p-6 text-center text-gray-500">No logins recorded yet.</td></tr>
+                    </template>
+                    <template x-for="(login, index) in $store.loginsStore.logins.filter(l => {
+                        if(l.noLogins) return false;
+                        const term = searchQuery.toLowerCase();
+                        return l.date.toLowerCase().includes(term) ||
+                               l.country.toLowerCase().includes(term) ||
+                               l.ip.toLowerCase().includes(term);
+                    })" :key="index">
+                        <tr class="domain_row sm:[&_td:last-child]:pr-6 sm:[&_td:first-child]:pl-6 hover:bg-white dark:hover:bg-gray-900">
+                            <td class="relative group p-4 text-sm relative whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-left" x-text="login.date"></td>
+                            <td class="relative group p-4 text-sm relative whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-left flex gap-1 items-center">
+                                <img class="w-4 h-4 rounded mr-1" :src="`/static/dist/img/flags/${login.country.toLowerCase()}.svg`" :alt="`IP address location: ${login.country.toUpperCase()}`">
+                                <span x-text="login.country"></span>
+                            </td>
+                            <td class="relative group p-4 text-sm relative whitespace-nowrap py-2.5 text-gray-600 dark:text-gray-400 text-end" x-text="login.ip"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+               {{if eq .LicenseType "Enterprise"}}
+            <!-- EXPORT USER -->
+            <div x-show="activeTab === 'export'" class="p-4" x-cloak>
+
+              <div class="relative w-full text-left sm:mx-auto sm:max-w-xl mb-6">
+                <div class="flex gap-2 rounded border border-gray-200 dark:border-gray-800 p-1 bg-gray-50 dark:bg-gray-950">
+                  <button type="button" @click="exportMode = 'backup'" :class="exportMode === 'backup' ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-500 shadow-sm' : 'text-gray-600 dark:text-gray-400'" class="flex-1 rounded px-3 py-2 text-sm font-medium cursor-pointer transition">Generate full account backup</button>
+                  <button type="button" @click="exportMode = 'transfer'" :class="exportMode === 'transfer' ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-500 shadow-sm' : 'text-gray-600 dark:text-gray-400'" class="flex-1 rounded px-3 py-2 text-sm font-medium cursor-pointer transition">Transfer to another server</button>
+                </div>
+              </div>
+
+              <!-- GENERATE FULL ACCOUNT BACKUP -->
+              <div x-show="exportMode === 'backup'"
+                   x-data="{
+                      loading: true, inProgress: false, inProgressStarted: '', inProgressSize: '', backups: [], timer: null,
+                      username: '{{lastSegment .Username "_"}}',
+                      csrfToken: '{{.CSRFToken}}',
+                      fetchStatus() {
+                        fetch('/user/export/status/' + this.username, { cache: 'no-store' })
+                          .then(r => r.json())
+                          .then(d => {
+                            this.loading = false;
+                            this.inProgress = d.in_progress;
+                            this.inProgressStarted = d.in_progress_started || '';
+                            this.inProgressSize = d.in_progress_size || '';
+                            this.backups = d.backups || [];
+                            if (this.inProgress && !this.timer) {
+                              this.timer = setTimeout(() => { this.timer = null; this.fetchStatus(); }, 5000);
+                            }
+                          })
+                          .catch(() => { this.loading = false; });
+                      },
+                      startBackup() {
+                        fetch('/user/export/create/' + this.username, {
+                          method: 'POST',
+                          headers: { 'X-CSRFToken': this.csrfToken }
+                        })
+                          .then(r => r.json().then(d => ({ ok: r.ok, body: d })))
+                          .then(res => {
+                            if (!res.ok) { showToast(res.body.error || 'Failed to start backup.', 'error'); return; }
+                            showToast('Backup started. It will appear in the list below once complete.', 'success');
+                            this.fetchStatus();
+                          })
+                          .catch(() => showToast('Failed to reach the server.', 'error'));
+                      },
+                      deleteBackup(name) {
+                        if (!confirm('Delete backup \'' + name + '\'? This cannot be undone.')) return;
+                        fetch('/user/export/delete/' + this.username, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': this.csrfToken },
+                          body: 'filename=' + encodeURIComponent(name)
+                        })
+                          .then(r => r.json().then(d => ({ ok: r.ok, body: d })))
+                          .then(res => {
+                            if (!res.ok) { showToast(res.body.error || 'Failed to delete backup.', 'error'); return; }
+                            showToast('Backup deleted.', 'success');
+                            this.fetchStatus();
+                          })
+                          .catch(() => showToast('Failed to reach the server.', 'error'));
+                      }
+                   }"
+                   x-init="fetchStatus()">
+
+                <div class="relative w-full p-6 text-left shadow-sm bg-white dark:bg-[#090E1A] border-gray-200 dark:border-gray-900 sm:mx-auto sm:max-w-xl">
+                  <h3 class="font-semibold text-gray-900 dark:text-gray-50">Generate full account backup</h3>
+                  <p class="mt-1 text-sm/6 text-gray-500 dark:text-gray-500">Creates a compressed archive of the account's home directory, databases, domains, websites, email, FTP, DNS zones, SSL certificates, cronjobs, and containers/images.</p>
+
+                  <template x-if="inProgress">
+                    <div class="mt-4 flex items-start gap-3 rounded border border-gray-200 dark:border-gray-800 bg-blue-50 dark:bg-blue-950 p-4">
+                      <svg class="mt-0.5 size-5 shrink-0 text-blue-500 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0 1 15-4.5M20 15a9 9 0 0 1-15 4.5"/></svg>
+                      <div>
+                        <p class="text-sm font-medium text-blue-800 dark:text-blue-200">Backup in progress</p>
+                        <p class="mt-1 text-xs text-blue-500 dark:text-blue-400 space-x-3">
+                          <span x-show="inProgressStarted">Started: <span x-text="inProgressStarted"></span></span>
+                          <span x-show="inProgressSize">Size: <span x-text="inProgressSize"></span></span>
+                        </p>
+                      </div>
+                    </div>
+                  </template>
+
+                  <button type="button" @click="startBackup()" :disabled="inProgress" class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center text-sm font-medium shadow-sm border-transparent text-white dark:text-white bg-blue-500 dark:bg-blue-500 hover:bg-blue-600 dark:hover:bg-blue-600 disabled:bg-blue-300 disabled:dark:bg-blue-800 mt-4 w-full cursor-pointer">
+                    <span x-show="!inProgress">Generate Backup</span>
+                    <span x-show="inProgress">Backup in progress…</span>
+                  </button>
+                </div>
+
+                <div class="relative w-full p-6 text-left shadow-sm bg-white dark:bg-[#090E1A] border-gray-200 dark:border-gray-900 sm:mx-auto sm:max-w-xl mt-4">
+                  <h3 class="font-semibold text-gray-900 dark:text-gray-50">Existing backups</h3>
+                  <p class="mt-1 text-sm/6 text-gray-500 dark:text-gray-500">Download or delete previously generated backups.</p>
+
+                  <div class="mt-4" x-show="!loading && backups.length === 0">
+                    <p class="text-sm text-gray-500 dark:text-gray-500">No backups found. Generate the first one above.</p>
+                  </div>
+
+                  <div class="mt-4 overflow-x-auto" x-show="backups.length > 0">
+                    <table class="w-full caption-bottom border-b border-gray-200 dark:border-gray-800">
+                      <thead>
+                        <tr class="border-y border-gray-200 dark:border-gray-800">
+                          <th class="px-2 py-1.5 text-left text-xs font-semibold text-gray-900 dark:text-gray-50">Filename</th>
+                          <th class="px-2 py-1.5 text-left text-xs font-semibold text-gray-900 dark:text-gray-50">Size</th>
+                          <th class="px-2 py-1.5 text-left text-xs font-semibold text-gray-900 dark:text-gray-50">Created</th>
+                          <th class="px-2 py-1.5 text-right text-xs font-semibold text-gray-900 dark:text-gray-50">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                        <template x-for="b in backups" :key="b.name">
+                          <tr>
+                            <td class="px-2 py-2 text-sm text-gray-900 dark:text-gray-50" x-text="b.name"></td>
+                            <td class="px-2 py-2 text-sm text-gray-500 dark:text-gray-500" x-text="b.size"></td>
+                            <td class="px-2 py-2 text-sm text-gray-500 dark:text-gray-500" x-text="b.mtime"></td>
+                            <td class="px-2 py-2 text-sm text-right whitespace-nowrap">
+                              <template x-if="b.in_progress">
+                                <span class="text-xs text-gray-400">In progress…</span>
+                              </template>
+                              <template x-if="!b.in_progress">
+                                <span>
+                                  <a :href="'/user/export/download/' + username + '/' + encodeURIComponent(b.name)" class="text-blue-600 hover:underline text-sm">Download</a>
+                                  <button type="button" @click="deleteBackup(b.name)" class="ml-3 text-red-600 hover:underline text-sm cursor-pointer">Delete</button>
+                                </span>
+                              </template>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <!-- END GENERATE FULL ACCOUNT BACKUP -->
+
+              <!-- TRANSFER TO ANOTHER SERVER -->
+              <div x-show="exportMode === 'transfer'">
+               <form method="POST" id="transfer-form" action="/import/transfer/" x-data="transferConnectionTest()" @input="if ($event.target.name !== 'live_transfer') reset()">
+                  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                  <div class="relative w-full p-6 text-left shadow-sm bg-white dark:bg-[#090E1A] border-gray-200 dark:border-gray-900 sm:mx-auto sm:max-w-xl">
+                    <h3 class="font-semibold text-gray-900 dark:text-gray-50">Transfer account {{lastSegment .Username "_"}}</h3>
+                    <p class="mt-1 text-sm/6 text-gray-500 dark:text-gray-500">Transfer the user account along with all its containers and data to another VietPanel server via SSH.</p>
+                    <div class="mt-6">
+                        <input hidden type="hidden" name="openpanel_username" value="{{lastSegment .Username "_"}}">
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-6">
+                        <div class="col-span-full">
+                        <label class="text-sm leading-none text-gray-900 dark:text-gray-50 font-medium" for="server">Server<span class="text-red-500 dark:text-red-500">*</span></label>
+                        <div class="flex gap-4 mt-2">
+                            <div class="flex-2">
+                            <input type="text" class="block w-full rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950" name="server" id="server" required autofocus placeholder="IP address"/>
+                            </div>
+                            <div class="flex-1">
+                            <label class="sr-only" for="port">Port</label>
+                            <input type="number" min="1" max="65535" class="block w-full rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950" name="port" id="port" placeholder="Port"/>
+                            </div>
+                        </div>
+                        <div class="mt-4"><p class="text-xs text-gray-500">Insert remote server's IP address or domain name and SSH port (usually <b>22</b>).</p></div>
+                        </div>
+
+                        <div class="col-span-full">
+                        <div class="flex gap-4">
+                            <div class="flex-1">
+                            <label class="text-sm leading-none text-gray-900 dark:text-gray-50 font-medium" for="username">Username<span class="text-red-500 dark:text-red-500">*</span></label>
+                            <div class="relative w-full mt-2"><input type="text" class="block w-full rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950" minlength="3" maxlength="25" name="username" placeholder="root" id="username" required></div>
+                            </div>
+                            <div class="flex-1">
+{{template "macro_tooltip" (dict "ID" "password" "Label" "Password" "Description" "SSH password for the remote server. It is only used for this transfer and is not saved." "Required" true)}}
+                            <div class="relative w-full mt-2"><input type="password" class="block w-full rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950" name="password" id="password" required placeholder="Password"></div>
+                            </div>
+                        </div>
+                        <div class="mt-4"><p class="text-xs text-gray-500">SSH username (usually <b>root</b>) and password for the remote server.</p></div>
+                        </div>
+
+                        <div class="col-span-full">
+                       {{template "macro_tooltip" (dict "ID" "live_transfer" "Label" "Live Transfer" "Description" "When \"Live Transfer\" is enabled, once the migration is complete, the system will automatically suspend the account on the current server and update the domain DNS zones to replace the old server IP with the new server IP." "Required" false)}}
+                        <div class="relative w-full mt-2"><div class="mt-2 flex items-start"><input name="live_transfer" id="live_transfer" type="checkbox" tabindex="-1" class="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"><label for="live_transfer" class="ml-2 block text-sm text-gray-500">Suspend account on this server and forward DNS to the remote server.</label></div></div></div>
+                        </div>
+                    </div>
+                    <div x-show="message" x-cloak class="mt-4 rounded border px-3 py-2 text-sm" :class="ok ? 'border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300' : 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300'" x-text="message"></div>
+                    <button x-show="!ok" type="button" @click="test()" :disabled="testing" class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center text-sm font-medium shadow-sm border-transparent text-white dark:text-white bg-blue-500 dark:bg-blue-500 hover:bg-blue-600 dark:hover:bg-blue-600 disabled:bg-blue-300 mt-4 w-full" x-text="testing ? 'Testing connection...' : 'Test Connection'">Test Connection</button>
+                    <button x-show="ok" x-cloak class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center text-sm font-medium shadow-sm border-transparent text-white dark:text-white bg-green-600 dark:bg-green-600 hover:bg-green-700 dark:hover:bg-green-700 mt-4 w-full" type="submit">Start Transfer</button>
+                   </div>
+               </form>
+<script>
+function transferConnectionTest() {
+  return {
+    testing: false, ok: false, message: '',
+    reset() { this.ok = false; this.message = ''; },
+    async test() {
+      const form = document.getElementById('transfer-form');
+      if (!form.reportValidity()) return;
+      this.testing = true; this.message = '';
+      try {
+        const body = new URLSearchParams(new FormData(form));
+        const res = await fetch('/import/transfer/test', { method: 'POST', body, headers: { 'X-CSRFToken': form.querySelector('[name=csrf_token]').value } });
+        const data = await res.json();
+        this.ok = !!data.success;
+        this.message = data.message || (this.ok ? 'Connection successful.' : 'Connection failed.');
+      } catch (e) {
+        this.ok = false; this.message = 'Connection test failed: ' + e;
+      } finally {
+        this.testing = false;
+      }
+    }
+  };
+}
+</script>
+               <div id="existing-transfers" class="relative w-full p-6 text-left shadow-sm bg-white dark:bg-[#090E1A] border-gray-200 dark:border-gray-900 sm:mx-auto sm:max-w-xl"></div>
+              </div>
+              <!-- END TRANSFER TO ANOTHER SERVER -->
+
+            </div>
+            <!-- END EXPORT USER -->
+               {{end}}
+
+<!-- SUSPEND USER -->
+<div x-show="activeTab === 'suspend'" class="p-4" x-cloak>
+    <div x-data="{ confirmationText: '', expected: '{{lastSegment .Username "_"}}' }" class="relative w-full p-6 text-left shadow-sm bg-white dark:bg-[#090E1A] border-gray-200 dark:border-gray-900 sm:mx-auto sm:max-w-xl">
+        <form method="POST" action="/user/suspend/{{lastSegment .Username "_"}}" @submit.prevent="if (confirmationText === expected) { $el.submit() }">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <h3 class="font-semibold text-gray-900 dark:text-gray-50">Suspend user account</h3>
+            <p class="mt-1 text-sm/6 text-gray-500 dark:text-gray-500">Disable login for VietPanel user, stop their services and revoke access to websites and emails.</p>
+            <div class="mt-6">
+                <label class="text-sm leading-none text-gray-900 dark:text-gray-50 font-medium">Type "{{lastSegment .Username "_"}}" to confirm:</label>
+                <div class="relative w-full mt-2">
+                    <input type="text" x-model="confirmationText" required class="relative block w-full appearance-none rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950">
+                </div>
+            </div>
+            <button :disabled="confirmationText !== expected" x-show="confirmationText === expected" x-transition class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center text-sm font-medium shadow-sm border-transparent text-white dark:text-white bg-blue-500 dark:bg-blue-500 hover:bg-blue-600 dark:hover:bg-blue-600 mt-4 w-full" type="submit">Suspend account</button>
+        </form>
+    </div>
+</div>
+<!-- END SUSPEND USER -->
+
+<!-- DELETE USER -->
+<div x-show="activeTab === 'delete'" class="p-4" x-cloak>
+    <div x-data="{ confirmationText: '', expected: '{{lastSegment .Username "_"}}' }" class="relative w-full p-6 text-left shadow-sm bg-white dark:bg-[#090E1A] border-gray-200 dark:border-gray-900 sm:mx-auto sm:max-w-xl">
+        <form method="POST" action="/user/delete/{{lastSegment .Username "_"}}" @submit.prevent="if (confirmationText === expected) { $el.submit()}">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <h3 class="font-semibold text-gray-900 dark:text-gray-50">Delete user account</h3>
+            <p class="mt-1 text-sm/6 text-gray-500 dark:text-gray-500">All user data will be permanently deleted. There is no coming back after you press delete.</p>
+            <div class="mt-6">
+                <label class="text-sm leading-none text-gray-900 dark:text-gray-50 font-medium">Type "{{lastSegment .Username "_"}}" to confirm:</label>
+                <div class="relative w-full mt-2">
+                    <input type="text" name="confirmation" x-model="confirmationText" required class="relative block w-full appearance-none rounded border px-2.5 py-2 shadow-sm outline-none transition sm:text-sm border-gray-300 dark:border-gray-800 text-gray-900 dark:text-gray-50 bg-white dark:bg-gray-950">
+                </div>
+            </div>
+            <button :disabled="confirmationText !== expected" x-show="confirmationText === expected" x-transition class="relative inline-flex items-center justify-center whitespace-nowrap rounded border px-3 py-2 text-center text-sm font-medium shadow-sm text-white border-transparent bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600 mt-4 w-full" type="submit">Delete account permanently</button>
+        </form>
+    </div>
+</div>
+<!-- END DELETE USER -->
+
+            </div>
+          </div>
+      </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const username = "{{.Username}}";
+  const url = `/json/transfers/${username}`;
+
+  fetch(url)
+    .then(response => response.json())
+    .then(data => {
+      const inProgress = data.some(item => item.pid && item.status === 'in progress');
+      const success = data.some(item => item.pid && item.status === 'success');
+
+        if ((inProgress || success) && username.includes('SUSPENDED_')) {
+            const form = document.getElementById('transfer-form');
+            if (form) form.style.display = 'none';
+        }
+
+      let message = null;
+      let bgColor = '';
+      let borderColor = '';
+
+      if (inProgress) {
+        message = `Transfer to another server in progress`;
+        bgColor = '#d9edf7';
+        borderColor = '#31708f';
+      } else if (success) {
+        message = `Transferred to another server`;
+        bgColor = '#dff0d8';
+        borderColor = '#3c763d';
+      }
+
+      let messageDiv = document.getElementById('transfer-status-message');
+      if (!messageDiv) {
+        messageDiv = document.createElement('div');
+        messageDiv.id = 'transfer-status-message';
+        messageDiv.style.padding = '10px';
+        messageDiv.style.margin = '10px 0';
+        messageDiv.style.borderRadius = '4px';
+        messageDiv.style.fontWeight = 'bold';
+        document.body.prepend(messageDiv);
+      }
+
+function getStatusBadge(status) {
+  switch ((status || '').toLowerCase()) {
+    case 'success':
+    case 'completed':
+      return `<span class="inline-flex items-center gap-x-1 whitespace-nowrap px-2 py-1 text-xs font-medium ring-1 ring-inset bg-emerald-50 text-emerald-900 ring-emerald-600/30 dark:bg-emerald-400/10 dark:text-emerald-400 dark:ring-emerald-400/20 rounded-full">
+                <span class="size-1.5 shrink-0 rounded-full bg-emerald-600 dark:bg-emerald-400" aria-hidden="true"></span>Completed
+              </span>`;
+    case 'in progress':
+    case 'running':
+      return `<span class="inline-flex items-center gap-x-1 whitespace-nowrap px-2 py-1 text-xs font-medium ring-1 ring-inset bg-blue-50 text-blue-900 ring-blue-600/30 dark:bg-blue-400/10 dark:text-blue-400 dark:ring-blue-400/20 rounded-full">
+                <span class="size-1.5 shrink-0 rounded-full bg-blue-600 dark:bg-blue-400" aria-hidden="true"></span>Running
+              </span>`;
+    case 'failed':
+      return `<span class="inline-flex items-center gap-x-1 whitespace-nowrap px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-900 ring-red-600/30 dark:bg-red-400/10 dark:text-red-400 dark:ring-red-400/20 rounded-full">
+                <span class="size-1.5 shrink-0 rounded-full bg-red-600 dark:bg-red-400" aria-hidden="true"></span>Failed
+              </span>`;
+    default:
+      return `<span class="inline-flex items-center gap-x-1 whitespace-nowrap px-2 py-1 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-900 ring-gray-500/30 dark:bg-gray-400/10 dark:text-gray-400 dark:ring-gray-400/20 rounded-full">
+                <span class="size-1.5 shrink-0 rounded-full bg-gray-500 dark:bg-gray-500" aria-hidden="true"></span>Unknown
+              </span>`;
+  }
+}
+
+      if (message) {
+        messageDiv.innerHTML = `${message}`;
+        messageDiv.style.backgroundColor = bgColor;
+        messageDiv.style.border = `1px solid ${borderColor}`;
+        messageDiv.style.color = borderColor;
+      } else {
+        messageDiv.innerHTML = '';
+      }
+
+      const transfersDiv = document.getElementById('existing-transfers');
+      if (transfersDiv) {
+        let html = `
+          <h3 class="font-semibold text-gray-900 dark:text-gray-50">Transfer logs:</h3>
+          <p class="mt-1 text-sm/6 text-gray-500 dark:text-gray-500">
+        `;
+
+        if (data.length === 0) {
+          html = '';
+        } else {
+          data.forEach(item => {
+            const statusBadge = getStatusBadge(item.status);
+            html += `<a class="text-blue-600 hover:underline" href="/import/user/log/${encodeURIComponent(item.filename)}" target="_blank">${item.filename || 'N/A'}</a> ${statusBadge}`;
+            if (item.details) {
+              html += `, Details: ${item.details}`;
+            }
+            html += '<br>';
+          });
+        }
+
+        html += '</p>';
+        transfersDiv.innerHTML = html;
+      }
+    })
+    .catch(err => {
+      console.error('Failed to fetch transfer status:', err);
+    });
+});
+</script>
+
+{{else}}
+<div style="height: 60vh; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+    <h2 class="font-semibold text-gray-900 dark:text-gray-50">No such user</h2>
+    <p class="mt-1 text-sm leading-6 text-gray-500">This user no longer exists or MySQL database is unreachable.</p>
+</div>
+{{end}}
+
+    </main>
+
+    {{template "chrome_after_main" .}}
+    </div>
+</div>
+{{template "chrome_scripts_bottom" .}}
+</body>
+</html>

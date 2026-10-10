@@ -1,0 +1,232 @@
+package phpapp
+
+import (
+	"database/sql"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/appkit"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/podmanmanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/core/webserver"
+	"vietpanel/panel/internal/modules/cmsapp"
+	"vietpanel/panel/internal/modules/docker"
+	"vietpanel/panel/internal/modules/php"
+	"vietpanel/panel/internal/modules/websites"
+	"vietpanel/panel/internal/web"
+)
+
+// HandleInstallPage renders the install form and handles the early over-limit check for a POST; the streaming install itself is handled separately by HandleInstall
+func HandleInstallPage(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	injectedData, err := a.InjectData(ctx, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	planID, _ := injectedData["hosting_plan"].(int)
+	plan, _ := a.QueryPlanDetailsByID(ctx, planID)
+	websitesLimit := web.AtoiDefault(plan.WebsitesLimit, 0)
+	websiteCount, _ := appkit.CountUserWebsites(a, userID)
+
+	if websitesLimit != 0 && websiteCount >= websitesLimit {
+		web.Flash(a, w, r, "warning", web.Tr(a, r, "You have reached the maximum number of sites allowed.%(upgrade_message)s", "upgrade_message", plan.UpgradeMessage()))
+	} else if r.Method == http.MethodPost {
+		HandleInstall(a, w, r)
+		return
+	}
+
+	domains, _ := a.AllDomainsForUser(ctx, userID)
+	renderInstallPage(a, w, r, domains)
+}
+
+// HandleInstall drives the NDJSON-streamed install of a PHP/Composer project into an existing domain's docroot - unlike appinstall.HandleInstall this never touches docker-compose.yml, .env container variables, or reverse-proxy config, since the domain's existing vhost already routes to the php-fpm container this uses
+func HandleInstall(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	injectedData, err := a.InjectData(ctx, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	currentUsername, _ := injectedData["current_username"].(string)
+	userContext, _ := injectedData["context"].(string)
+
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	flusher, canFlush := w.(http.Flusher)
+	emit := func(v map[string]any) { web.WriteNDJSON(w, flusher, canFlush, v) }
+
+	ipAddress := reqip.ClientIP(r)
+
+	domainID := r.FormValue("domain_id")
+	if domainID == "" {
+		emit(map[string]any{"error": "Missing required field: domain"})
+		return
+	}
+
+	emit(map[string]any{"status": "Checking if existing installation processes are running.."})
+	lockDir := "/etc/openpanel/openpanel/core/users/" + currentUsername
+	_ = os.MkdirAll(lockDir, 0o755)
+	lockPath := lockDir + "/krompir.lock"
+	if lockErr := os.WriteFile(lockPath, nil, 0o644); lockErr != nil {
+		emit(map[string]any{"error": "Error creating " + lockPath + ": " + lockErr.Error()})
+		return
+	}
+	defer os.Remove(lockPath)
+
+	var topDomain string
+	var docrootNull, phpVersionNull sql.NullString
+	row := a.DB.QueryRowContext(ctx, "SELECT domain_url, docroot, php_version FROM domains WHERE domain_id = ?", domainID)
+	if scanErr := row.Scan(&topDomain, &docrootNull, &phpVersionNull); scanErr != nil {
+		emit(map[string]any{"error": "Domain not found"})
+		return
+	}
+	docroot := docrootNull.String
+
+	if !a.CheckDomainBelongsToUser(ctx, userID, topDomain) {
+		return
+	}
+
+	emit(map[string]any{"status": "Validating provided data"})
+	subdirectory := strings.ToLower(strings.ReplaceAll(r.FormValue("subdirectory"), " ", ""))
+	initialProject := strings.TrimSpace(r.FormValue("initial_project"))
+	autorunComposerInstall := normalizeCheckbox(r.FormValue("autorun_composer_install"))
+	composerOptimizeAutoloader := normalizeCheckbox(r.FormValue("composer_optimize_autoloader"))
+
+	if !cmsapp.IsValidSubdirectory(subdirectory) {
+		emit(map[string]any{"error": "Invalid subdirectory."})
+		return
+	}
+	if !isValidInitialProject(initialProject) {
+		emit(map[string]any{"error": "Initial project must be empty, an https:// archive URL ending in .zip/.tar.gz/.tgz/.tar, or a Composer package name (vendor/package)."})
+		return
+	}
+
+	phpVersion := php.GetPHPVForDomain(ctx, a, userContext, topDomain)
+	if phpVersion == "" || phpVersion == "/" {
+		emit(map[string]any{"error": "This domain has no PHP version assigned. Set one from PHP Selector first."})
+		return
+	}
+	_ = phpVersionNull // php_version snapshot is looked up live above instead; column kept for future use
+
+	installPath := docroot
+	selectedDomain := topDomain
+	if subdirectory != "" {
+		// docroot may already end in "/" (the fallback when a domain has no docroot set), so a naive join can produce a double slash that breaks composer create-project's target path
+		installPath = strings.TrimSuffix(docroot, "/") + "/" + subdirectory
+		selectedDomain = selectedDomain + "/" + subdirectory
+	}
+
+	webServer := webserver.GetEnvFileValue(userContext, "WEB_SERVER")
+	isLitespeed := strings.Contains(strings.ToLower(webServer), "litespeed")
+	phpContainer := webServer
+	if !isLitespeed {
+		phpContainer = "php-fpm-" + phpVersion
+	}
+
+	emit(map[string]any{"status": "Starting PHP container: " + phpContainer})
+	if !cmsapp.EnsureContainerRunning(ctx, userContext, phpContainer) {
+		emit(map[string]any{"error": "PHP container failed to start. Please check it from Services."})
+		return
+	}
+
+	htmlVolume := "/home/" + userContext + "/docker-data/volumes/" + userContext + "_html_data/_data/"
+	docrootWithoutWWW := strings.TrimPrefix(strings.TrimPrefix(installPath, "/var/www/html/"), "/")
+	hostOSPath := filepath.Join(htmlVolume, docrootWithoutWWW)
+
+	// composer's own --working-dir flag, not podman exec -w - the vendored composer binary's in-app wrapper resets the working dir regardless of -w, but --working-dir is untouched by that wrapper
+	composerBase := append(podmanmanager.PodmanArgv(userContext, "exec", phpContainer, "composer"), "--working-dir="+installPath)
+
+	if initialProject != "" {
+		if isArchiveURL(initialProject) {
+			// unlike composer create-project (which creates its own target directory), extraction needs somewhere to extract into
+			if mkErr := os.MkdirAll(hostOSPath, 0o755); mkErr != nil {
+				emit(map[string]any{"error": "Error creating document root: " + mkErr.Error()})
+				return
+			}
+			emit(map[string]any{"status": "Downloading and extracting " + initialProject})
+			if extractErr := downloadAndExtractInitialProject(ctx, initialProject, hostOSPath); extractErr != nil {
+				emit(map[string]any{"error": "Error extracting initial project: " + extractErr.Error()})
+				return
+			}
+		} else {
+			// deliberately not pre-creating hostOSPath here - a host-side mkdir just before composer create-project raced its container-side mkdir over the rootless bind mount, intermittently breaking vendor/ creation, so let composer own the whole path
+			emit(map[string]any{"status": "Creating Composer project " + initialProject})
+			argv := append(append([]string{}, podmanmanager.PodmanArgv(userContext, "exec", phpContainer, "composer")...),
+				"create-project", initialProject, installPath, "--no-interaction")
+			out, runErr := podmanmanager.Command(ctx, userContext, argv).CombinedOutput()
+			appendComposerLog(currentUsername, selectedDomain, "create-project", out)
+			if runErr != nil {
+				emit(map[string]any{"error": "composer create-project failed: " + strings.TrimSpace(string(out))})
+				return
+			}
+		}
+	} else if autorunComposerInstall {
+		// no initial_project means the directory (with its own composer.json) is expected to already exist - composer install can't materialize one from nothing
+		if _, statErr := os.Stat(hostOSPath); statErr != nil {
+			emit(map[string]any{"error": "Directory " + installPath + " does not exist. Set an initial project, or create the directory (with a composer.json) first."})
+			return
+		}
+	}
+
+	if autorunComposerInstall {
+		emit(map[string]any{"status": "Running composer install"})
+		args := []string{"install", "--no-interaction"}
+		if composerOptimizeAutoloader {
+			args = append(args, "--optimize-autoloader")
+		}
+		argv := append(append([]string{}, composerBase...), args...)
+		out, runErr := podmanmanager.Command(ctx, userContext, argv).CombinedOutput()
+		appendComposerLog(currentUsername, selectedDomain, "install", out)
+		if runErr != nil {
+			emit(map[string]any{"error": "composer install failed: " + strings.TrimSpace(string(out))})
+			return
+		}
+	}
+
+	emit(map[string]any{"status": "Saving application settings"})
+	prefix := phpAppEnvPrefix(selectedDomain)
+	docker.SetEnvValue(userContext, prefix+"INITIAL_PROJECT", initialProject)
+	docker.SetEnvValue(userContext, prefix+"AUTORUN_COMPOSER_INSTALL", boolEnvValue(autorunComposerInstall))
+	docker.SetEnvValue(userContext, prefix+"COMPOSER_OPTIMIZE_AUTOLOADER", boolEnvValue(composerOptimizeAutoloader))
+	docker.SetEnvValue(userContext, prefix+"WORKDIR", installPath)
+
+	emit(map[string]any{"status": "Installation finished, adding the new application to SiteManager"})
+	if _, insertErr := a.DB.ExecContext(ctx,
+		"INSERT INTO sites (site_name, domain_id, version, type, path) VALUES (?, ?, ?, 'PHP', ?)",
+		selectedDomain, domainID, phpVersion, subdirectory); insertErr != nil {
+		emit(map[string]any{"error": "An error occurred: " + insertErr.Error()})
+		return
+	}
+	websites.TriggerScreenshotGeneration(a, selectedDomain)
+
+	emit(map[string]any{"status": "New PHP application setup completed!"})
+	_ = logger.RecordUserAction(a.Config, currentUsername, "created a new PHP application on domain "+selectedDomain, ipAddress)
+}
+
+func normalizeCheckbox(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "on", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+func boolEnvValue(b bool) string {
+	if b {
+		return "1"
+	}
+	return ""
+}
+
+// phpAppEnvPrefix derives the .env key prefix for a PHP app's settings from its site name - there's no dedicated container to key these off like appinstall does with CPU/RAM, so this is a synthetic key namespace instead
+func phpAppEnvPrefix(siteName string) string {
+	return docker.ServiceKeyPrefix(strings.ReplaceAll(siteName, "/", "_")) + "_PHP_"
+}

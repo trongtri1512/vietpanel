@@ -1,9 +1,16 @@
 /** @type {import('tailwindcss').Config} */
+const defaultTheme = require('tailwindcss/defaultTheme');
+
 module.exports = {
-  content: ["./internal/webtemplates/templates/**/*.html"],
-  darkMode: "class",
+  darkMode: 'class',
+  content: [
+    './internal/webtemplates/**/*.html',
+  ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        sans: ['Inter', ...defaultTheme.fontFamily.sans],
+      },
+    },
   },
-  plugins: [],
 };

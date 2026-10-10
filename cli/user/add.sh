@@ -1,51 +1,736 @@
-#!/usr/bin/env bash
-# Description: Add a new hosting user.
-# Usage: vietcli user-add <username> <plan_name> [--password <pw>] [--email <email>]
+#!/bin/bash
+################################################################################
+# Script Name: user/add.sh
+# Description: Create a new user with the provided plan_name.
+# Usage: vietcli user-add <USERNAME> <PASSWORD|generate> <EMAIL> "<PLAN_NAME>" [--send-email] [--debug] [--webserver="<nginx|apache|openresty|openlitespeed|litespeed|varnish+nginx|varnish+apache|varnish+openresty|varnish+openlitespeed>"] [--sql=<mysql|mariadb>] [--reseller=<RESELLER_USERNAME>] [--private-note="this user.."] [--no-sentinel]
+# Docs: https://docs.openpanel.com
+# Author: Stefan Pejcic
+# Created: 01.10.2023
+# Last Modified: 30.09.2026
+# Company: VietPanel, LLC.
+# Copyright (c) openpanel.com
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+################################################################################
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-source "$CLI_DIR/lib/db.sh"
-source "$CLI_DIR/lib/helpers.sh"
+readonly FORBIDDEN_USERNAMES_FILE="/etc/openpanel/openadmin/config/forbidden_usernames.txt"
+readonly DB_CONFIG_FILE="/usr/local/vietcli/db.sh"
+readonly PANEL_CONFIG_FILE="/etc/openpanel/openpanel/conf/openpanel.config"
+readonly LOCK_FILE="/var/lock/openpanel_user_add.lock"
+readonly SHARED_STORE="/var/lib/containers/shared-storage" # for 2.0.0-beta: /var/lib/openpanel/shared-containers/storage
 
-USERNAME="" PLAN_NAME="" PASSWORD="" EMAIL=""
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --password) PASSWORD="$2"; shift 2 ;;
-        --email)    EMAIL="$2"; shift 2 ;;
-        --*)        die "Unknown option: $1" ;;
-        *) [[ -z "$USERNAME" ]] && { USERNAME="$1"; shift; continue; }
-           [[ -z "$PLAN_NAME" ]] && { PLAN_NAME="$1"; shift; continue; }
-           die "Too many arguments." ;;
+if [[ "$#" -lt 4 || "$#" -gt 12 ]]; then
+    echo "Usage: vietcli user-add <username> <password|generate> <email> '<plan_name>' [--send-email] [--debug] [--reseller=<RESELLER_USER>] [--private-note=<NOTE>] [--webserver=<TYPE>] [--sql=<mysql|mariadb>] [--no-sentinel]"
+    echo
+    echo "Required arguments:"
+    echo "  <username>                 The username of the new user."
+    echo "  <password|generate>        The password for the new user, or 'generate' to auto-generate a password."
+    echo "  <email>                    The email address associated with the new user."
+    echo "  <plan_name>                The plan to assign to the new user."
+    echo
+    echo "Optional flags:"
+    printf "%-25s %-45s\n" "  --send-email" "Send a welcome email to the user."
+    printf "%-25s %-45s\n" "  --debug" "Enable debug mode for additional output."
+    printf "%-25s %-45s\n" "  --private-note=" "Write a private note for this user (visible only on OpenAdmin)."
+    printf "%-25s %-45s\n" "  --reseller=" "Assign a reseller as the owner of this user."
+    printf "%-25s %-45s\n" "  --webserver=" "Webserver type to use (nginx|apache|openresty|openlitespeed|litespeed, optionally varnish+ prefixed)."
+    printf "%-25s %-45s\n" "  --sql=" "Database type to use (mysql|mariadb)."
+    printf "%-25s %-45s\n" "  --no-sentinel" "Skip sending a Sentinel notification for this action."
+	echo
+    exit 1
+fi
+
+# required
+readonly USERNAME="${1,,}"
+PASSWORD="$2"
+readonly EMAIL="$3"
+readonly PLAN_NAME="$4"
+shift 4
+
+# optional
+DEBUG=false
+SKIP_IMAGE_PULL=false
+SEND_EMAIL=false
+SENTINEL=true
+RESELLER=""
+WEBSERVER=""
+SQL_TYPE=""
+
+cleanup() {
+    rm -f "$LOCK_FILE"
+}
+
+hard_cleanup() {
+	[[ -n "$USERNAME" ]] || { echo "ERROR: USERNAME is empty"; return 1; }
+
+	# kill processes
+    killall -u "${USERNAME}" -9 >/dev/null 2>&1 || true
+
+	# delete user on master
+    if command -v deluser >/dev/null 2>&1; then
+        deluser --remove-home "$USERNAME" # Debian
+    elif command -v userdel >/dev/null 2>&1; then
+        userdel -r "$USERNAME"            # RHEL
+    else
+        echo "ERROR: Neither deluser nor userdel found"
+    fi
+
+	# delete openpanel and podman files
+    rm -rf /etc/openpanel/openpanel/core/users/"$USERNAME" > /dev/null 2>&1
+	rm -rf /run/user/$(id -u $USERNAME)/ > /dev/null 2>&1
+}
+
+trap cleanup EXIT
+
+read_config_file() {
+    while IFS='=' read -r key value; do
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue   # skip comments
+        [[ -z "$key" ]] && continue                  # skip blank lines
+        case "$key" in
+            key) ENTERPRISE="$value" ;;
+            email_plaintext_passwords) email_plaintext_passwords="$value" ;;
+        esac
+    done < "$PANEL_CONFIG_FILE"
+}
+
+die()  { echo "[✘] ERROR: $*" >&2; exit 1; }
+
+read_config_file
+
+for arg in "$@"; do
+    case "$arg" in
+        --debug)          DEBUG=true ;;
+        --send-email)     SEND_EMAIL=true ;;
+        --skip-images)    SKIP_IMAGE_PULL=true ;;
+        --no-sentinel)    SENTINEL=false ;;
+        --reseller=*)     RESELLER="${arg#*=}" ;;
+        --sql=*)          SQL_TYPE="${arg#*=}" ;;
+        --webserver=*)    WEBSERVER="${arg#*=}" ;;
+        --private-note=*) PRIVATE_NOTE="${arg#*=}" ;;
+        *)                echo "[!] Warning: unknown flag '$arg'" >&2 ;;
     esac
 done
 
-[[ -n "$USERNAME" && -n "$PLAN_NAME" ]] || die "Usage: vietcli user-add <username> <plan_name> [--password <pw>] [--email <email>]"
-db_available || die "Database not available."
-(( ${#USERNAME} >= 3 && ${#USERNAME} <= 20 )) || die "Username must be 3–20 characters."
-[[ "$USERNAME" =~ ^[a-zA-Z][a-zA-Z0-9]*$ ]] || die "Username must start with a letter and contain only letters and numbers."
+log() { [[ "$DEBUG" == true ]] && echo "$*"; }
 
-PLAN_ID=$(db_query "SELECT id FROM plans WHERE name = '$(db_escape "$PLAN_NAME")'" | head -1)
-[[ -n "$PLAN_ID" ]] || die "Plan '$PLAN_NAME' not found."
-EXISTING=$(db_query "SELECT COUNT(*) FROM users WHERE username = '$(db_escape "$USERNAME")'")
-[[ "$EXISTING" -eq 0 ]] || die "Username '$USERNAME' is already taken."
 
-if [[ -z "$PASSWORD" || "$PASSWORD" == "generate" ]]; then
-    PASSWORD=$(generate_password 16)
-    log "Generated password: $PASSWORD"
+# shellcheck disable=SC1091,SC1090
+. "$DB_CONFIG_FILE"
+# shellcheck disable=SC1091
+. /usr/local/vietcli/lib/password_strength.sh
+# shellcheck disable=SC1091
+. /usr/local/vietcli/lib/weakpass.sh
+# shellcheck disable=SC1091
+. /usr/local/vietcli/lib/podman.sh
+# shellcheck disable=SC1091
+. /usr/local/vietcli/lib/requirement.sh
+require_command jq
+
+escape() {
+    printf "%s" "$1" | sed "s/'/''/g"
+}
+
+db_query() {
+    # shellcheck disable=SC2154
+    mariadb --defaults-extra-file="$config_file" -D "$mysql_database" -sN -e "$1"
+}
+
+update_reseller_account_count() {
+    [[ -n "$RESELLER" ]] || return 0
+    local limits_file="/etc/openpanel/openadmin/resellers/${RESELLER}.json"
+    [[ -f "$limits_file" ]] || return 0
+
+    local count
+    count="$(db_query "SELECT COUNT(*) FROM users WHERE owner='${RESELLER//\'/\\\'}'")"
+    jq --argjson n "${count:-0}" '.current_accounts = $n' "$limits_file" > "/tmp/reseller_${RESELLER}_update_$$.json" && mv "/tmp/reseller_${RESELLER}_update_$$.json" "$limits_file"
+    log "Reseller $RESELLER account count updated to $count"
+}
+
+check_reseller_limits() {
+    [[ -n "$RESELLER" ]] || return 0
+
+    local db_file="/etc/openpanel/openadmin/users.db"
+
+    RESELLER_ESC=$(escape "$RESELLER")
+    local user_exists
+    user_exists="$(sqlite3 "$db_file" "SELECT COUNT(*) FROM user WHERE username='${RESELLER//\'/\'\'}' AND role='reseller';")"
+    (( user_exists >= 1 )) || die "User '$RESELLER' is not a reseller or is not allowed to create users."
+
+    local limits_file="/etc/openpanel/openadmin/resellers/${RESELLER}.json"
+    if [[ ! -f "$limits_file" ]]; then
+        echo "[!] Warning: Reseller $RESELLER has no limits file; unlimited accounts allowed."
+        return 0
+    fi
+
+    local current_accounts
+    current_accounts="$(db_query "SELECT COUNT(*) FROM users WHERE owner='${RESELLER_ESC//\'/\\\'}'")"
+    current_accounts="${current_accounts:-0}"
+
+    jq --argjson n "$current_accounts" '.current_accounts = $n' "$limits_file" > "/tmp/reseller_${RESELLER}_$$.json" && mv "/tmp/reseller_${RESELLER}_$$.json" "$limits_file"
+
+    local max_accounts
+    max_accounts="$(jq -r '.max_accounts // "unlimited"' "$limits_file")"
+    if [[ "$max_accounts" != "unlimited" && "$max_accounts" != "0" && "$current_accounts" -ge "$max_accounts" ]]; then
+        die "Reseller '$RESELLER' has reached the maximum account limit ($max_accounts)."
+    fi
+
+    local allowed_plans
+    allowed_plans="$(jq -r '.allowed_plans | join(",")' "$limits_file")"
+    grep -wq "$PLAN_ID" <<< "$allowed_plans" || die "Plan ID '$PLAN_ID' is not assigned to reseller '$RESELLER'."
+}
+
+validate_password_in_lists() {
+    # generated passwords are random, no point checking the literal word
+    [[ "$PASSWORD" == "generate" ]] && return 0
+    log "Checking password against weak-password dictionary"
+    require_not_common_password "$PASSWORD"
+}
+
+validate_username() {
+    log "Validating username '$USERNAME'"
+
+    (( ${#USERNAME} >= 3 && ${#USERNAME} <= 20 )) || die "Username must be 3–20 characters. See https://openpanel.com/docs/articles/accounts/forbidden-usernames/#openpanel"
+
+    [[ "$USERNAME" =~ ^[a-zA-Z][a-zA-Z0-9]*$ ]] || die "Username must start with a letter and contain only letters and numbers."
+
+    if [[ -f "$FORBIDDEN_USERNAMES_FILE" ]]; then
+        while IFS= read -r forbidden; do
+            [[ "${USERNAME,,}" == "${forbidden,,}" ]] && die "Username '$USERNAME' is not allowed. See https://openpanel.com/docs/articles/accounts/forbidden-usernames/#reserved-usernames"
+        done < "$FORBIDDEN_USERNAMES_FILE"
+    fi
+}
+
+
+validate_user_creation() {
+    if [[ -z "$ENTERPRISE" ]]; then
+        [[ -z "$RESELLER" ]] || die "Resellers require the Enterprise edition."
+        log "Community edition: checking 3-user limit"
+    else
+        [[ -z "$RESELLER" ]] && log "Enterprise edition: unlimited users"
+    fi
+
+    local USERNAME_ESC result
+	USERNAME_ESC=$(escape "$USERNAME")
+    result="$(db_query "SELECT COUNT(*), SUM(username='${USERNAME_ESC}' OR username LIKE 'SUSPENDED\_%\_${USERNAME_ESC}') FROM users")"
+
+    local user_count username_taken
+    read -r user_count username_taken <<< "$result"
+
+    [[ -z "$ENTERPRISE" && "$user_count" -gt 2 ]] && die "Community edition is limited to 3 accounts. Upgrade to Enterprise for unlimited users."
+
+    [[ "${username_taken:-0}" -gt 0 ]] && die "Username '$USERNAME' is already taken."
+}
+
+load_plan() {
+    log "Looking up plan '$PLAN_NAME'"
+	local PLAN_NAME_ESC
+    PLAN_NAME_ESC=$(escape "$PLAN_NAME")
+    PLAN_ID="$(db_query "SELECT id FROM plans WHERE name = '${PLAN_NAME_ESC//\'/\\\'}'")"
+    [[ -n "$PLAN_ID" ]] || die "Plan '$PLAN_NAME' not found."
+}
+
+autostart_services() {
+	local AUTOSTART_FILE="/etc/openpanel/docker/compose/1.0/autostart.services"
+
+    [[ "$SKIP_IMAGE_PULL" == true ]] && { log "Skipping image pull (--skip-images)."; return 0; }
+
+    local env_file="/home/${USERNAME}/.env"
+    [[ -f "$env_file" ]] || { echo "[!] Warning: $env_file not found; skipping image pull."; return 1; }
+
+	# https://community.openpanel.org/d/239-no-such-container-openlitespeed
+    get_env() { grep -E "^$1=" "$env_file" | cut -d= -f2- | tr -d '\r"'\'; }
+    local sql_type ws_type php_version php_svc
+    sql_type="$(get_env MYSQL_TYPE)"
+    ws_type="$(get_env WEB_SERVER)"
+	php_version="$(get_env DEFAULT_PHP_VERSION)"
+    varnish="$(get_env PROXY_HTTP_PORT)"
+    php_svc="php-fpm-${php_version}"
+
+    [[ -f "$AUTOSTART_FILE" ]] || { echo "[!] Warning: $AUTOSTART_FILE not found; skipping image pull."; return 1; }
+
+    local autostart
+    mapfile -t autostart < <(grep -v '^\s*#' "$AUTOSTART_FILE" | grep -v '^\s*$')
+
+    local images=()
+    local ols_ws=false
+    [[ "$ws_type" =~ ^(openlitespeed|litespeed)$ ]] && ols_ws=true
+    [[ "$ols_ws" == false ]] && [[ "$php_version" =~ ^[0-9]+\.[0-9]+$ ]] && [[ " ${autostart[*]} " == *" $php_svc "* ]] && images+=("$php_svc")
+    [[ "$sql_type" =~ ^(mysql|mariadb)$ ]] && [[ " ${autostart[*]} " == *" $sql_type "* ]] && images+=("$sql_type")
+	[[ -n "$varnish" ]] && [[ " ${autostart[*]} " == *" varnish "* ]] && images+=("varnish")
+    [[ "$ws_type" =~ ^(nginx|apache|openresty|openlitespeed|litespeed)$ ]] && [[ " ${autostart[*]} " == *" $ws_type "* ]] && images+=("$ws_type")
+    local sql_ws_types="mysql mariadb nginx apache openresty openlitespeed litespeed"
+    for svc in "${autostart[@]}"; do
+        [[ " $sql_ws_types " == *" $svc "* ]] && continue                 # only webserver and sql type for user, ignore others
+        [[ "$ols_ws" == true ]] && [[ "$svc" == php-fpm-* ]] && continue  # OLS/LS manages PHP internally, no need to start php-fpm services
+        [[ "$svc" == php-fpm-* || "$svc" == varnish ]] && continue        # only current default php version and varnish if enabled
+        images+=("$svc")
+    done
+    [[ ${#images[@]} -eq 0 ]] && { echo "[!] Warning: No autostart services match user config."; return 1; }
+	log "Starting services in background: ${images[*]}"
+	# a fresh subshell doesn't inherit lib/podman.sh's functions, so the socket is inlined directly
+	local sock="unix:///hostfs/run/user/${USER_ID}/podman/podman.sock"
+	nohup bash -c "e=0; ok=0; while [[ \$e -lt 60 ]]; do if CONTAINER_HOST=${sock} podman --remote info >/dev/null 2>&1; then ((ok++)); [[ \$ok -ge 3 ]] && break; else ok=0; fi; sleep 3; ((e+=3)); done; cd /home/${USERNAME}/; for svc in ${images[*]}; do CONTAINER_HOST=${sock} podman-compose up -d \$svc || true; done" </dev/null >"/tmp/autostart_${USERNAME}.log" 2>&1 &
+}
+
+create_linux_user_local() {
+    log "Creating local Linux user '$USERNAME'"
+
+    # never hand out uid 1000
+    local uid
+	uid=$(getent passwd | awk -F: '$3>=1002{print $3}' | sort -n | awk '
+	    BEGIN{c=1002}
+	    {while(c<$1){print c; exit} c=$1+1}
+	    END{print c}' | head -1)
+
+    useradd -m -d "/home/${USERNAME}" -u "$uid" "$USERNAME" || die "Failed to create Linux user '$USERNAME' on master."
+    USER_ID="$(stat -c '%u' "/home/${USERNAME}")"
+}
+
+ensure_subuid_subgid() {
+    # modern useradd assigns the /etc/subuid /etc/subgid range automatically, but add it if it's missing
+    grep -q "^${USERNAME}:" /etc/subuid 2>/dev/null || usermod --add-subuids 100000-165535 "$USERNAME" || die "Failed to assign subuid range for '$USERNAME'."
+    grep -q "^${USERNAME}:" /etc/subgid 2>/dev/null || usermod --add-subgids 100000-165535 "$USERNAME" || die "Failed to assign subgid range for '$USERNAME'."
+}
+
+readonly PASTA_SELINUX_MODULE="/etc/openpanel/docker/selinux/pasta_local.pp"
+
+# https://community.openpanel.org/d/302-user-add-pasta-failed-with-exit-code-1-netns-dir-open-permission-denied
+fix_pasta_selinux() {
+    command -v selinuxenabled >/dev/null 2>&1 || return 0
+    selinuxenabled 2>/dev/null || return 0        # SELinux not installed/enforcing
+    command -v pasta >/dev/null 2>&1 || return 0  # pasta not in use on this box
+    semodule -l 2>/dev/null | grep -qx 'pasta_local' && return 0  # already applied
+
+    log "Applying SELinux policy fix for rootless podman (pasta netns access)"
+    if [[ -f "$PASTA_SELINUX_MODULE" ]]; then
+        semodule -i "$PASTA_SELINUX_MODULE" 2>/dev/null || echo "[!] Warning: Failed to load pasta SELinux module."
+        return 0
+    fi
+
+    # shellcheck disable=SC2015 # both are plain checks, not side-effecting commands — safe "check A and B, else fallback" idiom
+    command -v checkmodule >/dev/null 2>&1 && command -v semodule_package >/dev/null 2>&1 || {
+        echo "[!] Warning: policycoreutils-devel/selinux-policy-devel missing; cannot build pasta SELinux module."
+        return 0
+    }
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    cat > "${tmpdir}/pasta_local.te" << 'EOF'
+module pasta_local 1.0;
+
+require {
+    type pasta_t;
+    type unconfined_t;
+    class dir open;
+}
+
+allow pasta_t unconfined_t:dir open;
+EOF
+
+    (
+        cd "$tmpdir" || exit 1
+        checkmodule -M -m -o pasta_local.mod pasta_local.te >/dev/null 2>&1 && semodule_package -o pasta_local.pp -m pasta_local.mod >/dev/null 2>&1 && mkdir -p "$(dirname "$PASTA_SELINUX_MODULE")" && cp pasta_local.pp "$PASTA_SELINUX_MODULE" && semodule -i pasta_local.pp >/dev/null 2>&1
+    ) || echo "[!] Warning: Failed to build/load pasta SELinux module."
+
+    rm -rf "$tmpdir"
+}
+
+setup_podman_rootless() {
+    log "Configuring rootless Podman for '$USERNAME'"
+
+    local home_dir="/home/${USERNAME}"
+    local config_dir="${home_dir}/.config/containers"
+
+    # graphroot stays under docker-data/ so the rest of vietcli (backups, quota, restore) keeps the same layout as rootless docker; additionalimagestores points at the shared read-only store from PODMAN_INSTALL.sh so containers reuse pulled images instead of duplicating them
+    mkdir -p "${home_dir}/docker-data" "$config_dir"
+    cat > "${config_dir}/storage.conf" << EOF
+[storage]
+driver = "overlay"
+graphroot = "${home_dir}/docker-data"
+
+[storage.options]
+additionalimagestores = [
+  "${SHARED_STORE}"
+]
+
+[storage.options.overlay]
+mount_program = "/usr/bin/fuse-overlayfs"
+EOF
+
+    # security hardening that used to live in rootless docker's daemon.json (no-new-privileges + custom DNS) -- containers.conf is the podman equivalent, applied as the default for every container this user creates
+    cat > "${config_dir}/containers.conf" << 'EOF'
+[containers]
+no_new_privileges = true
+dns_servers = ["1.1.1.1", "1.0.0.1"]
+EOF
+
+    chmod 755 -R "${home_dir}"
+    chown -R "${USERNAME}:${USERNAME}" "${home_dir}"
+
+    fix_pasta_selinux
+
+	# write the slice override before user@ starts, otherwise plan-apply restarts user@ later and kills the fresh podman socket and containers
+	if [[ ! -f "/etc/systemd/system/user-${USER_ID}.slice.d/override.conf" ]]; then
+	    mkdir -p "/etc/systemd/system/user-${USER_ID}.slice.d/"
+	    printf '[Slice]\nDelegate=yes\n' > "/etc/systemd/system/user-${USER_ID}.slice.d/override.conf"
+	    systemctl daemon-reload >/dev/null 2>&1
+	fi
+
+	loginctl enable-linger "$USERNAME" >/dev/null 2>&1
+	local w=0
+	while (( w < 30 )); do
+	    systemctl is-active "user@${USER_ID}.service" >/dev/null 2>&1 && break
+	    sleep 1; ((w++))
+	done
+
+	# machinectl shell -c silently did nothing here, so the socket never got enabled and died on the next user@ restart or reboot
+	systemctl --user -M "${USERNAME}@" daemon-reload >/dev/null 2>&1
+	systemctl --user -M "${USERNAME}@" reset-failed podman.socket >/dev/null 2>&1
+	systemctl --user -M "${USERNAME}@" enable --now podman.socket >/dev/null 2>&1
+
+	# confirm it actually took, retry once if not
+	if ! systemctl --user -M "${USERNAME}@" is-active podman.socket >/dev/null 2>&1; then
+	    sleep 2
+	    systemctl --user -M "${USERNAME}@" enable --now podman.socket >/dev/null 2>&1
+	fi
+}
+
+test_podman_service() {
+    local sock="unix:///hostfs/run/user/${USER_ID}/podman/podman.sock"
+    local sock_path="/hostfs/run/user/${USER_ID}/podman/podman.sock"
+    local elapsed=0 max_time=60 ready=false
+
+	log "Testing connection to podman service.."
+
+	fixed_permissions=false
+	while (( elapsed < max_time )); do
+	    if [[ -S "$sock_path" ]]; then
+	        output=$(CONTAINER_HOST="$sock" timeout 3 podman --remote info 2>&1)
+	        status=$?
+	
+	        if [[ $status -eq 0 ]]; then
+	            ready=true
+	            log "Podman socket live ($sock_path)"
+	            break
+			# Error: configure storage: overlay: can't stat imageStore dir /var/lib/containers/shared-storage: stat /var/lib/containers/shared-storage: permission denied
+	        elif [[ "$fixed_permissions" != true ]] && [[ "$output" == *"permission denied"* ]] && [[ "$output" == *"shared-storage"* ]]; then
+	            log "Detected shared-storage permission issue. Fixing permissions..."
+	            chmod -R o+rX "${SHARED_STORE}" || true
+	            fixed_permissions=true
+	            continue
+	        fi
+	    fi
+	    sleep 1; (( elapsed++ )) || true
+	done
+
+    if [[ "$ready" != true ]]; then
+        hard_cleanup
+        die "Podman not responding after ${max_time}s! error is: $output"
+    fi
+
+    # podman-compose can reach this user's rootless podman instance?
+    compose_output=$(cd "/home/${USERNAME}" && CONTAINER_HOST="$sock" timeout 5 podman-compose ps 2>&1) || {
+        hard_cleanup
+        die "podman-compose is not working for '$USERNAME': $compose_output"
+    }
+    log "podman-compose is working against '$USERNAME's rootless podman."
+}
+
+find_available_ports_bg() { find_available_ports > /tmp/ports_$$; }
+
+find_available_ports() {
+    local last_user min_port
+    last_user="$(db_query "SELECT server FROM users ORDER BY id DESC LIMIT 1" 2>/dev/null || true)"
+    min_port=32768
+
+    if [[ -n "$last_user" ]]; then
+        local env_file="/home/${last_user}/.env"
+        if [[ -f "$env_file" ]]; then
+            local highest_port
+            highest_port="$(grep -E '^[A-Z_]+_PORT=' "$env_file" | grep -oE '[0-9]+' | sort -rn | head -1)"
+            [[ -n "$highest_port" ]] && min_port="$highest_port"
+        fi
+    fi
+
+    local ports=()
+    for (( i = 1; i <= 7; i++ )); do
+        ports+=("$(( min_port + i ))")
+    done
+    echo "${ports[@]}"
+}
+
+configure_environment() {
+    log "Configuring environment for '$USERNAME'"
+
+    local port_1 port_2 port_3 port_4 port_5 port_6 port_7
+    port_1="${P1}:80"
+    port_2="${P2}:3306"
+    port_3="${P3}:5432"
+    port_4="${P4}:80"
+    port_5="127.0.0.1:${P5}:80"
+    port_6="127.0.0.1:${P6}:443"
+    port_7="127.0.0.1:${P7}:80"
+
+    local root_password_for_services
+    root_password_for_services="$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 24)"
+
+    local home_dir="/home/${USERNAME}"
+    cp /etc/openpanel/docker/compose/1.0/docker-compose.yml "${home_dir}/docker-compose.yml" || die "docker-compose.yml template missing from /etc/openpanel/"
+
+    # podman-compose can't resolve a ${VAR} nested inside another ${VAR:-default} (docker-compose can), so flatten the webserver port mapping to HTTP_PORT here, swapped to PROXY_HTTP_PORT below when the webserver sits behind Varnish
+    # shellcheck disable=SC2016 # single-quoted on purpose: matching the literal ${...} text in the compose file, not expanding a shell var
+    sed -i 's|\${PROXY_HTTP_PORT:-\${HTTP_PORT}}|\${HTTP_PORT}|g' "${home_dir}/docker-compose.yml"
+
+    sed -i 's/\r$//' /etc/openpanel/docker/compose/1.0/.env
+    cp /etc/openpanel/docker/compose/1.0/.env "${home_dir}/.env" || die ".env template missing from /etc/openpanel/"
+
+    sed -i \
+        -e "s|USERNAME=\"[^\"]*\"|USERNAME=\"${USERNAME}\"|g" \
+        -e "s|USER_ID=\"[^\"]*\"|USER_ID=\"${USER_ID}\"|g" \
+        -e "s|CONTEXT=\"[^\"]*\"|CONTEXT=\"${USERNAME}\"|g" \
+        -e "s|^HTTP_PORT=\"[^\"]*\"|HTTP_PORT=\"${port_5}\"|g" \
+        -e "s|HTTPS_PORT=\"[^\"]*\"|HTTPS_PORT=\"${port_6}\"|g" \
+        -e "s|PGADMIN_PORT=\"[^\"]*\"|PGADMIN_PORT=\"${port_1}\"|g" \
+        -e "s|POSTGRES_PORT=\"[^\"]*\"|POSTGRES_PORT=\"127.0.0.1:${port_3}\"|g" \
+        -e "s|PMA_PORT=\"[^\"]*\"|PMA_PORT=\"${port_4}\"|g" \
+        -e "s|{PMA_PORT}|${P4}|g" \
+		-e "s|rootpassword|${root_password_for_services}|g" \
+        -e "s|MYSQL_PORT=\"[^\"]*\"|MYSQL_PORT=\"127.0.0.1:${port_2}\"|g" \
+        -e "s|PROXY_HTTP_PORT=\"[^\"]*\"|PROXY_HTTP_PORT=\"${port_7}\"|g" \
+        "${home_dir}/.env"
+
+    if [[ "$EMAIL" =~ ^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$ ]]; then
+        sed -i "s|PGADMIN_MAIL=[^\"]*|PGADMIN_MAIL=${EMAIL}|g" "${home_dir}/.env"
+    fi
+
+    # private note shown on OpenAdmin
+    if [[ -n "$PRIVATE_NOTE" ]]; then
+		echo "$PRIVATE_NOTE" > "${home_dir}/notes.txt"
+	fi
+
+    # Webserver
+    if [[ -n "$WEBSERVER" ]]; then
+        if [[ "$WEBSERVER" =~ ^varnish\+([a-zA-Z]+)$ ]]; then
+            local ws="${BASH_REMATCH[1]}"
+            log "Enabling Varnish + $ws"
+            sed -i \
+                -e "s|WEB_SERVER=\"[^\"]*\"|WEB_SERVER=\"${ws}\"|g" \
+                -e "s|^#\(PROXY_HTTP_PORT=.*\)|\1|" \
+                "${home_dir}/.env"
+            sed -i "/container_name: ${ws}\$/,/HTTPS_PORT/ s|\${HTTP_PORT}|\${PROXY_HTTP_PORT}|" "${home_dir}/docker-compose.yml"
+        elif [[ "$WEBSERVER" =~ ^(nginx|apache|openresty|openlitespeed|litespeed)$ ]]; then
+            log "Setting webserver: $WEBSERVER"
+            sed -i "s|WEB_SERVER=\"[^\"]*\"|WEB_SERVER=\"${WEBSERVER}\"|g" "${home_dir}/.env"
+        else
+            echo "[!] Warning: Invalid webserver '$WEBSERVER'. Using template default."
+        fi
+    fi
+
+    # SQL
+    if [[ -n "$SQL_TYPE" ]]; then
+        if [[ "$SQL_TYPE" =~ ^(mysql|mariadb)$ ]]; then
+            log "Setting SQL type: $SQL_TYPE"
+            sed -i "s|MYSQL_TYPE=\"[^\"]*\"|MYSQL_TYPE=\"${SQL_TYPE}\"|g" "${home_dir}/.env"
+        else
+            echo "[!] Warning: Invalid SQL type '$SQL_TYPE'. Using template default."
+        fi
+    fi
+
+    # if owned by a reseller with their own logo URL set, write it into the new account's .env so its container can pick it up directly, since it only ever sees its own home directory
+    if [[ -n "$RESELLER" ]]; then
+        local reseller_logo_url
+        reseller_logo_url="$(jq -r '.logo_url // empty' "/etc/openpanel/openadmin/resellers/${RESELLER}.json" 2>/dev/null)"
+        if [[ -n "$reseller_logo_url" ]]; then
+            if grep -q "^RESELLER_LOGO_URL=" "${home_dir}/.env"; then
+                sed -i "s|^RESELLER_LOGO_URL=.*|RESELLER_LOGO_URL=\"${reseller_logo_url}\"|" "${home_dir}/.env"
+            else
+                printf 'RESELLER_LOGO_URL="%s"\n' "${reseller_logo_url}" >> "${home_dir}/.env"
+            fi
+        fi
+    fi
+
+	log "Creating user files.."
+    [[ -f "${home_dir}/.env" ]] || { hard_cleanup; die "Failed to create .env file."; }
+
+    # Socket dirs and config files
+    mkdir -p "${home_dir}/sockets/"{mysqld,postgres,redis,valkey,memcached,mongodb}
+    cp /etc/openpanel/mysql/user.cnf             "${home_dir}/custom.cnf"
+    cp /etc/openpanel/postgres/postgresql.conf   "${home_dir}/postgre_custom.conf"
+    cp /etc/openpanel/nginx/user-nginx.conf      "${home_dir}/nginx.conf"
+    cp /etc/openpanel/openresty/nginx.conf       "${home_dir}/openresty.conf"
+    cp /etc/openpanel/openlitespeed/httpd_config.conf "${home_dir}/openlitespeed.conf"
+    cp /etc/openpanel/apache/httpd.conf          "${home_dir}/httpd.conf"
+    cp /etc/openpanel/varnish/default.vcl        "${home_dir}/default.vcl"
+    cp /etc/openpanel/ofelia/users.ini           "${home_dir}/crons.ini"   2>/dev/null || true
+    cp /etc/openpanel/backups/backup.env         "${home_dir}/backup.env"  2>/dev/null || true
+    cp -r /etc/openpanel/php/ini                 "${home_dir}/php.ini"
+
+    chown -R "${USERNAME}:${USERNAME}" "${home_dir}/sockets"
+    chmod 777 "${home_dir}/sockets/"
+
+    printf '[client]\nuser=root\npassword=%s\n' "$root_password_for_services" > "${home_dir}/my.cnf"
+    [[ -f "${home_dir}/my.cnf" ]] || echo "[!] Warning: Failed to create my.cnf."
+
+    # shellcheck disable=SC2034
+    MYSQL_ROOT_PASSWORD="$root_password_for_services"   # exported for pull_images
+}
+
+copy_skeleton_files() {
+    log "Creating configuration files for the newly created user"
+    cp -r /etc/openpanel/skeleton/ "/etc/openpanel/openpanel/core/users/${USERNAME}/" 2>/dev/null || true
+}
+
+save_user_to_database() {
+    log "Saving user '$USERNAME' to database"
+
+    local escaped_hash
+    escaped_hash="${HASHED_PASSWORD//\'/\'\'}"
+
+    local query
+    if [[ -n "$RESELLER" ]]; then
+        query="INSERT INTO users (username, password, owner, email, plan_id, server) VALUES ('${USERNAME}', '${escaped_hash}', '${RESELLER//\'/\'\'}', '${EMAIL//\'/\'\'}', '${PLAN_ID}', '${USERNAME}');"
+    else
+        query="INSERT INTO users (username, password, email, plan_id, server) VALUES ('${USERNAME}', '${escaped_hash}', '${EMAIL//\'/\'\'}', '${PLAN_ID}', '${USERNAME}');"
+    fi
+
+    db_query "$query" || { hard_cleanup; die "Database insert failed."; }
+    echo "[✔] Successfully added user $USERNAME with password: $PASSWORD"
+}
+
+send_welcome_email() {
+    [[ "$SEND_EMAIL" == true ]] || return 0
+
+    [[ "$EMAIL" =~ ^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$ ]] || { echo "[!] Warning: $EMAIL is not a valid address; skipping email."; return 0; }
+
+    local domain protocol admin_port port login_url email_pw
+
+    domain="$(vietcli domain)"
+    port="$(vietcli port)"
+
+    if [[ -f "/etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory/${domain}/${domain}.key" || -f "/etc/openpanel/caddy/ssl/custom/${domain}/${domain}.key" ]]; then
+        protocol="https"
+    else
+        protocol="http"
+    fi
+
+    admin_port="$(awk '/# START HOSTNAME DOMAIN #/{flag=1;next}/# END HOSTNAME DOMAIN #/{flag=0}flag' /etc/openpanel/caddy/Caddyfile | grep -oP 'localhost:\K[0-9]+' | head -1)"
+    login_url="${protocol:-http}://${domain}:${port}/login"
+
+    local token
+    token="$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 64)"
+    sed -i "s|^mail_security_token=.*|mail_security_token=${token}|" "${PANEL_CONFIG_FILE}"
+
+    email_pw="$PASSWORD"
+    [[ "$email_plaintext_passwords" == "no" ]] && email_pw="********"
+
+    curl -4 -fsSk -X POST "${protocol:-http}://${domain}:${admin_port}/send_email" -F "transient=${token}" -F "recipient=${EMAIL}" -F "subject=New VietPanel account information" -F "body=VietPanel URL: ${login_url} | username: ${USERNAME} | password: ${email_pw}" --max-time 15 || echo "[!] Warning: Failed to send welcome email."
+}
+
+generate_password_hash() {
+    if [[ "$PASSWORD" == "generate" ]]; then
+        PASSWORD="$(openssl rand -base64 12)"
+        log "Generated password: $PASSWORD"
+    fi
+
+    require_password_strength "$PASSWORD"
+
+	HASHED_PASSWORD=$(openssl passwd -6 -salt "$(openssl rand -hex 8)" "$PASSWORD")
+}
+
+create_user_volume() {
+    local vol_path="/home/${USERNAME}/docker-data/volumes/${USERNAME}_html_data/_data/"
+    mkdir -p "$vol_path"
+    chmod -R g+w "$vol_path"
+    ln -sfn "$vol_path" "/home/${USERNAME}/files" 2>/dev/null || true
+	chown -R "$USERNAME":"$USERNAME" "/home/${USERNAME}/docker-data/volumes"
+}
+
+notify_sentinel() {
+    [[ "$SENTINEL" == true ]] || return 0
+    nohup vietcli sentinel --action=user_create --title="User account '${USERNAME}' created" --message="Account '${USERNAME}' created; email: ${EMAIL}; plan: ${PLAN_NAME}" >/dev/null 2>&1 &
+}
+
+
+# MAIN
+(
+flock -n 200 || { echo "[✘] Error: A user creation process is already running."; echo "Please wait for it to complete before starting a new one. Exiting."; exit 1; }
+
+########################################################################
+# 1. validate data and fetch plan info
+validate_user_creation
+validate_username
+validate_password_in_lists
+load_plan
+check_reseller_limits
+
+########################################################################
+# 2. create system user
+create_linux_user_local
+ensure_subuid_subgid
+
+########################################################################
+# 3. setup podman rootless for user
+setup_podman_rootless
+
+########################################################################
+# 4. do background stuff while podman setup is running
+
+find_available_ports_bg() { find_available_ports > /tmp/ports_$$; }
+find_available_ports_bg &
+PID_PORTS=$!
+
+copy_skeleton_files &
+
+if podman container exists openpanel; then
+  podman start openpanel >/dev/null 2>&1 || nohup sh -c "cd /root && podman-compose up -d openpanel" </dev/null >/dev/null 2>&1 & 
+else
+  nohup sh -c "cd /root && podman-compose up -d openpanel" </dev/null >/dev/null 2>&1 &
 fi
 
-HASH=""
-if command -v python3 &>/dev/null; then
-    HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$PASSWORD', bcrypt.gensalt()).decode())" 2>/dev/null)
-fi
-[[ -n "$HASH" ]] || die "Cannot hash password. Install bcrypt Python module."
-[[ -n "$EMAIL" ]] || EMAIL="${USERNAME}@vietpanel.local"
+generate_password_hash
+create_user_volume &
 
-REG_DATE=$(date '+%Y-%m-%d %H:%M:%S')
-case "$DB_BACKEND" in
-    sqlite) sqlite3 "$VIETCLI_DB_SQLITE" "INSERT INTO users (username, password, email, plan, plan_id, registered_date, server) VALUES ('$(db_escape "$USERNAME")', '$(db_escape "$HASH")', '$(db_escape "$EMAIL")', '$(db_escape "$PLAN_NAME")', $PLAN_ID, '$REG_DATE', 'active');" 2>/dev/null || die "Failed to insert user." ;;
-    mysql)  mariadb --defaults-extra-file="$config_file" -D "$mysql_database" -sN -e "INSERT INTO users (username, password, email, plan, plan_id, registered_date, server) VALUES ('$(db_escape "$USERNAME")', '$(db_escape "$HASH")', '$(db_escape "$EMAIL")', '$(db_escape "$PLAN_NAME")', $PLAN_ID, '$REG_DATE', 'active');" ;;
-esac
+wait $PID_PORTS
+read -r P1 P2 P3 P4 P5 P6 P7 < /tmp/ports_$$
+rm -f /tmp/ports_$$
+configure_environment
 
-log "User '$USERNAME' added successfully (plan: $PLAN_NAME)."
-echo "Username: $USERNAME" && echo "Password: $PASSWORD" && echo "Email:    $EMAIL" && echo "Plan:     $PLAN_NAME"
+########################################################################
+# 6. validate podman service is started for user (socket exists), compose command and context are working
+test_podman_service
+autostart_services
+
+########################################################################
+# 8. save and notify
+save_user_to_database
+
+# needs to run AFTER saving user to database
+nohup vietcli plan-apply "$PLAN_ID" "$USERNAME" >/dev/null 2>&1 &
+
+# this needs to run AFTER plan-apply to show updated du info
+nohup vietcli user-quota >/dev/null 2>&1 &
+
+send_welcome_email &
+notify_sentinel
+update_reseller_account_count # must run after saving user to db
+
+nohup chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/" >/dev/null 2>&1 &
+
+exit 0
+) 200>"$LOCK_FILE"

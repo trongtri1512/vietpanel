@@ -1,0 +1,455 @@
+#!/bin/bash
+################################################################################
+# Script Name: domain.sh
+# Description: View and set domain/ip for accessing panels.
+# Usage: vietcli domain [set <domain_name> | ip] [--debug] [--no-restart]
+# Author: Stefan Pejcic
+# Created: 09.02.2025
+# Last Modified: 21.08.2026
+# Company: VietPanel, LLC.
+# Copyright (c) openpanel.com
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+################################################################################
+
+# ======================================================================
+# Configuration
+readonly CADDY_FILE="/etc/openpanel/caddy/Caddyfile"
+readonly DOMAINS_DIR="/etc/openpanel/caddy/domains/"
+readonly MAILSERVER_ENV="/usr/local/mail/openmail/mailserver.env"
+readonly FTP_COMPOSE_FILE="/etc/openpanel/ftp/compose.yml"
+readonly REDIRECTS_CONF="/etc/openpanel/caddy/redirects.conf"
+readonly DEFAULT_DOMAIN="example.net"
+
+# ======================================================================
+# Variables
+# shellcheck disable=SC1091
+source /usr/local/vietcli/lib/redis.sh
+DEBUG=false
+current_domain=""
+new_hostname=""
+server_ip=""
+
+# ======================================================================
+# Helpers
+
+log_debug() {
+    if [[ "$DEBUG" == true ]]; then
+        echo "$1"
+    fi
+}
+
+log_error() {
+    echo "Error: $1" >&2
+}
+
+log_info() {
+    echo "$1"
+}
+
+is_valid_ipv4() {
+    local ip="$1"
+    [[ $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    [[ $ip =~ ^10\. ]] && return 1
+    [[ $ip =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] && return 1
+    [[ $ip =~ ^192\.168\. ]] && return 1
+    return 0
+}
+
+# get server's public IPv4 address
+get_server_ipv4() {
+    local current_ip=""
+	current_ip=$(curl --silent --max-time 1 -4 "https://ip.openpanel.com" 2>/dev/null || curl --silent --max-time 1 -4 "https://ifconfig.me/ip")
+
+	if is_valid_ipv4 "$current_ip"; then
+		echo "$current_ip"
+		return 0
+	fi
+	
+	current_ip=$(curl --silent --max-time 1 -4 "https://ifconfig.me" 2>/dev/null)
+	if is_valid_ipv4 "$current_ip"; then
+		echo "$current_ip"
+		return 0
+	fi
+    
+	if command -v ip >/dev/null 2>&1; then
+	    current_ip=$(ip addr | grep 'inet ' | grep global | head -n1 | awk '{print $2}' | cut -f1 -d/)
+	else
+	    current_ip=$(hostname -I | awk '{print $1}')
+	fi
+	
+    if is_valid_ipv4 "$current_ip"; then
+        echo "$current_ip"
+        return 0
+    fi
+    
+    log_error "Invalid or private IPv4 address. Please contact support."
+    return 1
+}
+
+is_valid_domain() {
+    local input="$1"
+    local domain_regex='^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$'
+    local ipv4_regex='^((25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})$'
+    [[ "$input" =~ $domain_regex || "$input" =~ $ipv4_regex ]]
+}
+
+# https://docs.podman.io/en/latest/markdown/podman-run.1.html#add-host-hostname-hostname-ip
+update_container_hosts_entry() {
+    local domain="$1"
+    [[ -z "$domain" ]] && return 0
+    sed -i "/[[:space:]]${domain}\$/d" /etc/hosts
+    sed -i "/[[:space:]]${domain}[[:space:]]/d" /etc/hosts
+    echo "169.254.1.2   ${domain}" >> /etc/hosts
+    # todo: loop for existing containers to apply it
+}
+
+# reads the current domain from the Caddyfile
+get_current_domain() {
+    if [[ ! -f "$CADDY_FILE" ]]; then
+        log_error "Caddyfile not found at $CADDY_FILE"
+        return 1
+    fi
+
+    extract_domain() {
+        local start_marker="$1"
+        local end_marker="$2"
+        sed -n "/$start_marker/,/$end_marker/p" "$CADDY_FILE" | sed -n 's/^\([A-Za-z0-9.-]*\)[[:space:]]*{.*/\1/p' | head -n1
+    }
+
+    extract_ip() {
+        local start_marker="$1"
+        local end_marker="$2"
+        sed -n "/$start_marker/,/$end_marker/p" "$CADDY_FILE" | sed -n 's/^\([0-9]\{1,3\}\(\.[0-9]\{1,3\}\)\{3\}\)[[:space:]]*{.*/\1/p' | head -n1
+    }
+
+    # used to branch on /.dockerenv here, but OpenAdmin always runs natively on the host now, so just check both markers unconditionally
+    domain=$(extract_domain "# START USERPANEL DOMAIN #" "# END USERPANEL DOMAIN #")
+    if [[ -z "$domain" ]]; then
+        domain=$(extract_domain "# START HOSTNAME DOMAIN #" "# END HOSTNAME DOMAIN #")
+    fi
+
+    # Fallback: check IP block
+    if [[ -z "$domain" ]]; then
+        domain=$(extract_ip "# START HOSTNAME IP #" "# END HOSTNAME IP #")
+    fi
+
+    echo "$domain"
+}
+
+get_current_domain_or_ip() {
+    local domain
+    domain=$(get_current_domain)
+    
+    if [[ "$domain" == "$DEFAULT_DOMAIN" ]]; then
+        get_server_ipv4
+    else
+        echo "$domain"
+    fi
+}
+
+update_caddyfile() {
+    log_debug "Updating Caddyfile with new domain/IP: $new_hostname"
+
+    if [[ ! -f "$CADDY_FILE" ]]; then
+        log_error "Caddyfile not found at $CADDY_FILE"
+        return 1
+    fi
+
+    #IPv4
+	if [[ "$new_hostname" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        # was using IPv4
+        if grep -q "# START HOSTNAME IP #" "$CADDY_FILE"; then
+            sed -i "/# START HOSTNAME IP #/,/# END HOSTNAME IP #/ s/[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/$new_hostname/" "$CADDY_FILE"
+        else
+		# was not using IPv4
+			local admin_port; admin_port=$(vietcli admin port)
+            local ip_block="# START HOSTNAME IP #\n${new_hostname} {\n  tls {\n    issuer acme {\n      profile shortlived\n    }\n  }\n  reverse_proxy localhost:${admin_port}\n}\n# END HOSTNAME IP #\n"
+            sed -i "s|# START HOSTNAME DOMAIN #|${ip_block}# START HOSTNAME DOMAIN #|" "$CADDY_FILE"
+        fi
+		# example.net
+		sed -i "s/$current_domain/$DEFAULT_DOMAIN/g" "$CADDY_FILE"
+    else
+        # was using a domain
+        sed -i "s/$current_domain/$new_hostname/g" "$CADDY_FILE"
+    fi
+}
+
+# Create or move domain configuration file
+create_mv_file() {
+    log_debug "Managing domain configuration file"
+    
+    mkdir -p "$DOMAINS_DIR"
+    
+    if [[ "$new_hostname" == "$DEFAULT_DOMAIN" ]]; then
+        # Remove existing domain file when switching to IP
+        [[ -f "${DOMAINS_DIR}${current_domain}.conf" ]] && rm "${DOMAINS_DIR}${current_domain}.conf"
+    else
+        # Move or create domain file
+        if [[ -f "${DOMAINS_DIR}${current_domain}.conf" ]]; then
+            mv "${DOMAINS_DIR}${current_domain}.conf" "${DOMAINS_DIR}${new_hostname}.conf" 2>/dev/null
+        fi
+        touch "${DOMAINS_DIR}${new_hostname}.conf"
+    fi
+}
+
+update_redirects() {
+    local redirect_url
+    
+    if [[ "$new_hostname" == "$DEFAULT_DOMAIN" ]]; then
+        redirect_url="http://$server_ip"
+        log_debug "Updating redirects to use IP address"
+    else
+        redirect_url="https://$new_hostname"
+        log_debug "Updating redirects to use custom domain"
+    fi
+    
+    if [[ ! -f "$REDIRECTS_CONF" ]]; then
+        log_error "Redirects configuration not found at $REDIRECTS_CONF"
+        return 1
+    fi
+    
+    sed -i -E "s|(redir @openpanel )https?://[^:]+:|\1${redirect_url}:|; s|(redir @openadmin )https?://[^:]+:|\1${redirect_url}:|" "$REDIRECTS_CONF"
+}
+
+configure_mailserver() {
+    [[ ! -f "$MAILSERVER_ENV" ]] && return 0
+	
+    if [[ "$new_hostname" == "$DEFAULT_DOMAIN" ]] || is_valid_ipv4 "$new_hostname"; then
+        log_debug "Configuring mailserver for plain-text authentication with IP"
+
+		# used by roundcube to detect if SSL should be used
+		sed -i '/^OVERRIDE_HOSTNAME=/c\OVERRIDE_HOSTNAME=' "$MAILSERVER_ENV"
+
+        sed -i '/^SSL_TYPE=/c\SSL_TYPE=' "$MAILSERVER_ENV"
+        sed -i '/^SSL_CERT_PATH=/d' "$MAILSERVER_ENV"
+        sed -i '/^SSL_KEY_PATH=/d' "$MAILSERVER_ENV"
+
+        # podman-compose doesn't interpolate ${VAR:+alt} conditionals like docker compose does, so hardcode the resolved roundcube values in the compose file too
+        if [[ -f "$FTP_COMPOSE_FILE" ]]; then
+            sed -i "s|ROUNDCUBEMAIL_DEFAULT_HOST=.*|ROUNDCUBEMAIL_DEFAULT_HOST=mailserver|" "$FTP_COMPOSE_FILE"
+            sed -i "s|ROUNDCUBEMAIL_DEFAULT_PORT=.*|ROUNDCUBEMAIL_DEFAULT_PORT=|" "$FTP_COMPOSE_FILE"
+            sed -i "s|ROUNDCUBEMAIL_SMTP_SERVER=.*|ROUNDCUBEMAIL_SMTP_SERVER=mailserver|" "$FTP_COMPOSE_FILE"
+            sed -i "s|ROUNDCUBEMAIL_SMTP_PORT=.*|ROUNDCUBEMAIL_SMTP_PORT=|" "$FTP_COMPOSE_FILE"
+        fi
+    else
+        log_debug "Configuring mailserver for TLS/SSL authentication with domain"
+
+        local cert_path_on_hosts="/etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory/${new_hostname}/${new_hostname}.crt"
+        local key_path_on_hosts="/etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory/${new_hostname}/${new_hostname}.key"
+
+        # custom paths!
+        local fallback_cert_path="/etc/openpanel/caddy/ssl/custom/${new_hostname}/${new_hostname}.crt"
+        local fallback_key_path="/etc/openpanel/caddy/ssl/custom/${new_hostname}/${new_hostname}.key"
+        
+        if [[ -f "$cert_path_on_hosts" && -f "$key_path_on_hosts" ]]; then
+            log_debug "Using Let's Encrypt certs for $new_hostname"
+        elif [[ -f "$fallback_cert_path" && -f "$fallback_key_path" ]]; then
+            log_debug "Using custom certs for $new_hostname"
+            cert_path_on_hosts="$fallback_cert_path"
+            key_path_on_hosts="$fallback_key_path"
+        else
+            log_debug "WARNING: SSL files don’t exist for domain $new_hostname, will not be configured for mailserver!"
+            return 0
+        fi
+
+		# used by roundcube to detect if SSL should be used
+		sed -i "s|OVERRIDE_HOSTNAME=.*|OVERRIDE_HOSTNAME=$new_hostname|" "$MAILSERVER_ENV"
+
+        sed -i "/^SSL_TYPE=/c\SSL_TYPE=manual" "$MAILSERVER_ENV"
+        if grep -q '^SSL_CERT_PATH=' "$MAILSERVER_ENV"; then
+            sed -i "s|^SSL_CERT_PATH=.*|SSL_CERT_PATH=$cert_path_on_hosts|" "$MAILSERVER_ENV"
+        else
+            echo "SSL_CERT_PATH=$cert_path_on_hosts" >> "$MAILSERVER_ENV"
+        fi
+
+        if grep -q '^SSL_KEY_PATH=' "$MAILSERVER_ENV"; then
+            sed -i "s|^SSL_KEY_PATH=.*|SSL_KEY_PATH=$key_path_on_hosts|" "$MAILSERVER_ENV"
+        else
+            echo "SSL_KEY_PATH=$key_path_on_hosts" >> "$MAILSERVER_ENV"
+        fi
+
+        # podman-compose doesn't interpolate ${VAR:+alt} conditionals like docker compose does, so hardcode the resolved roundcube values in the compose file too
+        if [[ -f "$FTP_COMPOSE_FILE" ]]; then
+            sed -i "s|ROUNDCUBEMAIL_DEFAULT_HOST=.*|ROUNDCUBEMAIL_DEFAULT_HOST=ssl://$new_hostname|" "$FTP_COMPOSE_FILE"
+            sed -i "s|ROUNDCUBEMAIL_DEFAULT_PORT=.*|ROUNDCUBEMAIL_DEFAULT_PORT=993|" "$FTP_COMPOSE_FILE"
+            sed -i "s|ROUNDCUBEMAIL_SMTP_SERVER=.*|ROUNDCUBEMAIL_SMTP_SERVER=ssl://$new_hostname|" "$FTP_COMPOSE_FILE"
+            sed -i "s|ROUNDCUBEMAIL_SMTP_PORT=.*|ROUNDCUBEMAIL_SMTP_PORT=465|" "$FTP_COMPOSE_FILE"
+        fi
+
+    fi
+    
+    log_debug "Restarting mailserver and webmail to apply new configuration"
+    nohup sh -c "cd /usr/local/mail/openmail/ && podman-compose down && podman-compose up -d mailserver roundcube" </dev/null >nohup.out 2>nohup.err &
+}
+
+
+restart_services() {
+
+	if podman-compose -f /root/docker-compose.yml ps -q caddy >/dev/null 2>&1; then
+        nohup podman restart caddy >/dev/null 2>&1 &
+        disown
+    else
+        nohup bash -c "cd /root && podman-compose up -d caddy" >/dev/null 2>&1 &
+        disown
+    fi
+
+    local no_restart=false
+    
+    for arg in "$@"; do
+        if [[ "$arg" == "--no-restart" ]]; then
+            no_restart=true
+            break
+        fi
+    done
+    
+    if [[ "$no_restart" == true ]]; then
+        log_debug "Skipping service restart due to --no-restart flag"
+        return 0
+    fi
+    
+    log_debug "Restarting VietPanel and Caddy containers"
+    
+    cd /root || return 1
+    
+    podman restart openpanel >/dev/null 2>&1
+}
+
+show_success_message() {
+    local display_hostname="$new_hostname"
+    
+    if [[ "$new_hostname" == "$DEFAULT_DOMAIN" ]]; then
+        display_hostname="$server_ip"
+    fi
+    
+    log_info "$display_hostname is now set for accessing the VietPanel and OpenAdmin interfaces."
+}
+
+update_domain() {
+    current_domain=$(get_current_domain) || return 1
+    server_ip=$(get_server_ipv4) || return 1
+
+    log_debug "Current domain: $current_domain"
+    log_debug "Server IP: $server_ip"
+    log_debug "New hostname: $new_hostname"
+
+    update_caddyfile || return 1
+    create_mv_file || return 1
+	update_container_hosts_entry "$new_hostname" || return 1
+    update_redirects || return 1
+    redis_drop_key openpanel_cache_app.get_openpanel_domain
+    restart_services "$@" || return 1
+    configure_mailserver || return 1
+    show_success_message
+}
+
+show_usage() {
+    echo "Usage:"
+    echo ""
+    echo "vietcli domain                        - displays current URL"
+    echo "vietcli domain set example.net        - set domain name for access"
+    echo "vietcli domain ip                     - set IP for access"
+    echo ""
+    echo "Options:"
+    echo "  --debug                             - enable verbose output"
+    echo "  --no-restart                        - skip service restart"
+}
+
+parse_arguments() {
+    for arg in "$@"; do
+        if [[ "$arg" == "--debug" ]]; then
+            DEBUG=true
+            log_debug "'--debug' flag provided: displaying verbose information."
+            break
+        fi
+    done
+}
+
+
+check_domain_not_added_by_user(){
+
+    compare_with_forbidden_domains_list() {
+        local CONFIG_FILE_PATH='/etc/openpanel/openpanel/conf/domain_restriction.txt'
+        local domain_name="$1"
+        local forbidden_domains=()
+
+        if [ -f "$CONFIG_FILE_PATH" ]; then
+            log "Checking domain against forbidden_domains list"
+            mapfile -t forbidden_domains < "$CONFIG_FILE_PATH"
+            local forbidden
+            for forbidden in "${forbidden_domains[@]}"; do
+                if [[ "$forbidden" == "$domain_name" ]]; then
+                    echo "ERROR: $domain_name is a forbidden domain."
+                    exit 1
+                fi
+            done
+        fi
+    }
+
+if vietcli domains-whoowns "$new_hostname" | grep -q "not found in the database."; then
+    compare_with_forbidden_domains_list "$new_hostname"
+    # todo: also check https://github.com/stefanpejcic/vietcli/blob/9bf6ef2567160ac8086652e70aac73e8f7bc03e2/domains/add.sh#L255
+else
+    echo "ERROR: Domain $new_hostname is already in used by an VietPanel account."
+    exit 1
+fi
+    
+}
+
+
+# ======================================================================
+main() {
+    parse_arguments "$@"
+    
+    case "${1:-}" in
+        "")
+            get_current_domain_or_ip
+            ;;
+        "set")
+            if [[ -z "$2" ]]; then
+                log_error "Domain name required for 'set' command"
+                show_usage
+                exit 1
+            fi
+            
+            if ! is_valid_domain "$2"; then
+                log_error "Invalid domain format. Please provide a valid domain."
+                show_usage
+                exit 1
+            fi
+            
+            new_hostname="$2"
+            check_domain_not_added_by_user
+            log_debug "Setting domain to: $new_hostname"
+            update_domain "$@"
+            ;;
+        "ip")
+            new_hostname="$DEFAULT_DOMAIN"
+            log_debug "Setting IP address for accessing panels"
+            update_domain "$@"
+            ;;
+        *)
+            show_usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
+exit $?

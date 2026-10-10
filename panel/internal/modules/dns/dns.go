@@ -1,174 +1,188 @@
-// Package dns provides DNS zone management: list zones, view/edit records,
-// add/delete records (A, AAAA, CNAME, MX, TXT, NS, SRV), and bulk operations.
+// Package dns implements BIND zone file editing (table and raw code views), record add/update/delete, serial-number bumping plus rndc reload, zone export, and zone reset.
 package dns
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
-	"vietpanel/panel/internal/app"
-	"vietpanel/panel/internal/auth"
-	"vietpanel/panel/internal/web"
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/cache"
 )
 
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /dns", auth.Require(listZones(a)))
-	mux.HandleFunc("GET /dns/zone", auth.Require(zoneView(a)))
-	mux.HandleFunc("POST /dns/record/new", auth.Require(addRecord(a)))
-	mux.HandleFunc("POST /dns/record/edit", auth.Require(editRecord(a)))
-	mux.HandleFunc("POST /dns/record/delete", auth.Require(deleteRecord(a)))
+// HealthIssue is the {id, severity, message} shape consumed client-side by reportHealthIssues() to render dismissible health toasts
+type HealthIssue struct {
+	ID       string `json:"id"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
 }
 
-type dnsZone struct {
-	ID      int
-	Domain  string
-	Records int
+func writeText(w http.ResponseWriter, text string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(text))
 }
 
-type dnsRecord struct {
-	ID       int
-	Type     string
-	Name     string
-	Value    string
-	TTL      int
-	Priority int
+// readLinesKeepEnds splits content into lines, each keeping its trailing "\n" (except possibly the last) - a trailing "\n" in the source doesn't produce a spurious empty trailing element the way strings.SplitAfter alone would
+func readLinesKeepEnds(content string) []string {
+	if content == "" {
+		return nil
+	}
+	lines := strings.SplitAfter(content, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
-var recordTypes = []string{"A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "CAA"}
+// ZoneFileDir is where BIND zone files live on disk.
+const ZoneFileDir = "/etc/bind/zones/"
 
-func listZones(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		rows, err := a.DB.Query(
-			`SELECT d.domain_id, d.domain_url, COALESCE(zc.record_count, 0)
-			 FROM domains d
-			 LEFT JOIN (SELECT domain_id, COUNT(*) as record_count FROM dns_records GROUP BY domain_id) zc
-			   ON zc.domain_id = d.domain_id
-			 WHERE d.user_id = ?
-			 ORDER BY d.domain_url`, user.ID)
+func zoneFilePath(domain string) string {
+	return ZoneFileDir + domain + ".zone"
+}
+
+// validateZoneFile runs named-checkzone inside the shared openpanel_dns container (bind-mounted at the same /etc/bind path, so the on-disk file can be checked directly) and returns its error output, or "" if valid
+func validateZoneFile(domain, zoneFilePath string) string {
+	cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "podman", "exec", "openpanel_dns", "named-checkzone", domain, zoneFilePath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return strings.TrimSpace(string(out))
+	}
+	return ""
+}
+
+// serialNumberRE matches an 8-digit date plus a 2-digit daily counter, immediately followed by the "; Serial number" marker comment
+var serialNumberRE = regexp.MustCompile(`(\d{8})(\d{2})\s*;\s*Serial number`)
+
+// RestartDNSService bumps the zone's serial number (same date -> increment the daily counter, rolling over past 99; new date -> reset to 01) and reloads the zone via rndc
+func RestartDNSService(domainURL string) {
+	path := zoneFilePath(domainURL)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+
+	currentDate := time.Now().UTC().Format("20060102")
+	lines := readLinesKeepEnds(string(content))
+	updated := false
+	for i, line := range lines {
+		m := serialNumberRE.FindStringSubmatchIndex(line)
+		if m == nil {
+			continue
+		}
+		fileDate := line[m[2]:m[3]]
+		fileCounter, _ := strconv.Atoi(line[m[4]:m[5]])
+
+		newCounter := 1
+		if fileDate == currentDate {
+			newCounter = fileCounter + 1
+			if newCounter > 99 {
+				newCounter = 1
+			}
+		}
+		newSerial := currentDate + fmt.Sprintf("%02d", newCounter)
+		lines[i] = serialNumberRE.ReplaceAllString(line, newSerial+" ; Serial number")
+		updated = true
+		break
+	}
+
+	if updated {
+		_ = os.WriteFile(path, []byte(strings.Join(lines, "")), 0o644)
+	}
+
+	cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(cctx, "podman", "exec", "openpanel_dns", "rndc", "reload", domainURL).CombinedOutput(); err != nil {
+		log.Printf("DNS - rndc reload %s failed: %v: %s", domainURL, err, strings.TrimSpace(string(out)))
+	}
+}
+
+// cnameNameRE builds the per-call regex used to detect an existing CNAME with the given name: `^<name>\s+\d+\s+IN\s+CNAME`
+func cnameNameRE(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)^` + regexp.QuoteMeta(name) + `\s+\d+\s+IN\s+CNAME`)
+}
+
+// CnameRecordExists checks whether a CNAME record with the given name already exists in the zone file, memoized for 10s since it's called repeatedly during record validation. Exported so the domains package's API handlers can reuse it instead of keeping their own copy.
+func CnameRecordExists(ctx context.Context, a *appctx.App, zoneFilePath, name string) bool {
+	exists, _ := cache.Memoize(ctx, a.Cache, "cname_record_exists:"+zoneFilePath+":"+name, 10*time.Second, func() (bool, error) {
+		content, err := os.ReadFile(zoneFilePath)
 		if err != nil {
-			web.Render(w, r, a, "user/dns.html", web.PageData{
-				Title: "DNS Zones", ActiveNav: "dns", User: user, Error: err.Error(),
-			})
-			return
+			return false, nil
 		}
-		defer rows.Close()
-		var zones []dnsZone
-		for rows.Next() {
-			var z dnsZone
-			_ = rows.Scan(&z.ID, &z.Domain, &z.Records)
-			zones = append(zones, z)
+		re := cnameNameRE(name)
+		for _, line := range strings.Split(string(content), "\n") {
+			if re.MatchString(line) {
+				return true, nil
+			}
 		}
-		web.Render(w, r, a, "user/dns.html", web.PageData{
-			Title: "DNS Zones", ActiveNav: "dns", User: user,
-			Extra: map[string]any{"Zones": zones, "RecordTypes": recordTypes},
-		})
-	}
+		return false, nil
+	})
+	return exists
 }
 
-func zoneView(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		id := r.URL.Query().Get("id")
-		if id == "" {
-			http.Redirect(w, r, "/dns", http.StatusFound)
-			return
+// splitMaxN splits on runs of whitespace, stopping after n splits so the final field keeps any remaining whitespace-separated content intact (up to n+1 elements)
+func splitMaxN(s string, n int) []string {
+	var fields []string
+	rest := s
+	for len(fields) < n {
+		rest = strings.TrimLeft(rest, " \t\r\n\f\v")
+		if rest == "" {
+			return fields
 		}
-		var domain string
-		err := a.DB.QueryRow(`SELECT domain_url FROM domains WHERE domain_id = ? AND user_id = ?`,
-			id, user.ID).Scan(&domain)
-		if err != nil {
-			http.Redirect(w, r, "/dns", http.StatusFound)
-			return
+		idx := strings.IndexAny(rest, " \t\r\n\f\v")
+		if idx == -1 {
+			fields = append(fields, rest)
+			return fields
 		}
-		rows, _ := a.DB.Query(
-			`SELECT id, record_type, name, value, COALESCE(ttl, 3600), COALESCE(priority, 0)
-			 FROM dns_records WHERE domain_id = ? ORDER BY record_type, name`, id)
-		defer rows.Close()
-		var records []dnsRecord
-		for rows.Next() {
-			var rec dnsRecord
-			_ = rows.Scan(&rec.ID, &rec.Type, &rec.Name, &rec.Value, &rec.TTL, &rec.Priority)
-			records = append(records, rec)
-		}
-		web.Render(w, r, a, "user/dns_zone.html", web.PageData{
-			Title: "DNS: " + domain, ActiveNav: "dns", User: user,
-			Extra: map[string]any{
-				"Zone":    dnsZone{ID: toInt(id), Domain: domain, Records: len(records)},
-				"Records": records,
-				"Types":   recordTypes,
-			},
-		})
+		fields = append(fields, rest[:idx])
+		rest = rest[idx:]
 	}
+	rest = strings.TrimLeft(rest, " \t\r\n\f\v")
+	if rest != "" {
+		fields = append(fields, rest)
+	}
+	return fields
 }
 
-func addRecord(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
+// extractComment returns the text after the last ';' that isn't inside a quoted string - RE2 has no lookaround, so this walks the line tracking quote state instead
+func extractComment(line string) string {
+	lastSemicolon := -1
+	inQuotes := false
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
+		case '"':
+			inQuotes = !inQuotes
+		case ';':
+			if !inQuotes {
+				lastSemicolon = i
+			}
 		}
-		user := auth.FromContext(r)
-		domainID := r.FormValue("domain_id")
-		recType := strings.ToUpper(r.FormValue("type"))
-		name := r.FormValue("name")
-		value := r.FormValue("value")
-		ttl := r.FormValue("ttl")
-		priority := r.FormValue("priority")
-
-		var ownerID int64
-		err := a.DB.QueryRow(`SELECT user_id FROM domains WHERE domain_id = ?`, domainID).Scan(&ownerID)
-		if err != nil || ownerID != user.ID {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		if ttl == "" {
-			ttl = "3600"
-		}
-		if priority == "" {
-			priority = "0"
-		}
-		_, _ = a.DB.Exec(
-			`INSERT INTO dns_records (domain_id, record_type, name, value, ttl, priority)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
-			domainID, recType, name, value, ttl, priority)
-		http.Redirect(w, r, fmt.Sprintf("/dns/zone?id=%s", domainID), http.StatusFound)
 	}
+	if lastSemicolon == -1 {
+		return ""
+	}
+	return strings.TrimSpace(line[lastSemicolon+1:])
 }
 
-func editRecord(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
+// readSerialNumber finds the first line containing "; Serial number" and returns its leading token (the serial number itself)
+func readSerialNumber(lines []string) string {
+	for _, line := range lines {
+		if strings.Contains(line, "; Serial number") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				return fields[0]
+			}
+			return ""
 		}
-		recID := r.FormValue("id")
-		domainID := r.FormValue("domain_id")
-		value := r.FormValue("value")
-		ttl := r.FormValue("ttl")
-		priority := r.FormValue("priority")
-		_, _ = a.DB.Exec(`UPDATE dns_records SET value = ?, ttl = ?, priority = ? WHERE id = ?`,
-			value, ttl, priority, recID)
-		http.Redirect(w, r, fmt.Sprintf("/dns/zone?id=%s", domainID), http.StatusFound)
 	}
-}
-
-func deleteRecord(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		recID := r.FormValue("id")
-		domainID := r.FormValue("domain_id")
-		_, _ = a.DB.Exec(`DELETE FROM dns_records WHERE id = ?`, recID)
-		http.Redirect(w, r, fmt.Sprintf("/dns/zone?id=%s", domainID), http.StatusFound)
-	}
-}
-
-func toInt(s string) int {
-	var n int
-	fmt.Sscanf(s, "%d", &n)
-	return n
+	return ""
 }

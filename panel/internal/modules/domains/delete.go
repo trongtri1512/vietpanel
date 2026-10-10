@@ -1,0 +1,85 @@
+package domains
+
+import (
+	"net/http"
+	"os/exec"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/web"
+)
+
+// SiteRow is one row of the delete-confirmation "websites using this domain" list
+type SiteRow struct {
+	SiteName string
+}
+
+// handleDeleteDomain removes a domain and its associated site.
+func handleDeleteDomain(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	currentUsername, _, err := injected(a, ctx, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	var domainURL string
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		domainURL = r.Form.Get("domain_url")
+	} else {
+		domainURL = r.URL.Query().Get("domain")
+	}
+
+	if domainURL == "" {
+		web.FlashRedirect(a, w, r, "error", "Domain name not provided.", "/domains")
+		return
+	}
+
+	var ownerUserID int
+	var docroot string
+	if scanErr := a.DB.QueryRowContext(ctx, "SELECT user_id, docroot FROM domains WHERE domain_url = ?", domainURL).Scan(&ownerUserID, &docroot); scanErr != nil || ownerUserID != userID {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		out, cmdErr := exec.CommandContext(ctx, "opencli", "domains-delete", domainURL).CombinedOutput()
+		if cmdErr == nil && strings.Contains(strings.ToLower(string(out)), "deleted successfully") {
+			_ = logger.RecordUserAction(a.Config, currentUsername, "deleted domain "+domainURL, reqip.ClientIP(r))
+			web.FlashRedirect(a, w, r, "success", web.Tr(a, r, "Domain %(domain_url)s deleted successfully.", "domain_url", domainURL), "/domains")
+		} else {
+			web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Failed to delete domain %(domain_url)s. Output: %(output)s", "domain_url", domainURL, "output", string(out)), "/domains")
+		}
+		return
+	}
+
+	// GET
+	siteCount, subdomainCount := 0, 0
+	var sites []SiteRow
+
+	rows, siteErr := a.DB.QueryContext(ctx, `
+		SELECT site_name FROM sites
+		WHERE domain_id IN (SELECT domain_id FROM domains WHERE domain_url = ?)
+	`, domainURL)
+	if siteErr == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var s SiteRow
+			if rows.Scan(&s.SiteName) == nil {
+				sites = append(sites, s)
+			}
+		}
+		siteCount = len(sites)
+
+		_ = a.DB.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM domains WHERE domain_url LIKE ? AND domain_url != ?
+		`, "%."+domainURL, domainURL).Scan(&subdomainCount)
+	}
+
+	renderDeleteDomainPage(a, w, r, domainURL, docroot, siteCount, subdomainCount, sites)
+}

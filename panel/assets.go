@@ -1,8 +1,7 @@
-// Package panel embeds the user panel's templates and static assets into the
-// binary so the whole panel ships as one file.
-package panel
+// Package assets embeds static/ into the binary. A few files (custom.css, custom.js, robots.txt, security.txt) can be overridden by an on-disk copy at startup.
+package assets
 
 import "embed"
 
-//go:embed static internal/web/templates
-var FS embed.FS
+//go:embed all:static
+var Static embed.FS

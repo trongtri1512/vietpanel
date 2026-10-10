@@ -1,0 +1,66 @@
+package joomla
+
+import (
+	"net/http"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/podmanmanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/modules/cmsapp"
+	"vietpanel/panel/internal/web"
+)
+
+// handleJoomlaMaintenance reads (GET) or toggles (POST, action=enable|disable) Joomla's own offline mode - the public $offline property in configuration.php that Joomla's front controller already checks on every request, so no extra code ships into the docroot the way opencart/prestashop's flag lives in the DB
+func handleJoomlaMaintenance(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	domain, docroot, phpContainer, ok := cmsapp.RequestParams(ctx, a, r, userID, userContext)
+	if !ok {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "domain and docroot are required, or you do not own this domain"})
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		argv := podmanmanager.PodmanArgv(userContext, "exec", phpContainer, "sh", "-c",
+			`sed -n "s/.*\$offline[[:space:]]*=[[:space:]]*\(true\|false\).*/\1/p" "$1/configuration.php" | head -1`, "sh", docroot)
+		out, _ := podmanmanager.Command(ctx, userContext, argv).CombinedOutput()
+		status := "disabled"
+		if strings.TrimSpace(string(out)) == "true" {
+			status = "enabled"
+		}
+		web.WriteJSON(w, http.StatusOK, map[string]string{"status": status})
+		return
+	}
+
+	action := strings.ToLower(r.FormValue("action"))
+	if action != "enable" && action != "disable" {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "action must be 'enable' or 'disable'"})
+		return
+	}
+	value := "false"
+	if action == "enable" {
+		value = "true"
+	}
+	argv := podmanmanager.PodmanArgv(userContext, "exec", phpContainer, "sh", "-c",
+		`sed -i "s/\$offline[[:space:]]*=[[:space:]]*\(true\|false\)/\$offline = `+value+`/" "$1/configuration.php"`, "sh", docroot)
+	out, runErr := podmanmanager.Command(ctx, userContext, argv).CombinedOutput()
+	if runErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Updating configuration.php failed", "details": strings.TrimSpace(string(out))})
+		return
+	}
+
+	status := "disabled"
+	if action == "enable" {
+		status = "enabled"
+	}
+	_ = logger.RecordUserAction(a.Config, currentUsername, action+"d Joomla maintenance mode for "+domain, reqip.ClientIP(r))
+	web.WriteJSON(w, http.StatusOK, map[string]string{"message": "Maintenance mode " + action + "d successfully.", "status": status})
+}

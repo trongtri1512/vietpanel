@@ -1,0 +1,246 @@
+// This file supplies every page's shared sidebar/header/footer chrome
+// (server-wide values plus per-request session/role state). Chrome is
+// embedded into each page's own render-data struct so templates can read
+// both sets of fields through one dot.
+package handlers
+
+import (
+	"net/http"
+	"os"
+	"strings"
+	"sync/atomic"
+
+	"github.com/gorilla/csrf"
+
+	"vietpanel/admin/internal/auth"
+	"vietpanel/admin/internal/webtemplates"
+)
+
+// chromeSite holds server-wide values computed once at process startup,
+// set once from main.go via InitChromeSiteInfo.
+var chromeSite struct {
+	PublicIP         string
+	ServerHostname   string
+	ForceDomainValue string
+	PanelVersion     string
+	LicenseType      string
+	DevMode          bool
+	ModulesConfig    string
+	CustomCSSEnabled bool
+}
+
+// menuStyle is openpanel.config's menu_style, read at startup and refreshed when the VietPanel settings page saves it
+var menuStyle atomic.Value
+
+// readMenuStyle reads menu_style from openpanel.config, anything but "modern" (including a missing file or key) is classic
+func readMenuStyle(configPath string) string {
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return "classic"
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "menu_style=") {
+			continue
+		}
+		if strings.Trim(strings.TrimPrefix(trimmed, "menu_style="), `"' `) == "modern" {
+			return "modern"
+		}
+		return "classic"
+	}
+	return "classic"
+}
+
+// SetMenuStyleFromConfig re-reads menu_style, so a saved change applies without restarting the admin service
+func SetMenuStyleFromConfig(configPath string) {
+	menuStyle.Store(readMenuStyle(configPath))
+}
+
+func currentMenuStyle() string {
+	if v, ok := menuStyle.Load().(string); ok && v != "" {
+		return v
+	}
+	return "classic"
+}
+
+// ChromeCustomCSSPath is checked once at startup (see InitChromeSiteInfo):
+// if present, every page links it as an extra stylesheet. Picking up a new
+// file, or one placed after startup, needs a restart -- same tradeoff as
+// the other InitChromeSiteInfo values.
+var ChromeCustomCSSPath = "/usr/local/admin/custom.css"
+
+// ChromeTourSkipFilePath marks that the onboarding tour has been dismissed.
+var ChromeTourSkipFilePath = "/etc/openpanel/openadmin/tour.skip"
+
+// ChromeQuickStartSkipFilePath marks that the post-login "Quick Start"
+// onboarding page has been dismissed.
+var ChromeQuickStartSkipFilePath = "/etc/openpanel/openadmin/config/quick_start.dismissed"
+
+// quickStartDismissed reports whether the Quick Start page has been
+// permanently dismissed.
+func quickStartDismissed() bool {
+	_, err := os.Stat(ChromeQuickStartSkipFilePath)
+	return err == nil
+}
+
+// ChromeOpenpanelRestartFlagPath / ChromeOpenadminRestartFlagPath are the
+// two restart-flag files checked when building the chrome's
+// restart-pending banner.
+var (
+	ChromeOpenpanelRestartFlagPath = "/root/openpanel_restart_needed"
+	ChromeOpenadminRestartFlagPath = "/root/openadmin_restart_needed"
+)
+
+// InitChromeSiteInfo records the server-wide values computed once at
+// startup. modulesConfigPath is the openpanel.config path passed to
+// modulesEnabledList() on each request -- the enabled-modules list is read
+// fresh every request, not cached at startup.
+func InitChromeSiteInfo(publicIP, serverHostname, forceDomainValue, panelVersion, licenseType string, devMode bool, modulesConfigPath string) {
+	chromeSite.PublicIP = publicIP
+	chromeSite.ServerHostname = serverHostname
+	chromeSite.ForceDomainValue = forceDomainValue
+	chromeSite.PanelVersion = panelVersion
+	chromeSite.LicenseType = licenseType
+	chromeSite.DevMode = devMode
+	chromeSite.ModulesConfig = modulesConfigPath
+	chromeSite.CustomCSSEnabled = isRegularFile(ChromeCustomCSSPath)
+	SetMenuStyleFromConfig(modulesConfigPath)
+}
+
+// buildChrome computes the per-request chrome fields from the current
+// session/role plus the startup globals recorded above.
+func buildChrome(r *http.Request, title string) webtemplates.Chrome {
+	user := auth.CurrentUser(r)
+	role := ""
+	username := ""
+	if user != nil {
+		role = user.Role
+		username = user.Username
+	}
+	isReseller := role == "reseller"
+	isAdmin := role == "admin"
+	isUser := role == "user"
+
+	unread := 0
+	serviceDown := ""
+	var restartMessages []string
+	if !isReseller {
+		// Counts every unread notification in the log, not just the last 5
+		// lines -- capping at 5 made the sidebar badge stop moving sensibly
+		// once there were more than 5 unread, since dismissing one only
+		// ever nudged the count within that narrow window. This behavior is
+		// intentional per an explicit product request; the display itself
+		// still caps at "20+" for anything above 30 (see chrome_sidebar's
+		// badge in _layout.html).
+		entries, _ := readNotifications()
+		unread, serviceDown = unreadNotificationSummary(entries)
+
+		openpanelRestart := false
+		if raw, err := os.ReadFile(ChromeOpenpanelRestartFlagPath); err == nil {
+			if strings.TrimSpace(string(raw)) != "" {
+				openpanelRestart = true
+			}
+		}
+		openadminRestart := false
+		if _, err := os.Stat(ChromeOpenadminRestartFlagPath); err == nil {
+			openadminRestart = true
+		}
+		switch {
+		case openpanelRestart && openadminRestart:
+			restartMessages = []string{"Pending changes in both VietPanel and OpenAdmin. Restart both services."}
+		case openpanelRestart:
+			restartMessages = []string{"Pending changes for VietPanel UI. Restart the 'openpanel' container."}
+		case openadminRestart:
+			restartMessages = []string{"Pending changes for OpenAdmin. Restart the 'admin' service."}
+		}
+	}
+
+	_, tourSkipErr := os.Stat(ChromeTourSkipFilePath)
+	tourShow := user != nil && !isReseller && os.IsNotExist(tourSkipErr)
+
+	c := webtemplates.Chrome{
+		Title:               title,
+		CurrentPath:         r.URL.Path,
+		CurrentUser:         username,
+		CSRFToken:           csrf.Token(r),
+		IsReseller:          isReseller,
+		IsAdmin:             isAdmin,
+		IsUser:              isUser,
+		PanelVersion:        chromeSite.PanelVersion,
+		PublicIP:            chromeSite.PublicIP,
+		ServerHostname:      chromeSite.ServerHostname,
+		ForceDomainValue:    chromeSite.ForceDomainValue,
+		LicenseType:         chromeSite.LicenseType,
+		DevMode:             chromeSite.DevMode,
+		EnabledModules:      modulesEnabledList(chromeSite.ModulesConfig),
+		UnreadNotifications: unread,
+		RestartMessages:     restartMessages,
+		TourShow:            tourShow,
+		CustomCSSEnabled:    chromeSite.CustomCSSEnabled,
+		MenuStyle:           currentMenuStyle(),
+	}
+	if c.MenuStyle == "modern" {
+		c.NavItems, c.PageTabs = webtemplates.BuildModernNav(&c)
+		c.HelpDoc, c.HelpPart = webtemplates.HelpDocFor(c.PageTabs, c.CurrentPath)
+		for i, item := range c.NavItems {
+			if item.Active && c.AreaLabel == "" {
+				c.AreaLabel, c.AreaHref = item.Label, item.Href
+			}
+			switch {
+			case item.MenuID == "services-menu" && serviceDown != "":
+				c.NavItems[i].Alert, c.NavItems[i].AlertTitle = "error", serviceDown
+			case item.MenuID == "settings-menu" && len(restartMessages) > 0:
+				c.NavItems[i].Alert, c.NavItems[i].AlertTitle = "warning", restartMessages[0]
+			}
+		}
+	}
+	return c
+}
+
+// unreadNotificationSummary counts unread entries and returns the newest unread critical service alert for the banner
+func unreadNotificationSummary(newestFirst []Notification) (unread int, serviceDown string) {
+	for _, e := range newestFirst {
+		if !e.Unread() {
+			continue
+		}
+		unread++
+		if serviceDown == "" && e.Category == "service" && e.Severity == "critical" {
+			serviceDown = e.Title
+		}
+	}
+	return unread, serviceDown
+}
+
+// mergeChrome flattens buildChrome's fields directly into a map-based
+// render-data value (rather than embedding, which only works for typed
+// structs), so map[string]interface{}-shaped handlers can use the same
+// chrome_* templates as the typed ones.
+func mergeChrome(data map[string]interface{}, r *http.Request, title string) map[string]interface{} {
+	c := buildChrome(r, title)
+	data["Title"] = c.Title
+	data["CurrentPath"] = c.CurrentPath
+	data["CurrentUser"] = c.CurrentUser
+	data["CSRFToken"] = c.CSRFToken
+	data["IsReseller"] = c.IsReseller
+	data["IsAdmin"] = c.IsAdmin
+	data["IsUser"] = c.IsUser
+	data["PanelVersion"] = c.PanelVersion
+	data["PublicIP"] = c.PublicIP
+	data["ServerHostname"] = c.ServerHostname
+	data["ForceDomainValue"] = c.ForceDomainValue
+	data["LicenseType"] = c.LicenseType
+	data["DevMode"] = c.DevMode
+	data["EnabledModules"] = c.EnabledModules
+	data["UnreadNotifications"] = c.UnreadNotifications
+	data["RestartMessages"] = c.RestartMessages
+	data["TourShow"] = c.TourShow
+	data["CustomCSSEnabled"] = c.CustomCSSEnabled
+	data["MenuStyle"] = c.MenuStyle
+	data["NavItems"] = c.NavItems
+	data["PageTabs"] = c.PageTabs
+	data["AreaLabel"] = c.AreaLabel
+	data["AreaHref"] = c.AreaHref
+	data["HelpDoc"] = c.HelpDoc
+	data["HelpPart"] = c.HelpPart
+	return data
+}

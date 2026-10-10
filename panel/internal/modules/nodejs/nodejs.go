@@ -1,20 +1,23 @@
+// Package nodejs installs a NodeJS application into a domain via a docker-compose service + reverse proxy - the actual logic lives in internal/modules/appinstall, shared with the python package
 package nodejs
 
 import (
 	"net/http"
-	"vietpanel/panel/internal/app"
+
+	appctx "vietpanel/panel/internal/app"
 	"vietpanel/panel/internal/auth"
-	"vietpanel/panel/internal/web"
+	"vietpanel/panel/internal/modules/appinstall"
 )
 
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /nodejs", auth.Require(list(a)))
-}
-
-func list(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		web.Render(w, r, a, "user/nodejs.html", web.PageData{
-			Title: "Node.js", ActiveNav: "nodejs", User: auth.FromContext(r),
-		})
+// Register wires the /nodejs/install route onto mux.
+func Register(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "nodejs")(h)
 	}
+	mux.Handle("GET /nodejs/install", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		appinstall.HandleInstallPage(appinstall.NodeJS, a, w, r)
+	}))
+	mux.Handle("POST /nodejs/install", requireLogin(func(w http.ResponseWriter, r *http.Request) {
+		appinstall.HandleInstallPage(appinstall.NodeJS, a, w, r)
+	}))
 }

@@ -1,0 +1,229 @@
+package mongodb
+
+import (
+	"context"
+	"net/http"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/mongomanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/core/validators"
+	"vietpanel/panel/internal/modules/docker"
+	"vietpanel/panel/internal/web"
+)
+
+// DatabaseRow is one row of mongodb/databases.html's table.
+type DatabaseRow struct {
+	Database    string
+	SizeDisplay string
+	IsSystem    bool
+}
+
+// normalizeHealth treats "no healthcheck configured" (podman reports "none") as healthy for a
+// running container - unlike postgres/mysql, the mongodb compose service has no HEALTHCHECK
+// defined, so its health would otherwise sit at "none" forever and never satisfy the "healthy"
+// gate that unlocks the databases table.
+func normalizeHealth(status docker.ContainerStatus) docker.ContainerStatus {
+	if status.State == "running" && status.Health == "none" {
+		status.Health = "healthy"
+	}
+	return status
+}
+
+// handleDatabases lists the user's MongoDB databases, starting the container in the background if it isn't running yet
+func handleDatabases(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	_, _, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	status := normalizeHealth(docker.GetContainerStatus(ctx, userContext, "mongodb"))
+	var databaseInfo []DatabaseRow
+
+	switch {
+	case status.State == "not_found":
+		web.Flash(a, w, r, "warning", "MongoDB service is not yet installed. Starting it in the background..")
+		docker.StartOrStopContainer(ctx, userContext, "mongodb", "activate", "detached")
+	case status.State != "running":
+		web.Flash(a, w, r, "warning", "MongoDB container is not running. Please allow a few moments for the initialization..")
+	default:
+		dbs, listErr := mongomanager.ListDatabases(ctx, userContext)
+		if listErr != nil {
+			web.Flash(a, w, r, "error", web.Tr(a, r, "Error fetching databases: %(error)s", "error", listErr.Error()))
+		} else {
+			for _, d := range dbs {
+				databaseInfo = append(databaseInfo, DatabaseRow{Database: d.Name, SizeDisplay: formatSize(d.SizeBytes), IsSystem: mongomanager.IsSystemDatabase(d.Name)})
+			}
+		}
+	}
+
+	if r.URL.Query().Get("output") == "json" {
+		web.WriteJSON(w, http.StatusOK, map[string]any{
+			"databases":       databaseInfo,
+			"container_state": status.State, "health_status": status.Health,
+		})
+		return
+	}
+
+	renderDatabasesPage(a, w, r, status, databaseInfo)
+}
+
+// handleDatabasesNew creates a new MongoDB database, enforcing the plan's database limit first
+func handleDatabasesNew(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	status := docker.GetContainerStatus(ctx, userContext, "mongodb")
+	if status.State != "running" {
+		web.FlashRedirect(a, w, r, "warning", "MongoDB service is not ready yet. Please wait for the installation to finish before creating a database.", "/mongodb")
+		return
+	}
+
+	if !checkMongoInsideContainer(ctx, userContext) {
+		http.Redirect(w, r, "/mongodb", http.StatusFound)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		databaseName := r.Form.Get("database_name")
+		if databaseName == "" {
+			web.FlashRedirect(a, w, r, "error", "Database name is required.", "/mongodb/new")
+			return
+		}
+		if !validators.IsValidIdentifier(databaseName) {
+			web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Name %(database_name)s is not allowed. Please use alphanumeric characters and '_' - [a-zA-Z0-9_]+ ", "database_name", databaseName), "/mongodb/new")
+			return
+		}
+		if isRestrictedDatabase(databaseName) {
+			web.FlashRedirect(a, w, r, "error", "This is a system database that can not be used.", "/mongodb/new")
+			return
+		}
+
+		docker.StartComposeServiceIfNotRunning(ctx, userContext, "mongodb")
+
+		injectedData, _ := a.InjectData(ctx, userID)
+		planID, _ := injectedData["hosting_plan"].(int)
+		plan, _ := a.QueryPlanDetailsByID(ctx, planID)
+		dbLimit := 100
+		if v := web.AtoiDefault(plan.DBLimit, 0); v != 0 {
+			dbLimit = v
+		} else {
+			dbLimit = 1000000
+		}
+
+		dbUsage := 0
+		if dbs, countErr := mongomanager.ListDatabases(ctx, userContext); countErr == nil {
+			dbUsage = len(dbs)
+		}
+
+		if dbUsage >= dbLimit {
+			web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "You have reached the maximum number of databases allowed.%(upgrade_message)s", "upgrade_message", plan.UpgradeMessage()), "/mongodb/new")
+			return
+		}
+
+		if createErr := mongomanager.CreateDatabase(ctx, userContext, databaseName); createErr != nil {
+			web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Failed to create database: %(error)s", "error", createErr.Error()), "/mongodb/new")
+			return
+		}
+
+		ipAddress := reqip.ClientIP(r)
+		_ = logger.RecordUserAction(a.Config, currentUsername, "created a MongoDB database "+databaseName, ipAddress)
+		web.Flash(a, w, r, "success", web.Tr(a, r, "Successfully created a MongoDB database %(database_name)s", "database_name", databaseName))
+		http.Redirect(w, r, "/mongodb", http.StatusFound)
+		return
+	}
+
+	renderNewDatabasePage(a, w, r)
+}
+
+// handleDeleteDatabase drops a MongoDB database.
+func handleDeleteDatabase(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	_ = r.ParseForm()
+	databaseName := r.Form.Get("database_name")
+
+	switch {
+	case databaseName == "":
+		web.FlashRedirect(a, w, r, "error", "Database name is required.", "/mongodb")
+		return
+	case !validators.IsValidIdentifier(databaseName):
+		web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Name %(database_name)s is not allowed. Please use alphanumeric characters and '_' - [a-zA-Z0-9_]+ ", "database_name", databaseName), "/mongodb")
+		return
+	case isRestrictedDatabase(databaseName):
+		web.FlashRedirect(a, w, r, "error", "This is a system database that cannot be deleted.", "/mongodb")
+		return
+	}
+
+	if dropErr := mongomanager.DropDatabase(ctx, userContext, databaseName); dropErr != nil {
+		web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "Error deleting database %(database_name)s: %(error)s", "database_name", databaseName, "error", dropErr.Error()), "/mongodb")
+		return
+	}
+
+	ipAddress := reqip.ClientIP(r)
+	_ = logger.RecordUserAction(a.Config, currentUsername, "deleted a MongoDB database "+databaseName, ipAddress)
+	web.Flash(a, w, r, "success", web.Tr(a, r, "Successfully deleted a MongoDB database %(database_name)s", "database_name", databaseName))
+	http.Redirect(w, r, "/mongodb", http.StatusFound)
+}
+
+// ComputeDatabaseAndUserNames returns the plain database/user name lists, reused by both /mongodb/info and the global entity search
+func ComputeDatabaseAndUserNames(ctx context.Context, userContext string) (databases, users []string, err error) {
+	dbs, listErr := mongomanager.ListDatabases(ctx, userContext)
+	if listErr != nil {
+		return nil, nil, listErr
+	}
+	for _, d := range dbs {
+		databases = append(databases, d.Name)
+	}
+
+	userList, usersErr := mongomanager.ListUsers(ctx, userContext)
+	if usersErr != nil {
+		return nil, nil, usersErr
+	}
+	for _, u := range userList {
+		if isRestrictedUser(u.Username) {
+			continue
+		}
+		users = append(users, u.Username)
+	}
+	return databases, users, nil
+}
+
+func handleDatabasesInfo(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	_, _, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	docker.StartComposeServiceIfNotRunning(ctx, userContext, "mongodb")
+
+	databaseNames, users, namesErr := ComputeDatabaseAndUserNames(ctx, userContext)
+	if namesErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Error executing MongoDB query: " + namesErr.Error()})
+		return
+	}
+	var databases []map[string]string
+	for _, dbName := range databaseNames {
+		databases = append(databases, map[string]string{"database": dbName})
+	}
+
+	web.WriteJSON(w, http.StatusOK, map[string]any{
+		"databases": databases, "users": users,
+	})
+}

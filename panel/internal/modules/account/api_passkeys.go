@@ -1,0 +1,74 @@
+package account
+
+import (
+	"net/http"
+	"strconv"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/apiregistry"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/reqip"
+)
+
+// RegisterPasskeysAPI wires the /api/account/passkeys routes onto mux, gated behind "passkeys". Registration isn't exposed here - the WebAuthn ceremony is browser-native and tied to a session cookie, which doesn't fit a stateless Bearer-token client. Only list and revoke do.
+func RegisterPasskeysAPI(mux *http.ServeMux, a *appctx.App) {
+	apiregistry.Handle(mux, a, "passkeys", "GET /api/account/passkeys", func(w http.ResponseWriter, r *http.Request) { apiPasskeysList(a, w, r) })
+	apiregistry.Handle(mux, a, "passkeys", "DELETE /api/account/passkeys/{id}", func(w http.ResponseWriter, r *http.Request) { apiPasskeysDelete(a, w, r) })
+}
+
+type apiPasskeyEntry struct {
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	CreatedAt  string `json:"created_at"`
+	LastUsedAt string `json:"last_used_at,omitempty"`
+}
+
+// apiPasskeysList returns the caller's registered passkeys.
+func apiPasskeysList(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserID(r)
+	passkeys, err := getPasskeysForUser(r.Context(), a, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	entries := make([]apiPasskeyEntry, len(passkeys))
+	for i, pk := range passkeys {
+		entries[i] = apiPasskeyEntry{ID: pk.ID, Name: pk.Name, CreatedAt: pk.CreatedAt, LastUsedAt: pk.LastUsedAt.String}
+	}
+	writeAPIAccountJSON(w, http.StatusOK, map[string]any{"passkeys": entries})
+}
+
+// apiPasskeysDelete removes one of the caller's registered passkeys.
+func apiPasskeysDelete(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserID(r)
+	ctx := r.Context()
+
+	passkeyID, convErr := strconv.Atoi(r.PathValue("id"))
+	if convErr != nil {
+		writeAPIAccountJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid passkey id"})
+		return
+	}
+
+	name := rowName(ctx, a, "SELECT name FROM user_passkeys WHERE id = ? AND user_id = ?", passkeyID, userID)
+	result, execErr := a.DB.ExecContext(ctx, "DELETE FROM user_passkeys WHERE id = ? AND user_id = ?", passkeyID, userID)
+	if execErr != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		writeAPIAccountJSON(w, http.StatusNotFound, map[string]string{"error": "Passkey not found"})
+		return
+	}
+
+	data, injectErr := a.InjectData(ctx, userID)
+	if injectErr == nil {
+		username, _ := data["current_username"].(string)
+		_ = logger.RecordUserAction(a.Config, username, "removed passkey #"+strconv.Itoa(passkeyID)+" via API", reqip.ClientIP(r))
+		checkIfUserShouldBeNotified(a, ctx, userID, username, "notify_passkey_change", passkeyEmail(a, r, username, name, false))
+	}
+
+	writeAPIAccountJSON(w, http.StatusOK, map[string]string{"message": "Passkey removed"})
+}

@@ -1,0 +1,278 @@
+package docker
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/mysqlmanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/web"
+)
+
+// userDatabaseCount counts the databases the user created on the active mysql/mariadb server, ok is false when the server can't be asked
+func userDatabaseCount(ctx context.Context, a *appctx.App, userContext string) (count int, ok bool) {
+	raw := a.Config.Get("mysql_restricted_databases", "information_schema performance_schema mysql phpmyadmin sys mariadb.sys")
+	fields := strings.Fields(strings.Trim(strings.TrimSpace(raw), `"'`))
+	quoted := make([]string, len(fields))
+	for i, d := range fields {
+		quoted[i] = "'" + strings.Trim(strings.TrimSpace(d), `"'`) + "'"
+	}
+	query := "SELECT COUNT(*) AS total FROM information_schema.schemata WHERE schema_name NOT IN (" + strings.Join(quoted, ", ") + ")"
+	rows, err := mysqlmanager.Exec(ctx, userContext, query, "")
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0, false
+	}
+	return mysqlmanager.ToInt(rows[0][0]), true
+}
+
+// hasOnlyRestrictedDatabases reports whether the active mysql/mariadb server has no real user-created databases, only the system ones every fresh install ships with, in which case it's safe to force a type switch. Any failure to check returns false, falling back to the safe "must stop it manually" path rather than risking a silent wipe.
+func hasOnlyRestrictedDatabases(ctx context.Context, a *appctx.App, userContext string) bool {
+	count, ok := userDatabaseCount(ctx, a, userContext)
+	return ok && count == 0
+}
+
+// handleContainersMySQL swaps between mysql/mariadb, wiping the old data volume. Every failure branch (stop failed, start failed) returns immediately with a redirect carrying the specific error message, rather than falling through to a generic "Invalid mysql server selected" flash that would bury the real cause.
+func handleContainersMySQL(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	injected, err := a.InjectData(ctx, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	username, _ := injected["current_username"].(string)
+	userContext, _ := injected["context"].(string)
+
+	mysqlType, _ := GetEnvValue(userContext, "MYSQL_TYPE")
+	flavor := databaseFlavor(userContext, mysqlType)
+
+	if r.Method == http.MethodPost {
+		outputJSON := r.URL.Query().Get("output") == "json"
+		jsonErr := func(status int, msg string) {
+			writeJSONError(w, status, msg)
+		}
+
+		if IsServiceRunning(ctx, userContext, mysqlType) && !hasOnlyRestrictedDatabases(ctx, a, userContext) {
+			msg := web.Tr(a, r, "Existing databases must first be deleted and %(mysql_type)s container stopped in order to change mysql type.", "mysql_type", mysqlType)
+			if outputJSON {
+				jsonErr(http.StatusConflict, msg)
+				return
+			}
+			web.FlashRedirect(a, w, r, "error", msg, "/containers/mysql")
+			return
+		}
+
+		_ = r.ParseForm()
+		newSQL := r.Form.Get("new_sql")
+		// switching wipes the data volume, so picking the type already in use must not go through
+		if newSQL == flavor {
+			msg := web.Tr(a, r, "Already using %(flavor)s.", "flavor", flavor)
+			if outputJSON {
+				jsonErr(http.StatusBadRequest, msg)
+				return
+			}
+			web.FlashRedirect(a, w, r, "error", msg, "/containers/mysql")
+			return
+		}
+		if newSQL == "mysql" || newSQL == "mariadb" || newSQL == "percona" {
+			// Percona isn't a separate compose service the way mariadb is - it's drop-in compatible with the "mysql" service, just a different image (see setComposePerconaConfig)
+			targetService := newSQL
+			if newSQL == "percona" {
+				targetService = "mysql"
+			}
+
+			stopResp := StartOrStopContainer(ctx, userContext, mysqlType, "deactivate", "")
+			if !stopResp.Success {
+				if outputJSON {
+					jsonErr(http.StatusInternalServerError, stopResp.Message)
+					return
+				}
+				web.FlashRedirect(a, w, r, "error", stopResp.Message, "/containers/mysql")
+				return
+			}
+
+			var flashes [][2]string
+			if stopResp.Message != "" {
+				flashes = append(flashes, [2]string{"warning", stopResp.Message})
+			}
+
+			deleteDockerVolume(ctx, userContext, userContext+"_mysql_data")
+			StartOrStopContainer(ctx, userContext, "phpmyadmin", "deactivate", "")
+
+			if composeErr := setComposePerconaConfig(userContext, newSQL == "percona"); composeErr != nil {
+				msg := web.Tr(a, r, "Failed to update mysql image: %(error)s", "error", composeErr.Error())
+				if outputJSON {
+					jsonErr(http.StatusInternalServerError, msg)
+					return
+				}
+				flashes = append(flashes, [2]string{"error", msg})
+				redirectWithFlashes(a, w, r, "/containers/mysql", flashes...)
+				return
+			}
+			if newSQL == "percona" {
+				if cnfErr := ensureMyCnfClientSocket(userContext); cnfErr != nil {
+					flashes = append(flashes, [2]string{"warning", "Import/export via the CLI may not work until my.cnf is fixed: " + cnfErr.Error()})
+				}
+			}
+			if targetService == "mysql" {
+				ForceRemoveContainer(ctx, userContext, "mysql")
+			}
+
+			startResp := StartOrStopContainer(ctx, userContext, targetService, "activate", "")
+			if !startResp.Success {
+				msg := web.Tr(a, r, "Failed to start %(target_service)s.", "target_service", targetService)
+				if outputJSON {
+					jsonErr(http.StatusInternalServerError, msg)
+					return
+				}
+				flashes = append(flashes, [2]string{"error", msg})
+				redirectWithFlashes(a, w, r, "/containers/mysql", flashes...)
+				return
+			}
+
+			SetEnvValue(userContext, "MYSQL_TYPE", targetService)
+			runServiceSwitchHooks(ctx, userContext, mysqlType, targetService)
+			_ = a.Cache.Delete(ctx, "get_mysql_version:"+userContext)
+			removeImage(ctx, userContext, mysqlType)
+			mysqlmanager.InvalidatePool(userContext)
+
+			_ = logger.RecordUserAction(a.Config, username, "switched mysql type to: "+newSQL, reqip.ClientIP(r))
+			successMsg := web.Tr(a, r, "Successfully switched to %(new_sql)s!", "new_sql", newSQL)
+			if outputJSON {
+				writeJSON(w, map[string]string{"message": successMsg})
+				return
+			}
+			flashes = append(flashes, [2]string{"success", successMsg})
+			redirectWithFlashes(a, w, r, "/containers/mysql", flashes...)
+			return
+		}
+
+		if outputJSON {
+			jsonErr(http.StatusBadRequest, "Invalid mysql server selected")
+			return
+		}
+		web.FlashRedirect(a, w, r, "error", "Invalid mysql server selected", "/containers/mysql")
+		return
+	}
+
+	if r.URL.Query().Get("output") == "json" {
+		writeJSON(w, flavor)
+		return
+	}
+
+	blocked, dbCount := false, 0
+	if IsServiceRunning(ctx, userContext, mysqlType) {
+		count, ok := userDatabaseCount(ctx, a, userContext)
+		blocked, dbCount = !ok || count > 0, count
+	}
+	renderChangeMySQLPage(a, w, r, userContext, flavor, blocked, dbCount)
+}
+
+var webserverOptions = []string{"apache", "nginx", "openresty", "openlitespeed", "litespeed"}
+
+// handleContainersWebserver swaps the active webserver container. Same clean-early-return choice as handleContainersMySQL above: every failure branch redirects immediately with its specific error message.
+func handleContainersWebserver(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, _ := auth.UserID(r)
+	injected, err := a.InjectData(ctx, userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	username, _ := injected["current_username"].(string)
+	userContext, _ := injected["context"].(string)
+
+	webserver, _ := GetEnvValue(userContext, "WEB_SERVER")
+	var available []string
+	for _, ws := range webserverOptions {
+		if ws != webserver {
+			available = append(available, ws)
+		}
+	}
+
+	userDomains, domainsErr := a.AllDomainsForUser(ctx, userID)
+
+	if r.Method == http.MethodPost {
+		outputJSON := r.URL.Query().Get("output") == "json"
+
+		if domainsErr == nil && len(userDomains) > 0 {
+			msg := web.Tr(a, r, "Existing domains (%(count)s) must first be removed in order to change webserver.", "count", len(userDomains))
+			if outputJSON {
+				writeJSONError(w, http.StatusConflict, msg)
+				return
+			}
+			web.FlashRedirect(a, w, r, "error", msg, "/containers/webserver")
+			return
+		}
+
+		_ = r.ParseForm()
+		newWebserver := r.Form.Get("new_ws")
+		if newWebserver != "" && containsString(available, newWebserver) {
+			// varnish only ever proxies to whichever webserver is active, so its compose block is the only one kept on PROXY_HTTP_PORT (see SwapWebserverComposePort) - without re-pointing that swap at the new webserver here, varnish and the new webserver would both try to bind the same public port
+			varnishRunning := IsServiceRunning(ctx, userContext, "varnish")
+			if varnishRunning {
+				_ = SwapWebserverComposePort(userContext, newWebserver, "on")
+				_ = SwapWebserverComposePort(userContext, webserver, "off")
+			}
+
+			stopResp := StartOrStopContainer(ctx, userContext, webserver, "deactivate", "")
+			if !stopResp.Success {
+				if outputJSON {
+					writeJSONError(w, http.StatusInternalServerError, stopResp.Message)
+					return
+				}
+				web.FlashRedirect(a, w, r, "error", stopResp.Message, "/containers/webserver")
+				return
+			}
+
+			deleteDockerVolume(ctx, userContext, userContext+"_webserver_data")
+			startResp := StartOrStopContainer(ctx, userContext, newWebserver, "activate", "")
+			if !startResp.Success {
+				msg := web.Tr(a, r, "Failed to start %(new_webserver)s.", "new_webserver", newWebserver)
+				if outputJSON {
+					writeJSONError(w, http.StatusInternalServerError, msg)
+					return
+				}
+				web.FlashRedirect(a, w, r, "error", msg, "/containers/webserver")
+				return
+			}
+
+			SetEnvValue(userContext, "WEB_SERVER", newWebserver)
+			runServiceSwitchHooks(ctx, userContext, webserver, newWebserver)
+			removeImage(ctx, userContext, webserver)
+
+			if varnishRunning {
+				// varnish's backend host gets baked into its container env (and VCL) from WEB_SERVER at creation time - `podman-compose restart` reuses the existing container as-is and doesn't re-resolve ${WEB_SERVER}, so it has to be torn down and recreated instead, same as every other swap in this file
+				StartOrStopContainer(ctx, userContext, "varnish", "deactivate", "")
+				StartOrStopContainer(ctx, userContext, "varnish", "activate", "run")
+			}
+
+			_ = logger.RecordUserAction(a.Config, username, "switched webserver type to: "+newWebserver, reqip.ClientIP(r))
+			successMsg := web.Tr(a, r, "Successfully switched to %(new_webserver)s!", "new_webserver", newWebserver)
+			if outputJSON {
+				writeJSON(w, map[string]string{"message": successMsg})
+				return
+			}
+			web.FlashRedirect(a, w, r, "success", successMsg, "/containers/webserver")
+			return
+		}
+
+		if outputJSON {
+			writeJSONError(w, http.StatusBadRequest, "Invalid web server selected")
+			return
+		}
+		web.FlashRedirect(a, w, r, "error", "Invalid web server selected", "/containers/webserver")
+		return
+	}
+
+	if r.URL.Query().Get("output") == "json" {
+		writeJSON(w, webserver)
+		return
+	}
+
+	renderChangeWebserverPage(a, w, r, userContext, webserver, userDomains)
+}

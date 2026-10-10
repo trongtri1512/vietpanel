@@ -1,0 +1,152 @@
+package cmsapp
+
+import (
+	"context"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/appkit"
+	"vietpanel/panel/internal/core/installmanifest"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/mysqlmanager"
+	"vietpanel/panel/internal/core/podmanmanager"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/web"
+)
+
+// Site is an installed site being acted on
+type Site struct {
+	Name         string // "domain.tld" or "domain.tld/sub"
+	Docroot      string // the domain's docroot
+	InstallPath  string // container path of the install
+	HostPath     string // same directory on the host
+	UserContext  string
+	Username     string
+	PHPContainer string
+}
+
+// HandleRemove fully uninstalls a site: drops its database and user, removes its files and the sites row
+func (app *App) HandleRemove(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	id := r.FormValue("id")
+
+	var siteName, docroot string
+	row := a.DB.QueryRowContext(ctx, `
+		SELECT sites.site_name, domains.docroot
+		FROM sites
+		JOIN domains ON domains.domain_url = SUBSTRING_INDEX(sites.site_name, '/', 1)
+		WHERE sites.id = ? AND sites.type = ?`, id, app.Slug)
+	if scanErr := row.Scan(&siteName, &docroot); scanErr != nil {
+		web.FlashRedirect(a, w, r, "error", "No data found for the provided site ID", "/sites")
+		return
+	}
+
+	parts := strings.Split(siteName, "/")
+	selectedDomain := parts[0]
+	subdirectory := parts[1:]
+
+	if docroot == "" {
+		web.FlashRedirect(a, w, r, "error", web.Tr(a, r, "%(name)s installation not found in the database", "name", app.Name), "/sites")
+		return
+	}
+	if !a.CheckDomainBelongsToUser(ctx, userID, selectedDomain) {
+		http.Error(w, "You do not own this domain.", http.StatusForbidden)
+		return
+	}
+
+	realInstallPath := strings.TrimPrefix(docroot, "/var/www/html/")
+	if len(subdirectory) > 0 {
+		realInstallPath = filepath.Join(append([]string{realInstallPath}, subdirectory...)...)
+	}
+	installPath := docroot
+	if len(subdirectory) > 0 {
+		installPath = strings.TrimSuffix(docroot, "/") + "/" + strings.Join(subdirectory, "/")
+	}
+	s := &Site{
+		Name:         siteName,
+		Docroot:      docroot,
+		InstallPath:  installPath,
+		HostPath:     htmlVolume(userContext) + realInstallPath,
+		UserContext:  userContext,
+		Username:     currentUsername,
+		PHPContainer: phpContainerFor(a, r, userContext, selectedDomain),
+	}
+
+	switch {
+	case app.RemoveDB != nil:
+		app.RemoveDB(a, w, r, s)
+	case app.RemoveConfig != "":
+		app.dropDBFromConfig(a, w, r, s)
+	}
+	if app.OnRemove != nil {
+		app.OnRemove(ctx, s)
+	}
+
+	if app.RemoveFiles != nil {
+		app.RemoveFiles(ctx, s)
+	} else {
+		removeSiteFiles(ctx, s)
+	}
+
+	if _, delErr := a.DB.ExecContext(ctx, "DELETE FROM sites WHERE id = ?", id); delErr != nil {
+		web.Flash(a, w, r, "error", web.Tr(a, r, "An error occurred during %(name)s uninstall.", "name", app.Name))
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": delErr.Error()})
+		return
+	}
+
+	_ = logger.RecordUserAction(a.Config, currentUsername, "uninstalled "+app.Name+" website "+siteName, reqip.ClientIP(r))
+
+	if r.URL.Query().Get("output") == "json" {
+		web.WriteJSON(w, http.StatusOK, map[string]string{"message": app.Name + " uninstalled successfully"})
+		return
+	}
+	web.FlashRedirect(a, w, r, "success", web.Tr(a, r, "%(name)s uninstalled successfully", "name", app.Name), "/sites")
+}
+
+// dropDBFromConfig reads the db name and user out of the site's config file and drops both
+func (app *App) dropDBFromConfig(a *appctx.App, w http.ResponseWriter, r *http.Request, s *Site) {
+	configFile := filepath.Join(s.HostPath, app.RemoveConfig)
+	if app.RemoveConfigPath != nil {
+		configFile = app.RemoveConfigPath(s)
+	}
+	content, _ := os.ReadFile(configFile)
+	text := string(content)
+	if app.RemoveConfigText != nil {
+		text = app.RemoveConfigText(text)
+	}
+
+	dbNameMatch := app.RemoveDBNameRE.FindStringSubmatch(text)
+	dbUserMatch := app.RemoveDBUserRE.FindStringSubmatch(text)
+	if dbNameMatch == nil || dbUserMatch == nil {
+		web.Flash(a, w, r, "warning", web.Tr(a, r, "Database name or user not found in %(file)s", "file", app.RemoveConfig))
+		return
+	}
+	ctx := r.Context()
+	dbName, dbUser := dbNameMatch[1], dbUserMatch[1]
+	_, _ = mysqlmanager.Exec(ctx, s.UserContext, "DROP DATABASE IF EXISTS `"+dbName+"`", "")
+	_, _ = mysqlmanager.Exec(ctx, s.UserContext, "DROP USER IF EXISTS '"+dbUser+"'@'%'", "")
+	appkit.InvalidateMySQLCaches(ctx, a, s.UserContext, s.Username)
+}
+
+// removeSiteFiles deletes what the install recorded creating, not the domain's docroot itself
+func removeSiteFiles(ctx context.Context, s *Site) {
+	// host-side first, the container rm silently left composer-built drupal/flarum trees behind
+	if entries := installmanifest.Entries(s.HostPath); entries != nil && installmanifest.Remove(s.HostPath, entries) == nil {
+		return
+	}
+	if entries := installmanifest.EntriesViaContainer(ctx, s.UserContext, s.PHPContainer, s.InstallPath); entries != nil {
+		_ = installmanifest.RemoveViaContainer(ctx, s.UserContext, s.PHPContainer, s.InstallPath, entries)
+		return
+	}
+	// installs made before the manifest existed
+	_ = podmanmanager.Command(ctx, s.UserContext, podmanmanager.PodmanArgv(s.UserContext, "exec", s.PHPContainer, "rm", "-rf", s.InstallPath)).Run()
+}

@@ -1,0 +1,413 @@
+package filemanager
+
+import (
+	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
+	appctx "vietpanel/panel/internal/app"
+	"vietpanel/panel/internal/core/flash"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/paths"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/core/session"
+	"vietpanel/panel/internal/web"
+)
+
+// handleCreateFile creates an empty file at the given path and optionally redirects straight into the editor for it
+func handleCreateFile(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	filename := strings.TrimSpace(r.Form.Get("filename"))
+	pathParam := strings.TrimPrefix(r.Form.Get("path_param"), "/")
+
+	ctx := r.Context()
+	user, err := currentUser(ctx, a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if filename == "" {
+		web.FlashRedirect(a, w, r, "error", "Filename is missing", filesRedirectPath(pathParam))
+		return
+	}
+
+	filePath, perr := paths.SecureUserPath("HOME", user.Context, filepath.Join(pathParam, filename), false)
+	if perr != nil {
+		status, msg := pathErrorStatus(perr)
+		http.Error(w, msg, status)
+		return
+	}
+	if _, statErr := os.Stat(filePath); statErr == nil {
+		web.FlashRedirect(a, w, r, "error", "Error creating file: already exists.", filesRedirectPath(pathParam))
+		return
+	}
+
+	f, createErr := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0o644)
+	if createErr != nil {
+		web.FlashRedirect(a, w, r, "error", "Error creating file! Check permissions.", filesRedirectPath(pathParam))
+		return
+	}
+	_ = f.Close()
+
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+	if chownErr := chownToUser(ctx, a, filePath, user.Context); chownErr != nil {
+		flash.Add(sess, "error", "Failed to set ownership for the new file.")
+	}
+
+	flash.Add(sess, "success", "File created successfully.")
+	_ = a.Sessions.Save(r, w, sess)
+	_ = logger.RecordUserAction(a.Config, user.Username, "created a new file "+filename+" via File Manager", reqip.ClientIP(r))
+
+	if r.Form.Get("open") == "true" {
+		pathForRedirect := filepath.Join(pathParam, filename)
+		http.Redirect(w, r, "/file-manager/edit-file/"+pathForRedirect+"?new=true", http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, filesRedirectPath(pathParam), http.StatusFound)
+}
+
+// handleCreateFolder creates a new directory at the given path.
+func handleCreateFolder(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	folderName := strings.TrimSpace(r.Form.Get("foldername"))
+	pathParam := strings.TrimPrefix(r.Form.Get("path_param"), "/")
+
+	ctx := r.Context()
+	user, err := currentUser(ctx, a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if folderName == "" {
+		web.FlashRedirect(a, w, r, "error", "Foldername is missing", filesRedirectPath(pathParam))
+		return
+	}
+
+	folderPath, perr := paths.SecureUserPath("HOME", user.Context, filepath.Join(pathParam, folderName), false)
+	if perr != nil {
+		status, msg := pathErrorStatus(perr)
+		http.Error(w, msg, status)
+		return
+	}
+
+	if mkErr := os.MkdirAll(folderPath, 0o755); mkErr != nil {
+		web.FlashRedirect(a, w, r, "error", "Error creating directory! Check permissions.", filesRedirectPath(pathParam))
+		return
+	}
+
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+	if chownErr := chownToUser(ctx, a, folderPath, user.Context); chownErr != nil {
+		flash.Add(sess, "error", "Failed to set ownership for the new folder.")
+	}
+	flash.Add(sess, "success", "Folder created successfully.")
+	_ = a.Sessions.Save(r, w, sess)
+
+	_ = logger.RecordUserAction(a.Config, user.Username, "created a new folder "+folderName+" via File Manager", reqip.ClientIP(r))
+	http.Redirect(w, r, filesRedirectPath(pathParam), http.StatusFound)
+}
+
+// handleRenameFile renames or moves a file/directory within the same listing by renaming it in place
+func handleRenameFile(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	oldName := r.Form.Get("old_name")
+	newName := r.Form.Get("new_name")
+	pathParam := r.Form.Get("path_param")
+
+	ctx := r.Context()
+	user, err := currentUser(ctx, a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	oldRelPath := filepath.Join(pathParam, oldName)
+	newRelPath := filepath.Join(pathParam, newName)
+
+	oldPath, perr := paths.SecureUserPath("HOME", user.Context, oldRelPath, true)
+	if perr != nil {
+		status, msg := pathErrorStatus(perr)
+		http.Error(w, msg, status)
+		return
+	}
+	newPath, perr := paths.SecureUserPath("HOME", user.Context, newRelPath, false)
+	if perr != nil {
+		status, msg := pathErrorStatus(perr)
+		http.Error(w, msg, status)
+		return
+	}
+
+	if renameErr := os.Rename(oldPath, newPath); renameErr != nil {
+		web.FlashRedirect(a, w, r, "error", "Error renaming item! Check permissions or if the new name already exists.", filesRedirectPath(pathParam))
+		return
+	}
+
+	_ = logger.RecordUserAction(a.Config, user.Username,
+		"renamed file /var/www/html/"+oldRelPath+" to /var/www/html/"+newRelPath+" using File Manager", reqip.ClientIP(r))
+	web.FlashRedirect(a, w, r, "success", "File renamed successfully.", filesRedirectPath(pathParam))
+}
+
+// handleDeleteFile deletes a file or directory, either permanently or by moving it to the trash depending on the "mode" query parameter
+func handleDeleteFile(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	itemName := r.URL.Query().Get("filename")
+	pathParam := r.URL.Query().Get("path_param")
+	itemType := r.URL.Query().Get("item_type")
+	if itemType == "" {
+		itemType = "file"
+	}
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		mode = "permanent"
+	}
+
+	ctx := r.Context()
+	user, err := currentUser(ctx, a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	targetRelPath := filepath.Join(pathParam, itemName)
+
+	// symlinks just get unlinked, never followed and never trashed
+	if _, linkErr := paths.RemoveUserSymlink("HOME", user.Context, targetRelPath); !errors.Is(linkErr, paths.ErrNotSymlink) {
+		if linkErr != nil {
+			status, msg := pathErrorStatus(linkErr)
+			web.WriteJSON(w, status, map[string]any{"success": false, "error": msg})
+			return
+		}
+		_ = logger.RecordUserAction(a.Config, user.Username, "deleted symlink "+targetRelPath+" using File Manager", reqip.ClientIP(r))
+		web.WriteJSON(w, http.StatusOK, map[string]any{"success": true, "message": "Symlink deleted"})
+		return
+	}
+
+	itemPath, perr := paths.SecureUserPath("HOME", user.Context, targetRelPath, true)
+	if perr != nil {
+		status, msg := pathErrorStatus(perr)
+		web.WriteJSON(w, status, map[string]any{"success": false, "error": msg})
+		return
+	}
+	displayPath := filepath.Join(pathParam, itemName)
+
+	if mode == "trash" {
+		if _, trashErr := moveItemToTrash(ctx, a, itemPath, itemName, user.Context); trashErr != nil {
+			web.WriteJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "message": "Delete failed: " + trashErr.Error()})
+			return
+		}
+		_ = logger.RecordUserAction(a.Config, user.Username, "moved "+itemType+" "+displayPath+" to Trash using File Manager", reqip.ClientIP(r))
+		web.WriteJSON(w, http.StatusOK, map[string]any{"success": true, "message": "Moved to Trash"})
+		return
+	}
+
+	var rmErr error
+	if itemType == "directory" {
+		rmErr = os.RemoveAll(itemPath)
+	} else {
+		rmErr = os.Remove(itemPath)
+	}
+	if rmErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "message": "Delete failed: " + rmErr.Error()})
+		return
+	}
+	_ = logger.RecordUserAction(a.Config, user.Username, "deleted "+itemType+" "+displayPath+" using File Manager", reqip.ClientIP(r))
+	web.WriteJSON(w, http.StatusOK, map[string]any{"success": true, "message": "Deleted permanently"})
+}
+
+var permissionsRE = regexp.MustCompile(`^[0-7]{3,4}$`)
+
+// chmodPath applies mode to path, and to everything under it when recursive is set and path is a directory
+func chmodPath(path string, mode os.FileMode, recursive bool) error {
+	if !recursive {
+		return os.Chmod(path, mode)
+	}
+	return filepath.WalkDir(path, func(itemPath string, _ os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Chmod(itemPath, mode)
+	})
+}
+
+// handleChangePermissions applies an octal permissions string to one or more selected files, recursing into
+// selected directories when the "recursive" checkbox is set
+func handleChangePermissions(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	filenames := r.Form["filename"]
+	permissions := r.Form.Get("permissions")
+	pathParam := r.Form.Get("path_param")
+	recursive := r.Form.Get("recursive") == "on"
+
+	if !permissionsRE.MatchString(permissions) {
+		web.FlashRedirect(a, w, r, "error", "Invalid permissions format.", filesRedirectPath(pathParam))
+		return
+	}
+
+	ctx := r.Context()
+	user, err := currentUser(ctx, a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	mode, _ := strconv.ParseUint(permissions, 8, 32)
+
+	changed := 0
+	var errored []string
+	for _, filename := range filenames {
+		relPath := filepath.Join(pathParam, filename)
+		filePath, perr := paths.SecureUserPath("HOME", user.Context, relPath, true)
+		if perr != nil {
+			errored = append(errored, filename)
+			continue
+		}
+		info, statErr := os.Lstat(filePath)
+		if statErr != nil {
+			errored = append(errored, filename)
+			continue
+		}
+		if chmodErr := chmodPath(filePath, os.FileMode(mode), recursive && info.IsDir()); chmodErr != nil {
+			errored = append(errored, filename)
+			continue
+		}
+		action := "changed permissions to " + permissions
+		if recursive && info.IsDir() {
+			action += " recursively"
+		}
+		_ = logger.RecordUserAction(a.Config, user.Username, action+" for "+filePath+" using File Manager", reqip.ClientIP(r))
+		changed++
+	}
+
+	sess, _ := a.Sessions.Get(r, session.CookieName)
+	if changed == 1 {
+		flash.Add(sess, "success", "Permissions changed.")
+	} else if changed > 1 {
+		flash.Add(sess, "success", web.Tr(a, r, "%(changed)s items updated.", "changed", strconv.Itoa(changed)))
+	}
+	if len(errored) > 0 {
+		flash.Add(sess, "error", web.Tr(a, r, "Error changing permissions for: %(errored)s. Check ownership.", "errored", strings.Join(errored, ", ")))
+	}
+	_ = a.Sessions.Save(r, w, sess)
+	http.Redirect(w, r, filesRedirectPath(pathParam), http.StatusFound)
+}
+
+// handleCopyItem copies a file or directory to a destination path, failing if the destination already exists
+func handleCopyItem(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	itemName := q.Get("item_name")
+	itemType := q.Get("item_type")
+	pathParam := q.Get("path_param")
+	destinationPath := q.Get("destination_path")
+	if destinationPath == "" {
+		destinationPath = pathParam
+	}
+	destinationPath = strings.TrimPrefix(destinationPath, "/")
+
+	if itemName == "" {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]any{"success": false, "error": "File name is empty"})
+		return
+	}
+
+	ctx := r.Context()
+	user, err := currentUser(ctx, a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	src, perr := paths.SecureUserPath("HOME", user.Context, filepath.Join(pathParam, itemName), true)
+	if perr != nil {
+		status, msg := pathErrorStatus(perr)
+		web.WriteJSON(w, status, map[string]any{"success": false, "error": msg})
+		return
+	}
+	dst, perr := paths.SecureUserPath("HOME", user.Context, destinationPath, false)
+	if perr != nil {
+		status, msg := pathErrorStatus(perr)
+		web.WriteJSON(w, status, map[string]any{"success": false, "error": msg})
+		return
+	}
+	if info, statErr := os.Stat(dst); statErr == nil && info.IsDir() {
+		dst = filepath.Join(dst, itemName)
+	}
+
+	var copyErr error
+	if itemType == "directory" {
+		copyErr = copyTree(src, dst)
+	} else {
+		copyErr = copyFile(src, dst)
+	}
+	if copyErr != nil {
+		if os.IsExist(copyErr) {
+			web.WriteJSON(w, http.StatusConflict, map[string]any{"success": false, "error": "Destination already exists"})
+			return
+		}
+		if os.IsPermission(copyErr) {
+			web.WriteJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Permission denied"})
+			return
+		}
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Error copying item: " + copyErr.Error()})
+		return
+	}
+
+	chownRecursive(ctx, a, dst, user.Context)
+	_ = logger.RecordUserAction(a.Config, user.Username,
+		"copied "+itemType+" "+filepath.Join(pathParam, itemName)+" to "+destinationPath+" using File Manager", reqip.ClientIP(r))
+	web.WriteJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// handleMoveItem moves a file or directory to a destination path.
+func handleMoveItem(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	itemName := q.Get("item_name")
+	pathParam := q.Get("path_param")
+	destinationPath := strings.TrimPrefix(q.Get("destination_path"), "/")
+
+	if itemName == "" {
+		web.WriteJSON(w, http.StatusBadRequest, map[string]any{"success": false, "error": "File name is empty"})
+		return
+	}
+
+	ctx := r.Context()
+	user, err := currentUser(ctx, a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	src, perr := paths.SecureUserPath("HOME", user.Context, filepath.Join(pathParam, itemName), true)
+	if perr != nil {
+		status, msg := pathErrorStatus(perr)
+		web.WriteJSON(w, status, map[string]any{"success": false, "error": msg})
+		return
+	}
+	dst, perr := paths.SecureUserPath("HOME", user.Context, destinationPath, false)
+	if perr != nil {
+		status, msg := pathErrorStatus(perr)
+		web.WriteJSON(w, status, map[string]any{"success": false, "error": msg})
+		return
+	}
+	if info, statErr := os.Stat(dst); statErr == nil && info.IsDir() {
+		dst = filepath.Join(dst, itemName)
+	}
+
+	if moveErr := os.Rename(src, dst); moveErr != nil {
+		web.WriteJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Move failed: " + moveErr.Error()})
+		return
+	}
+
+	if info, statErr := os.Stat(dst); statErr == nil && info.IsDir() {
+		chownRecursive(ctx, a, dst, user.Context)
+	} else {
+		_ = chownToUser(ctx, a, dst, user.Context)
+	}
+
+	_ = logger.RecordUserAction(a.Config, user.Username,
+		"moved "+filepath.Join(pathParam, itemName)+" to "+destinationPath+" using File Manager", reqip.ClientIP(r))
+	web.WriteJSON(w, http.StatusOK, map[string]any{"success": true})
+}

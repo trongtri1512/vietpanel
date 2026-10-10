@@ -1,178 +1,381 @@
-// Package backups handles backup destination configuration, schedule management,
-// running backups, and restoring from backup archives.
 package backups
 
 import (
 	"net/http"
-	"time"
+	"os"
+	"strings"
 
-	"vietpanel/panel/internal/app"
+	appctx "vietpanel/panel/internal/app"
 	"vietpanel/panel/internal/auth"
+	"vietpanel/panel/internal/core/logger"
+	"vietpanel/panel/internal/core/reqip"
+	"vietpanel/panel/internal/modules/docker"
 	"vietpanel/panel/internal/web"
 )
 
-func Register(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /backups", auth.Require(list(a)))
-	mux.HandleFunc("GET /backups/destinations", auth.Require(destinationsPage(a)))
-	mux.HandleFunc("POST /backups/destinations", auth.Require(saveDestination(a)))
-	mux.HandleFunc("POST /backups/destinations/delete", auth.Require(deleteDestination(a)))
-	mux.HandleFunc("POST /backups/run", auth.Require(runBackup(a)))
-	mux.HandleFunc("GET /backups/history", auth.Require(historyPage(a)))
-	mux.HandleFunc("POST /backups/restore", auth.Require(restoreBackup(a)))
-}
-
-type backupDest struct {
-	ID      int
-	Name    string
-	Type    string
-	Host    string
-	Path    string
-	Enabled bool
-}
-
-type backupJob struct {
-	ID        int
-	DestName  string
-	Status    string
-	Size      string
-	Started   string
-	Completed string
-}
-
-func list(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		jobs, _ := queryJobs(a, user.ID)
-		dests, _ := queryDests(a, user.ID)
-		web.Render(w, r, a, "user/backups.html", web.PageData{
-			Title: "Backups", ActiveNav: "backups", User: user,
-			Extra: map[string]any{
-				"Jobs":         jobs,
-				"Destinations": dests,
-			},
-		})
+// Register wires the backups routes onto mux, gated behind the "backups" feature flag
+func Register(mux *http.ServeMux, a *appctx.App) {
+	requireLogin := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireLogin(a, "backups")(h)
 	}
+
+	mux.Handle("/backups/settings", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleBackupSettings(a, w, r) }))
+	mux.Handle("/backups/destination", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleBackupTarget(a, w, r) }))
+	mux.Handle("/backups", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleBackupsPage(a, w, r) }))
+	mux.Handle("/backups/list", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleListBackupsFromDestination(a, w, r) }))
+	mux.Handle("POST /backups/restore", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleRestoreFromBackup(a, w, r) }))
+	mux.Handle("POST /backups/download", requireLogin(func(w http.ResponseWriter, r *http.Request) { handleDownloadBackup(a, w, r) }))
 }
 
-func destinationsPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		dests, _ := queryDests(a, user.ID)
-		web.Render(w, r, a, "user/backups_destinations.html", web.PageData{
-			Title: "Backup Destinations", ActiveNav: "backups", User: user,
-			Extra: map[string]any{"Destinations": dests},
-		})
-	}
+func envFilePath(userContext string) string {
+	return "/home/" + userContext + "/backup.env"
 }
 
-func saveDestination(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
+// parseFormGroups pulls out every "values[KEY]"/"settings[KEY]" field into key->value. PostForm is a map and doesn't preserve field order, so callers needing stable ordering read the updated keys off the env file's own line order instead.
+func parseFormGroups(r *http.Request, group string) map[string]string {
+	out := map[string]string{}
+	prefix := group + "["
+	for key, values := range r.PostForm {
+		if strings.HasPrefix(key, prefix) && strings.HasSuffix(key, "]") && len(values) > 0 {
+			out[key[len(prefix):len(key)-1]] = values[0]
 		}
-		user := auth.FromContext(r)
-		_, _ = a.DB.Exec(
-			`INSERT INTO backup_destinations (user_id, name, dest_type, host, path, enabled)
-			 VALUES (?, ?, ?, ?, ?, 1)`,
-			user.ID,
-			r.FormValue("name"),
-			r.FormValue("type"),
-			r.FormValue("host"),
-			r.FormValue("path"),
-		)
-		http.Redirect(w, r, "/backups/destinations", http.StatusFound)
 	}
+	return out
 }
 
-func deleteDestination(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		id := r.FormValue("id")
-		_, _ = a.DB.Exec(`DELETE FROM backup_destinations WHERE id = ? AND user_id = ?`, id, auth.FromContext(r).ID)
-		http.Redirect(w, r, "/backups/destinations", http.StatusFound)
-	}
-}
-
-func runBackup(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		user := auth.FromContext(r)
-		destID := r.FormValue("destination_id")
-		destName := r.FormValue("dest_name")
-
-		// Create a backup job record
-		now := time.Now().Format("2006-01-02 15:04:05")
-		_, _ = a.DB.Exec(
-			`INSERT INTO backup_jobs (user_id, dest_name, dest_id, status, started_at)
-			 VALUES (?, ?, ?, 'running', ?)`,
-			user.ID, destName, destID, now)
-
-		// In production, this would exec vietcli backup-run
-		// For now, mark as completed immediately
-		http.Redirect(w, r, "/backups", http.StatusFound)
-	}
-}
-
-func historyPage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := auth.FromContext(r)
-		jobs, _ := queryJobs(a, user.ID)
-		web.Render(w, r, a, "user/backups_history.html", web.PageData{
-			Title: "Backup History", ActiveNav: "backups", User: user,
-			Extra: map[string]any{"Jobs": jobs},
-		})
-	}
-}
-
-func restoreBackup(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
-		}
-		// In production, this would exec vietcli backup-restore
-		http.Redirect(w, r, "/backups", http.StatusFound)
-	}
-}
-
-func queryJobs(a *app.App, userID int64) ([]backupJob, error) {
-	rows, err := a.DB.Query(
-		`SELECT id, COALESCE(dest_name,'-'), COALESCE(status,'-'), COALESCE(size,'-'),
-		 COALESCE(started_at,'-'), COALESCE(completed_at,'-')
-		 FROM backup_jobs WHERE user_id = ? ORDER BY id DESC LIMIT 20`, userID)
+// handleBackupSettings serves and updates the backup.env key/value form for the user's currently configured backup target
+func handleBackupSettings(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_, currentUsername, userContext, err := auth.Injected(a, r)
 	if err != nil {
-		return nil, err
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
-	defer rows.Close()
-	var jobs []backupJob
-	for rows.Next() {
-		var j backupJob
-		_ = rows.Scan(&j.ID, &j.DestName, &j.Status, &j.Size, &j.Started, &j.Completed)
-		jobs = append(jobs, j)
+	if AdminManagedBackups(userContext) {
+		respondBackupsAdminManaged(a, w, r)
+		return
 	}
-	return jobs, nil
+	path := envFilePath(userContext)
+
+	if r.Method == http.MethodPost {
+		if _, statErr := os.Stat(path); statErr != nil {
+			_ = os.WriteFile(path, nil, 0o644)
+		}
+
+		if isBackupInProgress(r.Context(), userContext) {
+			web.FlashRedirect(a, w, r, "error", "A backup is currently in progress. Please wait until it finishes before saving settings. Or if you want to interrupt the backup process: stop and start the backup service.", r.URL.String())
+			return
+		}
+
+		if postErr := saveBackupSettings(a, r, path, userContext, currentUsername); postErr != nil {
+			web.Flash(a, w, r, "error", "Error updating settings.")
+		} else {
+			web.Flash(a, w, r, "success", "Settings updated successfully.")
+		}
+	}
+
+	renderBackupSettingsFromFile(a, w, r, path)
 }
 
-func queryDests(a *app.App, userID int64) ([]backupDest, error) {
-	rows, err := a.DB.Query(
-		`SELECT id, name, dest_type, COALESCE(host,'-'), COALESCE(path,'-'), enabled
-		 FROM backup_destinations WHERE user_id = ? ORDER BY name`, userID)
+func saveBackupSettings(a *appctx.App, r *http.Request, path, userContext, currentUsername string) error {
+	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer rows.Close()
-	var dests []backupDest
-	for rows.Next() {
-		var d backupDest
-		_ = rows.Scan(&d.ID, &d.Name, &d.Type, &d.Host, &d.Path, &d.Enabled)
-		dests = append(dests, d)
+	lines := strings.Split(string(content), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
 	}
-	return dests, nil
+
+	envDict := map[string]string{}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "=") {
+			continue
+		}
+		key, val, _ := strings.Cut(trimmed, "=")
+		envDict[strings.TrimSpace(key)] = strings.TrimSpace(val)
+	}
+
+	_ = r.ParseForm()
+	updated := map[string]string{}
+	for k, v := range parseFormGroups(r, "values") {
+		updated[k] = v
+	}
+	for k, v := range parseFormGroups(r, "settings") {
+		updated[k] = v
+	}
+	for k, v := range updated {
+		envDict[k] = v
+	}
+
+	var newLines []string
+	existing := map[string]bool{}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "=") {
+			newLines = append(newLines, line)
+			continue
+		}
+		key := strings.TrimSpace(strings.SplitN(trimmed, "=", 2)[0])
+		if _, ok := updated[key]; ok {
+			newLines = append(newLines, key+"="+envDict[key])
+			existing[key] = true
+		} else {
+			newLines = append(newLines, line)
+		}
+	}
+	for k := range updated {
+		if !existing[k] {
+			newLines = append(newLines, k+"="+envDict[k])
+		}
+	}
+
+	if err := os.WriteFile(path, []byte(strings.Join(newLines, "\n")+"\n"), 0o644); err != nil {
+		return err
+	}
+
+	_ = logger.RecordUserAction(a.Config, currentUsername, "updated backup settings", reqip.ClientIP(r))
+
+	ctx := r.Context()
+	if isBackupContainerRunning(ctx, userContext) {
+		docker.StartOrStopContainer(ctx, userContext, "backup", "deactivate", "")
+	}
+	docker.StartOrStopContainer(ctx, userContext, "backup", "activate", "")
+
+	return nil
+}
+
+func renderBackupSettingsFromFile(a *appctx.App, w http.ResponseWriter, r *http.Request, path string) {
+	if _, err := os.Stat(path); err != nil {
+		web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "env file not found"})
+		return
+	}
+
+	entries, err := parseUncommentedEnv(path)
+	if err != nil {
+		web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "env file not found"})
+		return
+	}
+	grouped := groupBySections(entries)
+
+	var target, errMsg string
+	var values, settingsKV []KV
+	switch len(grouped.MatchedSections) {
+	case 1:
+		target = grouped.MatchedSections[0]
+		values = grouped.SectionValues[target]
+		settingsKV = grouped.Settings
+	case 0:
+		errMsg = "no backup target configured"
+		settingsKV = grouped.Settings
+	default:
+		errMsg = "multiple backup targets configured"
+		settingsKV = grouped.Settings
+	}
+
+	if r.URL.Query().Get("output") == "json" {
+		web.WriteJSON(w, http.StatusOK, backupSettingsJSON(target, errMsg, grouped, values, settingsKV))
+		return
+	}
+
+	renderBackupSettingsPage(a, w, r, errMsg, target, values, settingsKV)
+}
+
+func backupSettingsJSON(target, errMsg string, grouped EnvSections, values, settingsKV []KV) map[string]any {
+	settingsMap := kvToMap(settingsKV)
+	switch {
+	case target != "":
+		return map[string]any{"target": target, "values": kvToMap(values), "settings": settingsMap}
+	case errMsg == "no backup target configured":
+		return map[string]any{"error": errMsg, "settings": settingsMap}
+	default:
+		valuesBySection := map[string]map[string]string{}
+		for _, section := range grouped.MatchedSections {
+			valuesBySection[section] = kvToMap(grouped.SectionValues[section])
+		}
+		return map[string]any{"error": errMsg, "targets": grouped.MatchedSections, "values": valuesBySection, "settings": settingsMap}
+	}
+}
+
+func kvToMap(entries []KV) map[string]string {
+	m := make(map[string]string, len(entries))
+	for _, kv := range entries {
+		m[kv.Key] = kv.Value
+	}
+	return m
+}
+
+// handleBackupTarget switches (or reports) which backup destination section (s3/webdav/ssh/azure/dropbox) is active, by commenting out the other sections' keys in backup.env
+func handleBackupTarget(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_, currentUsername, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if AdminManagedBackups(userContext) {
+		respondBackupsAdminManaged(a, w, r)
+		return
+	}
+	path := envFilePath(userContext)
+
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		target := r.Form.Get("target")
+
+		if _, ok := sectionKeys[target]; !ok {
+			web.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid backup target: " + target})
+			return
+		}
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "env file not found"})
+			return
+		}
+
+		lines := strings.Split(string(content), "\n")
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+		var newLines []string
+		for _, line := range lines {
+			stripped := strings.TrimSpace(line)
+			if stripped == "" || !strings.Contains(stripped, "=") {
+				newLines = append(newLines, line)
+				continue
+			}
+			keyPart := strings.TrimSpace(strings.SplitN(strings.TrimLeft(stripped, "#"), "=", 2)[0])
+
+			switch {
+			case isSectionKey(target, keyPart):
+				newLines = append(newLines, strings.TrimSpace(strings.TrimLeft(stripped, "#")))
+			case belongsToOtherSection(target, keyPart):
+				newLines = append(newLines, "# "+strings.TrimSpace(strings.TrimLeft(stripped, "#")))
+			default:
+				newLines = append(newLines, line)
+			}
+		}
+
+		if err := os.WriteFile(path, []byte(strings.Join(newLines, "\n")+"\n"), 0o644); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		_ = logger.RecordUserAction(a.Config, currentUsername, "switched backup target to '"+target+"'", reqip.ClientIP(r))
+		web.Flash(a, w, r, "success", web.Tr(a, r, "Backup target switched to '%(target)s' successfully.", "target", target))
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		renderBackupDestinationsPage(a, w, r, "")
+		return
+	}
+
+	content, _ := os.ReadFile(path)
+	uncommentedKeys := map[string]bool{}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		key := strings.TrimSpace(strings.SplitN(line, "=", 2)[0])
+		uncommentedKeys[key] = true
+	}
+
+	var matched []string
+	for _, section := range sectionOrder {
+		for _, key := range sectionKeys[section] {
+			if uncommentedKeys[key] {
+				matched = append(matched, section)
+				break
+			}
+		}
+	}
+	active := ""
+	if len(matched) == 1 {
+		active = matched[0]
+	}
+
+	if r.URL.Query().Get("output") == "json" {
+		web.WriteJSON(w, http.StatusOK, map[string]any{"active": active, "targets": sectionOrder})
+		return
+	}
+
+	renderBackupDestinationsPage(a, w, r, active)
+}
+
+func belongsToOtherSection(target, key string) bool {
+	for _, section := range sectionOrder {
+		if section == target {
+			continue
+		}
+		if isSectionKey(section, key) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleBackupsPage serves the backups landing page. Registered for GET and POST, but never branches on method, so POST behaves identically to GET - intentional, not an oversight.
+func handleBackupsPage(a *appctx.App, w http.ResponseWriter, r *http.Request) {
+	_, _, userContext, err := auth.Injected(a, r)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	adminManaged := AdminManagedBackups(userContext)
+	path := envFilePath(userContext)
+
+	if _, statErr := os.Stat(path); statErr != nil {
+		web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "env file not found"})
+		return
+	}
+
+	entries, err := parseUncommentedEnv(path)
+	if err != nil {
+		web.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "env file not found"})
+		return
+	}
+	grouped := groupBySections(entries)
+	serviceActive := isBackupContainerRunning(r.Context(), userContext)
+
+	var target string
+	var values []KV
+	if len(grouped.MatchedSections) == 1 {
+		target = grouped.MatchedSections[0]
+		values = grouped.SectionValues[target]
+	}
+
+	if r.URL.Query().Get("output") == "json" {
+		// admin-managed accounts don't get destination/settings details (which include stored credentials) here - just enough to know a backup target exists and whether the service is running
+		if adminManaged {
+			web.WriteJSON(w, http.StatusOK, map[string]any{"admin_managed": true, "configured": target != "", "service_active": serviceActive})
+			return
+		}
+		var errMsg string
+		switch len(grouped.MatchedSections) {
+		case 0:
+			errMsg = "no backup target configured"
+		case 1:
+		default:
+			errMsg = "multiple backup targets configured"
+		}
+		payload := backupSettingsJSON(target, errMsg, grouped, values, grouped.Settings)
+		payload["service_active"] = serviceActive
+		web.WriteJSON(w, http.StatusOK, payload)
+		return
+	}
+
+	renderBackupsPage(a, w, r, target, hasAnyCredentialMarker(values), serviceActive, adminManaged)
+}
+
+// hasAnyCredentialMarker reports whether any well-known per-destination credential key has a value, used to decide whether the settings form should show as "configured"
+func hasAnyCredentialMarker(values []KV) bool {
+	markers := map[string]bool{
+		"DROPBOX_APP_KEY": true, "AWS_ACCESS_KEY_ID": true, "WEBDAV_USERNAME": true,
+		"SSH_HOST_NAME": true, "AZURE_STORAGE_ACCOUNT_NAME": true,
+	}
+	for _, kv := range values {
+		if markers[kv.Key] && kv.Value != "" {
+			return true
+		}
+	}
+	return false
 }

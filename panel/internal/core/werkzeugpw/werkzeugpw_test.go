@@ -1,0 +1,54 @@
+package werkzeugpw
+
+import "testing"
+
+// cross-checks against a real scrypt hash produced by the previous panel - the only real guarantee this package reads actual user rows, not just internally-consistent Go output
+func TestCheckPasswordHashAgainstRealWerkzeugScrypt(t *testing.T) {
+	hash := "scrypt:32768:8:1$ntoZMstmnoK5Rh9T$dcdf075ba8ea835df38cf94c7db80ba983d84e31ac39c56fc5414c69e7b13fb5fbb6819d029c5191d17c16d6329125a3192e25191611bb0070fde66c110fd1f6"
+
+	if !CheckPasswordHash(hash, "mysecret123") {
+		t.Error("expected the real Werkzeug-generated scrypt hash to verify against its correct password")
+	}
+	if CheckPasswordHash(hash, "wrong-password") {
+		t.Error("expected the real Werkzeug-generated scrypt hash to reject an incorrect password")
+	}
+}
+
+func TestGenerateAndCheckRoundTrip(t *testing.T) {
+	hash, err := GeneratePasswordHash("correct horse battery staple")
+	if err != nil {
+		t.Fatalf("GeneratePasswordHash: %v", err)
+	}
+	if !CheckPasswordHash(hash, "correct horse battery staple") {
+		t.Error("expected generated hash to verify against its own password")
+	}
+	if CheckPasswordHash(hash, "wrong") {
+		t.Error("expected generated hash to reject a wrong password")
+	}
+}
+
+func TestCheckPasswordHashPBKDF2Legacy(t *testing.T) {
+	// pbkdf2:sha256 hash, the format older installs of the previous panel generated before the default switched to scrypt
+	hash := "pbkdf2:sha256:50000$bP9gjtsvApwP6ht2$1a3f65e3042f59a9096f14f8ec2eb7e32bbb0de788d40167218795a4e91cb0ee"
+
+	if !CheckPasswordHash(hash, "mysecret123") {
+		t.Error("expected legacy pbkdf2:sha256 hash to verify")
+	}
+	if CheckPasswordHash(hash, "wrong-password") {
+		t.Error("expected legacy pbkdf2:sha256 hash to reject an incorrect password")
+	}
+}
+
+func TestCheckPasswordHashMalformedInputsReturnFalse(t *testing.T) {
+	cases := []string{
+		"",
+		"not-a-valid-hash",
+		"scrypt$onlytwoparts",
+		"bogusmethod:1:2:3$salt$deadbeef",
+	}
+	for _, h := range cases {
+		if CheckPasswordHash(h, "anything") {
+			t.Errorf("CheckPasswordHash(%q) = true, want false", h)
+		}
+	}
+}
