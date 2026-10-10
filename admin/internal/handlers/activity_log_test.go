@@ -76,7 +76,7 @@ func TestActivityMiddleware(t *testing.T) {
 
 // a renamed route would silently fall back to "POST /path" in the log
 func TestEveryDescribedRouteIsRegistered(t *testing.T) {
-	src, err := os.ReadFile("../../cmd/openadmin/main.go")
+	src, err := os.ReadFile("../../cmd/admin/main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
