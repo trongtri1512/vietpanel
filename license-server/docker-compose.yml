@@ -7,9 +7,9 @@ services:
     ports:
       - "2095:2095"
     environment:
-      # REQUIRED: secret used to sign in to the web UI and call /api/keys
-      LICENSE_ADMIN_TOKEN: ${LICENSE_ADMIN_TOKEN:?set LICENSE_ADMIN_TOKEN in .env}
-      # Public base URL shown in the UI as the panel's license_server_url value
+      # Defaults keep `docker compose up` working with no .env; override in prod
+      # via .env, Dokploy env tab, or `docker compose -e ...`.
+      LICENSE_ADMIN_TOKEN: ${LICENSE_ADMIN_TOKEN:-vietpanel-dev-token}
       LICENSE_PUBLIC_URL: ${LICENSE_PUBLIC_URL:-http://127.0.0.1:2095}
     volumes:
       - license-data:/data
