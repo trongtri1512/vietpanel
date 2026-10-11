@@ -18,7 +18,7 @@
             <div class="flex flex-col gap-2 text-center sm:flex-row sm:items-center sm:justify-between sm:text-start">
                 <div class="grow">
                     <h1 class="mb-1 text-xl font-bold">Passkeys</h1>
-                    <h2 class="text-sm font-medium text-slate-500">Sign in to OpenAdmin without a password using a fingerprint, face scan, device PIN, or security key.</h2>
+                    <h2 class="text-sm font-medium text-slate-500">Sign in to VietAdmin without a password using a fingerprint, face scan, device PIN, or security key.</h2>
                 </div>
             </div>
         </header>
@@ -71,7 +71,7 @@
             <div class="md:col-span-2 max-w-sm">
                 {{if not .WebauthnCapable}}
                 <div id="tour-passkeys-needs-domain" class="rounded border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-400">
-                    Passkeys require OpenAdmin to be accessed over a domain name (not an IP address). Set up a custom domain to use this feature.
+                    Passkeys require VietAdmin to be accessed over a domain name (not an IP address). Set up a custom domain to use this feature.
                 </div>
                 {{else}}
                 <label class="text-sm leading-none text-gray-900 dark:text-gray-50 font-medium" for="passkey-name">Name for this passkey</label>

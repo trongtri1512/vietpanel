@@ -158,7 +158,7 @@ func (c *Checker) remoteCheck() string {
 		return "Invalid"
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "OpenAdmin-License-Check/1.0")
+	req.Header.Set("User-Agent", "VietAdmin-License-Check/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

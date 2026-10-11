@@ -39,7 +39,7 @@ document.addEventListener('alpine:init', () => {
 });
 
 function restartAdminService(form) {
-    showToast('OpenAdmin is restarting, please wait…', 'loading', true);
+    showToast('VietAdmin is restarting, please wait…', 'loading', true);
 
     fetch(form.getAttribute('action') || window.location.pathname, {
         method: 'POST',
@@ -59,7 +59,7 @@ function restartAdminService(form) {
                 if (response.status === "up" && !successShown) {
                     successShown = true;
                     clearInterval(timer);
-                    showToast('OpenAdmin has been restarted.', 'success');
+                    showToast('VietAdmin has been restarted.', 'success');
                     setTimeout(function () { window.location.reload(); }, 1000);
                 }
             },
@@ -67,7 +67,7 @@ function restartAdminService(form) {
                 timeout--;
                 if (timeout <= 0) {
                     clearInterval(timer);
-                    showToast('OpenAdmin did not come back online in time. Please refresh the page manually.', 'error');
+                    showToast('VietAdmin did not come back online in time. Please refresh the page manually.', 'error');
                 }
             }
         });
@@ -215,7 +215,7 @@ function submitServiceAction(form, loadingMessage, onSettled) {
 <span class="inline-flex items-center gap-2.5 p-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-white px-2 py-0.5 text-xs font-medium">RESTART NEEDED</span>
 {{end}}{{end}}
 {{else if eq $svc.RealName "admin"}}
-{{range $.RestartMessages}}{{if contains . "OpenAdmin"}}
+{{range $.RestartMessages}}{{if contains . "VietAdmin"}}
 <span class="inline-flex items-center gap-2.5 p-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-white px-2 py-0.5 text-xs font-medium">RESTART NEEDED</span>
 {{end}}{{end}}
 {{end}}

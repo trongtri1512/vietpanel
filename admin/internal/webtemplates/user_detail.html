@@ -1759,7 +1759,7 @@
 
                   <br>
                   <div class="flex flex-col gap-2 text-center sm:flex-row sm:items-center sm:justify-between sm:text-start pb-2">
-                       {{template "macro_tooltip" (dict "ID" "private_notes_for_this_user" "Label" "Private notes" "Description" "Internal notes about this user, visible only to admins/resellers in OpenAdmin. Never shown to the user." "Required" false)}}
+                       {{template "macro_tooltip" (dict "ID" "private_notes_for_this_user" "Label" "Private notes" "Description" "Internal notes about this user, visible only to admins/resellers in VietAdmin. Never shown to the user." "Required" false)}}
                     </span> <button type="button" class="hidden sm:flex save_private_notes_btn relative  items-center justify-center rounded border px-3 py-2 text-center text-sm font-medium shadow-sm transition-all duration-100 ease-in-out cursor-pointer outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500 dark:border-gray-800 dark:text-gray-50 dark:bg-gray-950 dark:hover:bg-gray-900/60 disabled:text-gray-400 disabled:dark:text-gray-600 sm:w-fit border-black bg-black text-white hover:bg-gray-800 sm:mt-0">Save</button>
                   </div>
                   <textarea id="private_notes_for_this_user" data-username="{{.Username}}" class="flex min-h-[4rem] w-full rounded border px-3 py-1.5 shadow-sm outline-none transition-colors sm:text-sm text-gray-900 dark:text-gray-50 border-gray-300 dark:border-gray-800 bg-white dark:bg-gray-950 placeholder-gray-400 dark:placeholder-gray-500" rows="5">{{.Notes}}</textarea>

@@ -71,7 +71,7 @@ func main() {
 	}
 
 	if hostname.Port != bootstrap.DefaultPort {
-		appLog.Printf("Custom port will be used for OpenAdmin service: %d", hostname.Port)
+		appLog.Printf("Custom port will be used for VietAdmin service: %d", hostname.Port)
 	}
 
 	useTLS := server.UseTLS(certPaths.CertFile, certPaths.KeyFile, disabled)

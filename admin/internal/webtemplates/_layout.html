@@ -10,7 +10,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-    <title>OpenAdmin [{{if .ForceDomainValue}}{{.ForceDomainValue}}{{else if .ServerHostname}}{{.ServerHostname}}{{else}}{{.PublicIP}}{{end}}] {{if .Title}}{{.Title}}{{end}}</title>
+    <title>VietAdmin [{{if .ForceDomainValue}}{{.ForceDomainValue}}{{else if .ServerHostname}}{{.ServerHostname}}{{else}}{{.PublicIP}}{{end}}] {{if .Title}}{{.Title}}{{end}}</title>
     <link rel="icon" type="image/x-icon" href="/static/images/favicon.svg">
     <meta name="robots" content="noindex,nofollow">
     <meta name="csrf-token" content="{{.CSRFToken}}">
@@ -588,7 +588,7 @@
         <!-- Basic Auth -->
         <li>
             <a data-active="{{if hasPrefix .CurrentPath "/security/basic_auth"}}true{{else}}false{{end}}" class="relative flex gap-2 rounded py-1.5 pl-9 pr-3 text-base transition sm:text-sm text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-50 data-[active=true]:rounded data-[active=true]:bg-white data-[active=true]:text-blue-600 data-[active=true]:shadow data-[active=true]:ring-1 data-[active=true]:ring-gray-200 data-[active=true]:dark:bg-gray-900 data-[active=true]:dark:text-blue-500 data-[active=true]:dark:ring-gray-800 outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500" href="/security/basic_auth">
-                OpenAdmin Basic Auth
+                VietAdmin Basic Auth
             </a>
         </li>
 
@@ -616,7 +616,7 @@
         <!-- Disable Admin -->
         <li>
             <a data-active="{{if hasPrefix .CurrentPath "/security/disable-admin"}}true{{else}}false{{end}}" class="relative flex gap-2 rounded py-1.5 pl-9 pr-3 text-base transition sm:text-sm text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-50 data-[active=true]:rounded data-[active=true]:bg-white data-[active=true]:text-blue-600 data-[active=true]:shadow data-[active=true]:ring-1 data-[active=true]:ring-gray-200 data-[active=true]:dark:bg-gray-900 data-[active=true]:dark:text-blue-500 data-[active=true]:dark:ring-gray-800 outline outline-offset-2 outline-0 focus-visible:outline-2 outline-blue-500 dark:outline-blue-500" href="/security/disable-admin">
-                Disable OpenAdmin
+                Disable VietAdmin
             </a>
         </li>
 
@@ -1063,7 +1063,7 @@
         <span class="inline-flex items-center gap-1.5" x-data="{ swing: false }" x-init="swing = true">
             <svg :class="swing ? 'animate-swing' : ''" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-4"><path d="M12 2C16.9706 2 21 6.04348 21 11.0314V20H3V11.0314C3 6.04348 7.02944 2 12 2ZM9.5 21H14.5C14.5 22.3807 13.3807 23.5 12 23.5C10.6193 23.5 9.5 22.3807 9.5 21Z"></path></svg>
             <span class="hidden md:flex">
-            {{if contains . "both VietPanel and OpenAdmin"}}2 services need{{else if or (contains . "Pending changes for VietPanel UI") (contains . "Pending changes for OpenAdmin")}}1 service needs{{end}} restart!
+            {{if contains . "both VietPanel and VietAdmin"}}2 services need{{else if or (contains . "Pending changes for VietPanel UI") (contains . "Pending changes for VietAdmin")}}1 service needs{{end}} restart!
             </span>
         </span>
     </span>
@@ -1391,7 +1391,7 @@ document.addEventListener('alpine:init', () => {
 
 {{template "chrome_shortcuts" .}}
 
-<div class="relative mb-2 hidden items-center justify-end sm:flex bottom-0 right-0 "><a id="tour-report-bug-link" class="group flex items-center space-x-0.5 text-xs text-slate-500 hover:text-slate-700" href="https://github.com/stefanpejcic/OpenPanel/issues/new?template=1_Bug_report.yaml&affected-versions={{.PanelVersion}}&os=Ubuntu&title=Bug%20in%20OpenAdmin%20UI" target="_blank" rel="noopener noreferrer"><span class="text-inherit">Found a bug? Let us know</span><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-4 text-inherit"><path d="M13.1717 12.0007L8.22192 7.05093L9.63614 5.63672L16.0001 12.0007L9.63614 18.3646L8.22192 16.9504L13.1717 12.0007Z"></path></svg></a></div>
+<div class="relative mb-2 hidden items-center justify-end sm:flex bottom-0 right-0 "><a id="tour-report-bug-link" class="group flex items-center space-x-0.5 text-xs text-slate-500 hover:text-slate-700" href="https://github.com/stefanpejcic/OpenPanel/issues/new?template=1_Bug_report.yaml&affected-versions={{.PanelVersion}}&os=Ubuntu&title=Bug%20in%20VietAdmin%20UI" target="_blank" rel="noopener noreferrer"><span class="text-inherit">Found a bug? Let us know</span><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" aria-hidden="true" class="remixicon size-4 text-inherit"><path d="M13.1717 12.0007L8.22192 7.05093L9.63614 5.63672L16.0001 12.0007L9.63614 18.3646L8.22192 16.9504L13.1717 12.0007Z"></path></svg></a></div>
 {{end}}
 
 {{define "macro_tooltip"}}

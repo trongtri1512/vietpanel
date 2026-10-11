@@ -117,7 +117,7 @@ func BasicAuthMiddleware(enabled bool, username, password string) func(http.Hand
 			}
 			gotUser, gotPass, ok := r.BasicAuth()
 			if !ok || !hmac.Equal([]byte(gotUser), []byte(username)) || !hmac.Equal([]byte(gotPass), []byte(password)) {
-				w.Header().Set("WWW-Authenticate", `Basic realm="OpenAdmin"`)
+				w.Header().Set("WWW-Authenticate", `Basic realm="VietAdmin"`)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
