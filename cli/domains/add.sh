@@ -833,15 +833,15 @@ start_php_fpm() {
 }
 
 postfwd_setup() {
-    [[ -n "$ENTERPRISE" ]] || return
+    [[ -n "$ENTERPRISE" ]] || return 0
     nohup vietcli email-ratelimit --domain="$domain_name" >/dev/null 2>&1 &
     disown
 }
 
 generate_dkim() {
-    [[ -n "$ENTERPRISE" ]] || return
+    [[ -n "$ENTERPRISE" ]] || return 0
     local compose_file="/usr/local/mail/openmail/compose.yml"
-    [[ -f "$compose_file" ]] || return
+    [[ -f "$compose_file" ]] || return 0
     log "Generating DKIM for the domain"
     vietcli email-setup config dkim domain "$domain_name" >/dev/null 2>&1
 
@@ -865,10 +865,10 @@ generate_dkim() {
 }
 
 create_mail_mountpoint() {
-    [[ -n "$ENTERPRISE" ]] || return
+    [[ -n "$ENTERPRISE" ]] || return 0
 
     local compose_file="/usr/local/mail/openmail/compose.yml"
-    [[ -f "$compose_file" ]] || return
+    [[ -f "$compose_file" ]] || return 0
 
     local store_in
     store_in=$(grep -E '^email_storage_location=' /etc/openpanel/openadmin/config/admin.ini 2>/dev/null | cut -d'=' -f2- | xargs)
@@ -927,7 +927,11 @@ run_parallel_async() {
 
     _bg() {
         local label="$1"; shift
-        ( "$@" 2>&1 | while IFS= read -r line; do log "[$label] $line"; done ) &
+        # a pipeline's status is its last element's (the while-loop, always 0), so re-raise the task's own
+        (
+            "$@" 2>&1 | while IFS= read -r line; do log "[$label] $line"; done
+            exit "${PIPESTATUS[0]}"
+        ) &
         pids+=($!)
     }
 
@@ -951,10 +955,15 @@ run_parallel_async() {
 
     local failed=0
     for pid in "${pids[@]}"; do
-        wait "$pid" || (( failed++ )) || true
+        if ! wait "$pid"; then
+            (( failed++ )) || true
+        fi
     done
 
-    (( failed > 0 )) && warn "$failed background task(s) reported errors — check logs"
+    if (( failed > 0 )); then
+        warn "$failed background task(s) reported errors — check logs"
+        return 1
+    fi
 }
 
 notify_sentinel() {
@@ -992,7 +1001,7 @@ main() {
     make_docroot_dirs
 
     # Fire remaining tasks in parallel
-    run_parallel_async
+    run_parallel_async || die "Provisioning $domain_name failed — see the errors above"
 
     notify_sentinel
     echo "Domain $domain_name added successfully"
