@@ -210,6 +210,18 @@ printf '%s\n' "$CADDY_CONF" > /etc/caddy/Caddyfile             # the file Ubuntu
 # Caddy is disabled; the Caddyfile is kept only because the panel/admin parse the
 # domain (and admin port) out of the HOSTNAME DOMAIN block.
 systemctl disable --now caddy >/dev/null 2>&1 || true
+
+# If caddy previously issued LE certs for $DOMAIN, they live under /var/lib/caddy
+# with 600:caddy:caddy perms - admin/panel run as root but still need the parent
+# dir traversable. Open the perms so both binaries can LoadX509KeyPair().
+if [[ -d "/etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory/$DOMAIN" ]]; then
+  chmod -R a+rX /etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory/ 2>/dev/null || true
+  chmod 644 "/etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory/$DOMAIN/$DOMAIN.key" 2>/dev/null || true
+  systemctl restart vietpanel-admin vietpanel-panel
+else
+  log "no LE cert for $DOMAIN yet - panel/admin will serve plain HTTP."
+  log "to issue one: enable caddy, open port 80, run 'caddy run --config /etc/caddy/Caddyfile', then re-run this installer."
+fi
 ufw allow 22,2083,2087/tcp >/dev/null 2>&1 || true
 ufw --force enable >/dev/null 2>&1 || true
 
