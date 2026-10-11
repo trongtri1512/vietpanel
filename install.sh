@@ -4,11 +4,14 @@
 #   curl -fsSL https://raw.githubusercontent.com/trongtri1512/vietpanel/main/install.sh | bash -s -- \
 #        --domain vietpanel.trongtri.com --email you@example.com
 #
-# Installs: MySQL, Redis, Caddy, Go toolchain, rootless podman runtime (podman +
+# Installs: MySQL, Redis, Go toolchain, rootless podman runtime (podman +
 # podman-compose + shared image store, same model as upstream OpenPanel),
 # VietPanel user panel (:2083),
 # VietAdmin (:2087), self-hosted license-server (:2095), CLI (opencli/vietcli),
-# and wires TLS for --domain (and admin.--domain) via Caddy/Let's Encrypt.
+# and the front end from the root stack: the openpanel/caddy-coraza container on
+# :80/:443 (serves every customer domain, with per-domain OWASP WAF) and the
+# bind9 container authoritative on :53. TLS for --domain comes from Let's Encrypt
+# via Caddy; the panel and admin terminate their own TLS on 2083/2087.
 set -euo pipefail
 
 DOMAIN=""; EMAIL=""; REPO="https://github.com/trongtri1512/vietpanel.git"; BRANCH="main"
@@ -35,20 +38,34 @@ RESOLVED=$(getent hosts "$DOMAIN" | awk '{print $1; exit}' || true)
 if [[ -n "$PUBIP" && -n "$RESOLVED" && "$RESOLVED" != "$PUBIP" ]]; then
   log "WARNING: $DOMAIN resolves to $RESOLVED but this server is $PUBIP - TLS will fail until DNS is fixed"
 fi
+# ifconfig.me can be unreachable; fall back to the first global address like
+# upstream's setup_bind() does with `hostname -I`.
+SERVER_IP="${PUBIP:-$(hostname -I | awk '{print $1}')}"
+[[ -n "$SERVER_IP" ]] || { echo "FATAL: could not determine this server's IP address"; exit 1; }
 
 log "1/9 packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq git curl ca-certificates ufw redis-server caddy mysql-server sqlite3 \
+# No host nginx and no host caddy: the front end is the containerised
+# openpanel/caddy-coraza from the root stack (same as upstream PODMAN_INSTALL.sh,
+# which installs neither). The distro caddy also cannot parse the coraza_waf{}
+# blocks in caddy/templates/domain.conf.
+apt-get install -y -qq git curl ca-certificates ufw redis-server mysql-server sqlite3 \
   php-fpm php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-bcmath \
-  php-imagick php-opcache php-cli nginx >/dev/null
+  php-imagick php-opcache php-cli >/dev/null
 # Ubuntu 22.04 gives php8.1-fpm, Ubuntu 24.04 gives php8.3-fpm. Enable whatever
 # apt actually installed so user websites survive a server reboot.
 PHP_FPM_UNIT=$(systemctl list-unit-files --type=service --no-legend 'php*-fpm' 2>/dev/null | awk '{print $1; exit}')
 if [ -n "$PHP_FPM_UNIT" ]; then
   systemctl enable --now "$PHP_FPM_UNIT"
 fi
-systemctl enable --now nginx
+# Both used to be the front end here. Mask rather than just disable, so an
+# upgrade over an older install cannot leave one of them holding :80/:443
+# and Caddy would then fail to bind.
+for svc in nginx caddy; do
+  systemctl disable --now "$svc" >/dev/null 2>&1 || true
+  systemctl mask "$svc" >/dev/null 2>&1 || true
+done
 
 # mysql-server only ships the `mysql` name; ~150 vietcli call sites invoke `mariadb`.
 # Upstream always creates this shim (PODMAN_INSTALL.sh:652) and install.sh used to skip it,
@@ -255,9 +272,47 @@ cp -a configuration/. /etc/openpanel/
 mkdir -p /etc/openpanel/caddy/domains  # cli/domains/add.sh:546 writes <domain>.conf here
 # NOTE: caddy/templates/domain.conf uses coraza_waf directives that only the
 # coraza-patched caddy image from docker-compose parses; stock /usr/bin/caddy cannot.
+
+# Root stack. cli/lib/podman.sh's podman_compose_file() resolves the ""/default/root
+# context to /root/docker-compose.yml, and podman_ensure_running does
+# `cd /root && podman-compose up -d <service>` for caddy and openpanel_dns.
+# Only those two are ever started: openpanel/openpanel_mysql/openpanel_redis are
+# served here by the vietpanel-panel + vietpanel-admin units and host mysql/redis,
+# and their published ports (2083, 127.0.0.1:3306, /tmp/redis/redis.sock) would
+# collide with them.
+cp configuration/docker/compose/docker-compose.yml /root/docker-compose.yml
+cp configuration/docker/compose/.env /root/.env
+# upstream setup_bind(): pin bind9's published :53 to the server's real IP, because
+# podman's aardvark-dns already holds :53 on every bridge gateway address.
+sed -i -E 's#^( *- *")([0-9.]+:)?(53:53/(tcp|udp)")#\1'"$SERVER_IP"':\3#' /root/docker-compose.yml
+
+# Caddy host-mounts /var/log/caddy for per-domain access logs, coraza audit logs
+# and goaccess stats; the paths come from cli/user/{transfer,restore}.sh.
+mkdir -p /var/log/caddy/stats /var/log/caddy/domlogs /var/log/caddy/coraza_waf
+# Must be a real directory, not a symlink into /var/lib/caddy: the container's
+# /data/caddy/certificates is bind-mounted from here, and
+# admin/internal/bootstrap/caddyfile.go reads the issued certs back out of the same
+# path to give the panel/admin TLS on 2083/2087. Migrate a pre-existing symlink
+# (older installers pointed it at the distro caddy's storage) and keep the cert.
+ACME_DIR=/etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory
+if [[ -L "$ACME_DIR" ]]; then
+  acme_target=$(readlink -f "$ACME_DIR")
+  rm "$ACME_DIR"
+  mkdir -p "$ACME_DIR"
+  [[ -d "$acme_target" ]] && cp -a "$acme_target/." "$ACME_DIR/" || true
+fi
+mkdir -p "$ACME_DIR" /etc/openpanel/caddy/ssl/certs /etc/openpanel/caddy/ssl/custom
+
 # live named config: the bind9 container mounts /etc/bind and cli/domains/* manage zones there
 install -d -m 755 /etc/bind
-cp -a configuration/bind9/. /etc/bind/
+# named.conf.local holds the live `zone ...` lines that cli/domains/add.sh appends,
+# so refreshing it from the template on a re-run would silently unserve every domain.
+if [[ -f /etc/bind/named.conf.local ]]; then
+  find configuration/bind9/. -maxdepth 1 -mindepth 1 ! -name named.conf.local \
+    -exec cp -a {} /etc/bind/ \;
+else
+  cp -a configuration/bind9/. /etc/bind/
+fi
 mkdir -p /etc/bind/zones
 cp configuration/openpanel/conf/openpanel.config /etc/openpanel/openpanel/conf/openpanel.config
 cp -r translations /etc/openpanel/openpanel/translations
@@ -347,10 +402,31 @@ PANEL_LOGIN demo / $DEMO_PASS
 ADMIN_LOGIN admin / $ADMIN_PASS
 CREDS
 
-log "9/9 caddy + firewall"
-# openpanel-style block: the panel/admin read the domain from this block and each
-# serves its own TLS on 2083/2087, so Caddy proxies to the admin over https.
-CADDY_CONF="# START HOSTNAME DOMAIN #
+log "9/9 front end: caddy-coraza + bind9 + firewall"
+# Full upstream Caddyfile layout. The general block turns on on_demand_tls, whose
+# `ask` endpoint (check.conf) only answers 200 for a domain that has a
+# /etc/openpanel/caddy/domains/<name>.conf -- that is what stops a stranger who
+# points their own domain at this IP from making Caddy mint certs for it. The
+# trailing imports are what actually load the per-domain confs that
+# `vietcli domains-add` writes; without them customer sites are configured but
+# never served.
+#
+# The HOSTNAME block differs from upstream's `reverse_proxy localhost:2087`
+# because our admin terminates its own TLS on 2087. Its markers must survive:
+# build.sh, cli/{admin,domain,faq,sentinel}.sh, cli/lib/email.sh,
+# cli/user/{add,login}.sh and admin/internal/bootstrap/caddyfile.go all parse the
+# domain and the admin port back out of it.
+cat > /etc/openpanel/caddy/Caddyfile <<EOF
+# general
+{
+    #admin off
+
+    on_demand_tls {
+        ask      "http://localhost/check"
+    }
+}
+
+# START HOSTNAME DOMAIN #
 $DOMAIN {
     reverse_proxy https://localhost:2087 {
         transport http {
@@ -358,29 +434,97 @@ $DOMAIN {
         }
     }
 }
-# END HOSTNAME DOMAIN #"
-mkdir -p /etc/openpanel/caddy/ssl/custom
-ln -sfn /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory /etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory
-printf '%s\n' "$CADDY_CONF" > /etc/openpanel/caddy/Caddyfile   # read by panel/admin/cli
-printf '%s\n' "$CADDY_CONF" > /etc/caddy/Caddyfile             # the file Ubuntu's caddy.service actually loads
-# 80/443 stay closed: the panel is reached on 2083 and the admin on 2087.
-# Caddy is disabled; the Caddyfile is kept only because the panel/admin parse the
-# domain (and admin port) out of the HOSTNAME DOMAIN block.
-systemctl disable --now caddy >/dev/null 2>&1 || true
+# END HOSTNAME DOMAIN #
 
-# If caddy previously issued LE certs for $DOMAIN, they live under /var/lib/caddy
-# with 600:caddy:caddy perms - admin/panel run as root but still need the parent
-# dir traversable. Open the perms so both binaries can LoadX509KeyPair().
-if [[ -d "/etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory/$DOMAIN" ]]; then
-  chmod -R a+rX /etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory/ 2>/dev/null || true
-  chmod 644 "/etc/openpanel/caddy/ssl/acme-v02.api.letsencrypt.org-directory/$DOMAIN/$DOMAIN.key" 2>/dev/null || true
-  systemctl restart vietpanel-admin vietpanel-panel
-else
-  log "no LE cert for $DOMAIN yet - panel/admin will serve plain HTTP."
-  log "to issue one: enable caddy, open port 80, run 'caddy run --config /etc/caddy/Caddyfile', then re-run this installer."
-fi
+# START WEBMAIL DOMAIN #
+# no webmail container here; 'vietcli email-webmail' rewrites this block
+# END WEBMAIL DOMAIN #
+
+# START PHPMYADMIN DOMAIN #
+# no phpmyadmin container here; 'vietcli phpmyadmin set <domain>' rewrites this block
+# END PHPMYADMIN DOMAIN #
+
+
+# import /check route
+import /etc/openpanel/caddy/check.conf
+
+# import domain_log
+import /etc/openpanel/caddy/templates/domain_log
+
+# import wp-manager rules
+import /etc/openpanel/caddy/templates/wp.rules
+
+# import cloudflare only IP addresses
+import /etc/openpanel/caddy/templates/cloudflare.only
+
+# import all sites
+import /etc/openpanel/caddy/domains/*
+EOF
+
+# upstream configure_caddy_extras(): the /openpanel*, /openadmin* and /webmail*
+# shortcuts injected into every customer site still carry the example.net placeholder.
+sed -i "s/example\.net/$SERVER_IP/g" /etc/openpanel/caddy/redirects.conf
+# the on_demand_tls ask URL is http://localhost/check, answered by Caddy itself
+grep -qE '^127\.0\.0\.1[[:space:]]+localhost' /etc/hosts || echo "127.0.0.1 localhost" >> /etc/hosts
+
 ufw allow 22,2083,2087/tcp >/dev/null 2>&1 || true
+ufw allow 80,443/tcp >/dev/null 2>&1 || true  # caddy (network_mode: host) + ACME HTTP-01
+# bind9 authoritative only: named.conf.options sets `recursion yes` with
+# `allow-recursion { localhost; 192.168.1.0/24; 172.0.0.0/8; }`, so outside queries
+# for a zone we do not host come back REFUSED rather than turning us into an open resolver.
+ufw allow 53 >/dev/null 2>&1 || true
+# UFW sets the FORWARD policy to DROP and netavark only ACCEPTs RELATED,ESTABLISHED
+# inbound, so ports published by the root stack's bridge are unreachable from
+# outside without this route rule. Per-account containers are unaffected: rootless
+# podman forwards through a userspace proxy bound to 127.0.0.1, never via FORWARD.
+EXT_IF=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'dev \K\S+' | head -1)
+if [[ -n "$EXT_IF" ]]; then
+  ufw route allow in on "$EXT_IF" to 172.20.0.0/24 >/dev/null 2>&1 || true
+fi
 ufw --force enable >/dev/null 2>&1 || true
+
+# named.conf.local includes /etc/bind/rndc.key, so bind9 refuses to start without it.
+if [[ ! -f /etc/bind/rndc.key ]]; then
+  podman pull -q docker.io/ubuntu/bind9:latest >/dev/null 2>&1 || true
+  timeout 120 podman run --rm -v /etc/bind/:/etc/bind/:Z --entrypoint=/bin/sh \
+    docker.io/ubuntu/bind9:latest \
+    -c 'rndc-confgen -a -A hmac-sha256 -b 256 -c /etc/bind/rndc.key' >/dev/null 2>&1 \
+    || log "WARNING: could not generate /etc/bind/rndc.key - bind9 will not start until it exists"
+fi
+find /etc/bind/ -type d -print0 | xargs -0 chmod 755
+find /etc/bind/ -type f -print0 | xargs -0 chmod 644
+
+# upstream configure_waf(): pulls coraza_rules.conf + OWASP CRS + the app-profile
+# exclusion plugins, flips SecRuleEngine On in every domain conf, points
+# /root/.env at openpanel/caddy-coraza and ends with `podman-compose up -d caddy`.
+# The CRS has to be on disk first -- caddy/templates/domain.conf Includes it by
+# absolute path, so Caddy will not even parse its config without it.
+log "fetching OWASP CRS and starting the front end (this clones a few repos)"
+vietcli waf enable </dev/null >/tmp/vp-waf-enable.log 2>&1 \
+  || log "WARNING: 'vietcli waf enable' failed, see /tmp/vp-waf-enable.log"
+(cd /root && podman-compose up -d caddy bind9 </dev/null >/tmp/vp-compose-up.log 2>&1) \
+  || log "WARNING: could not start caddy/bind9, see /tmp/vp-compose-up.log"
+
+# upstream generate_ssl(): let Caddy finish ACME for the hostname before restarting
+# the panel/admin, which LoadX509KeyPair() once at boot.
+for _attempt in 1 2 3; do
+  curl -4 -sf -o /dev/null --max-time 20 "https://$DOMAIN" && break
+  podman restart caddy >/dev/null 2>&1 || true
+  sleep 5
+done
+systemctl restart vietpanel-admin vietpanel-panel
+
+if podman ps --format '{{.Names}}' | grep -qx caddy; then
+  log "front end up: caddy on :80/:443 (WAF $(grep -rlE 'SecRuleEngine (On|DetectionOnly)' /etc/openpanel/caddy/domains/*.conf 2>/dev/null | wc -l) domain(s) protected)"
+else
+  log "WARNING: the caddy container is not running - customer domains will not be served."
+  log "         podman logs caddy"
+fi
+if podman ps --format '{{.Names}}' | grep -qx openpanel_dns; then
+  log "authoritative DNS up on $SERVER_IP:53"
+else
+  log "WARNING: openpanel_dns is not running - podman logs openpanel_dns"
+fi
 
 cat <<EOF
 
@@ -390,11 +534,15 @@ cat <<EOF
    admin      : https://$DOMAIN:2087
    panel login: demo / $DEMO_PASS
    admin login: admin / $ADMIN_PASS
-   (saved to /root/vp-credentials.txt; ports 80/443 are closed by design)
+   (saved to /root/vp-credentials.txt)
    license key: $LICENSE_KEY  (validated by local license-server :2095)
    license admin token (save it): $ADMIN_TOKEN
      issue more keys:
        curl -X POST http://127.0.0.1:2095/api/keys -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"plan":"enterprise"}'
-   DNS: point an A record for $DOMAIN to $PUBIP (used for the 2083/2087 certs).
+   front end  : caddy-coraza container on :80/:443 (per-domain WAF),
+                bind9 container authoritative on $SERVER_IP:53
+   DNS: point an A record for $DOMAIN to $SERVER_IP (used for the 2083/2087 certs).
+   Customer sites: 'vietcli domains-add <domain> <user>', then point that
+   domain's A record at $SERVER_IP -- Caddy issues its cert on first request.
 ============================================================
 EOF

@@ -62,9 +62,11 @@ done
 
 log "done!"
 # the hostname= key is often unset; the Caddyfile marker block is what VietAdmin actually serves.
+# /etc/openpanel/caddy/Caddyfile is the file the panel/admin/cli read (the caddy
+# container bind-mounts it to /etc/caddy/Caddyfile); there is no host caddy any more.
 # sed/awk are used instead of grep because pipefail would turn "no match" into a script abort
 host="$(sed -n 's/^hostname=\(.*\)/\1/p' /etc/openpanel/openpanel/conf/openpanel.config 2>/dev/null | head -1)"
-[[ -n "$host" ]] || host="$(awk '/# START HOSTNAME DOMAIN #/{getline; print $1; exit}' /etc/caddy/Caddyfile 2>/dev/null)"
+[[ -n "$host" ]] || host="$(awk '/# START HOSTNAME DOMAIN #/{getline; print $1; exit}' /etc/openpanel/caddy/Caddyfile 2>/dev/null)"
 [[ -n "$host" ]] || host="your-domain"
 echo ""
 echo "VietPanel rebuilt successfully."
