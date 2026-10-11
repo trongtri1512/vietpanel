@@ -942,7 +942,7 @@ func (u *Users) HandleManage(w http.ResponseWriter, r *http.Request) {
 	switch action {
 	case "suspend":
 		// the whole output, a user without domains gets a "No domains found" line before the success one
-		output, _, err := runOpenCLICaptured("opencli", "user-suspend", username, "-y")
+		output, _, err := runOpenCLICaptured("vietcli", "user-suspend", username, "-y")
 		if err == nil && strings.Contains(output, "successfully") {
 			logUserAction(username, clientIP(r), "Administrator "+currentUser.Username+" suspended user "+username)
 			auth.AddFlash(w, r, u.Sessions, "User '"+username+"' suspended successfully", "info")
@@ -963,7 +963,7 @@ func (u *Users) HandleManage(w http.ResponseWriter, r *http.Request) {
 		if idx := strings.LastIndex(username, "_"); idx != -1 {
 			plain = username[idx+1:]
 		}
-		output, _, err := runOpenCLICaptured("opencli", "user-unsuspend", plain)
+		output, _, err := runOpenCLICaptured("vietcli", "user-unsuspend", plain)
 		if err == nil && strings.Contains(output, "success") {
 			logUserAction(plain, clientIP(r), "Administrator "+currentUser.Username+" unsuspended user "+plain)
 			auth.AddFlash(w, r, u.Sessions, "User '"+plain+"' unsuspended successfully", "info")
@@ -976,7 +976,7 @@ func (u *Users) HandleManage(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
-		success, _ := runOpenCLI("", "opencli", "user-delete", username, "-y")
+		success, _ := runOpenCLI("", "vietcli", "user-delete", username, "-y")
 		if success {
 			auth.AddFlash(w, r, u.Sessions, "User '"+username+"' deleted successfully", "info")
 		} else {
@@ -1208,7 +1208,7 @@ func (u *Users) handleCreateUserPost(w http.ResponseWriter, r *http.Request) {
 		email = username
 	}
 
-	command := []string{"opencli", "user-add", username, password, email, planName, "--debug"}
+	command := []string{"vietcli", "user-add", username, password, email, planName, "--debug"}
 
 	currentUser := auth.CurrentUser(r)
 	if currentUser != nil && currentUser.Role == "reseller" {

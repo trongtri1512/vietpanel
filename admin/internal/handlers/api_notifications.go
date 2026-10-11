@@ -223,7 +223,7 @@ func (n *APINotifications) HandleResume(w http.ResponseWriter, r *http.Request) 
 // apiQuotaGenerateRun runs `opencli user-quota` to (re)generate
 // QuotaReportPath when it's missing. Injectable so tests never shell out.
 var apiQuotaGenerateRun = func() error {
-	return exec.Command("opencli", "user-quota").Run()
+	return exec.Command("vietcli", "user-quota").Run()
 }
 
 // quotaFieldOrZero defaults a genuinely absent key to 0; a present-but-null

@@ -34,7 +34,7 @@ var emailsAPIOpencliRun = func(args ...string) error {
 // emailsAPIPostfwdToggleRun fires the postfwd enable/disable command in the
 // background, mirroring the fire-and-forget subprocess call it's based on.
 var emailsAPIPostfwdToggleRun = func(action string) {
-	_ = exec.Command("opencli", "email-server", "postfwd", action).Start()
+	_ = exec.Command("vietcli", "email-server", "postfwd", action).Start()
 }
 
 // emailsAPIQueuePodmanRun runs a single podman command against the
@@ -128,7 +128,7 @@ func (a *APIEmails) ServeSettings(w http.ResponseWriter, r *http.Request) {
 				writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("'%s' already exists in Caddy configuration.", webmailDomain))
 				return
 			}
-			if err := emailsAPIOpencliRun("opencli", "email-webmail", "domain", webmailDomain); err != nil {
+			if err := emailsAPIOpencliRun("vietcli", "email-webmail", "domain", webmailDomain); err != nil {
 				writeJSONError2(w, http.StatusInternalServerError, "Failed to update webmail domain.")
 				return
 			}
@@ -142,7 +142,7 @@ func (a *APIEmails) ServeSettings(w http.ResponseWriter, r *http.Request) {
 				writeJSONError(w, http.StatusBadRequest, "Invalid webmail client selected.")
 				return
 			}
-			if err := emailsAPIOpencliRun("opencli", "email-webmail", webmailSoftware); err != nil {
+			if err := emailsAPIOpencliRun("vietcli", "email-webmail", webmailSoftware); err != nil {
 				writeJSONError2(w, http.StatusInternalServerError, "Failed to restart webmail service.")
 				return
 			}
@@ -236,7 +236,7 @@ func (a *APIEmails) ServeAccounts(w http.ResponseWriter, r *http.Request) {
 			writeJSONMessage(w, http.StatusBadRequest, "No emails provided.")
 			return
 		}
-		args := []string{"opencli", "email-setup", "email", "del"}
+		args := []string{"vietcli", "email-setup", "email", "del"}
 		for _, e := range emailsList {
 			if s, ok := e.(string); ok {
 				args = append(args, s)
@@ -263,7 +263,7 @@ func (a *APIEmails) ServeAccounts(w http.ResponseWriter, r *http.Request) {
 			writeJSONMessage(w, http.StatusBadRequest, "Email and password are required.")
 			return
 		}
-		ok, out := runEmailsCmd([]string{"opencli", "email-setup", "email", "update", email, password})
+		ok, out := runEmailsCmd([]string{"vietcli", "email-setup", "email", "update", email, password})
 		if ok {
 			writeJSON(w, map[string]string{"message": "Password updated."})
 			return
@@ -276,7 +276,7 @@ func (a *APIEmails) ServeAccounts(w http.ResponseWriter, r *http.Request) {
 			writeJSONMessage(w, http.StatusBadRequest, "Email and quota are required.")
 			return
 		}
-		ok, out := runEmailsCmd([]string{"opencli", "email-setup", "quota", "set", email, quota})
+		ok, out := runEmailsCmd([]string{"vietcli", "email-setup", "quota", "set", email, quota})
 		if ok {
 			writeJSON(w, map[string]string{"message": "Quota updated."})
 			return
@@ -288,7 +288,7 @@ func (a *APIEmails) ServeAccounts(w http.ResponseWriter, r *http.Request) {
 			writeJSONMessage(w, http.StatusBadRequest, "Email is required.")
 			return
 		}
-		ok, out := runEmailsCmd([]string{"opencli", "email-setup", "quota", "del", email})
+		ok, out := runEmailsCmd([]string{"vietcli", "email-setup", "quota", "del", email})
 		if ok {
 			writeJSON(w, map[string]string{"message": "Quota removed."})
 			return
@@ -302,7 +302,7 @@ func (a *APIEmails) ServeAccounts(w http.ResponseWriter, r *http.Request) {
 			writeJSONMessage(w, http.StatusBadRequest, "Invalid parameters.")
 			return
 		}
-		ok, out := runEmailsCmd([]string{"opencli", "email-setup", "email", "restrict", restrictAction, rtype, email})
+		ok, out := runEmailsCmd([]string{"vietcli", "email-setup", "email", "restrict", restrictAction, rtype, email})
 		if ok {
 			writeJSON(w, map[string]string{"message": "Restriction updated."})
 			return

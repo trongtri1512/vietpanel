@@ -95,7 +95,7 @@ func (a *APISettingsNotifications) handlePost(w http.ResponseWriter, r *http.Req
 	}
 
 	if newEmail, ok := apiNotifFieldValue(data, "email"); ok && apiNotifChanged(currentEmail, newEmail) {
-		runOpenCLI("", "opencli", "config", "update", "email", newEmail)
+		runOpenCLI("", "vietcli", "config", "update", "email", newEmail)
 	}
 
 	for _, f := range apiNotifSMTPFields {
@@ -106,7 +106,7 @@ func (a *APISettingsNotifications) handlePost(w http.ResponseWriter, r *http.Req
 		if f.Validator != nil && !f.Validator(newVal) {
 			continue
 		}
-		runOpenCLI("", "opencli", "config", "update", f.Key, newVal)
+		runOpenCLI("", "vietcli", "config", "update", f.Key, newVal)
 	}
 
 	if newServices, ok := apiNotifFieldValue(data, "services"); ok && apiNotifChanged(notifDefault["services"], newServices) {

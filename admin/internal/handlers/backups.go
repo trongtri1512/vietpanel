@@ -356,7 +356,7 @@ func (b *Backups) ServeUserBackupsRun(w http.ResponseWriter, r *http.Request) {
 	pendingUserBackupActionMu.Unlock()
 
 	go func() {
-		cmd := exec.Command("opencli", "docker-backup")
+		cmd := exec.Command("vietcli", "docker-backup")
 		out, err := cmd.CombinedOutput()
 
 		pendingUserBackupActionMu.Lock()
@@ -457,7 +457,7 @@ var (
 // backupRunOpencli is injectable so tests never shell out to the real
 // opencli binary.
 var backupRunOpencli = func(args ...string) (string, error) {
-	cmd := exec.Command("opencli", append([]string{"backup"}, args...)...)
+	cmd := exec.Command("vietcli", append([]string{"backup"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

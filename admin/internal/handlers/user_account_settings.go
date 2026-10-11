@@ -274,7 +274,7 @@ func (u *Users) setUserVarnish(username, value string) (string, error) {
 	if action != "enable" && action != "disable" {
 		return "", fmt.Errorf("value must be 'enable' or 'disable'")
 	}
-	ok, out := runOpenCLI("Error occurred running opencli user-varnish command", "opencli", "user-varnish", username, action)
+	ok, out := runOpenCLI("Error occurred running opencli user-varnish command", "vietcli", "user-varnish", username, action)
 	if !ok {
 		return "", fmt.Errorf("%s", opencliResultMessage(ok, out))
 	}
@@ -290,7 +290,7 @@ func (u *Users) deleteUserPasskeys(username string) (string, error) {
 }
 
 func (u *Users) disableUserTwoFA(username string) (string, error) {
-	ok, out := runOpenCLI("Error occurred running opencli user-2fa command", "opencli", "user-2fa", username, "disable")
+	ok, out := runOpenCLI("Error occurred running opencli user-2fa command", "vietcli", "user-2fa", username, "disable")
 	if !ok {
 		return "", fmt.Errorf("%s", opencliResultMessage(ok, out))
 	}

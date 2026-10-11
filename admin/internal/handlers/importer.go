@@ -178,7 +178,7 @@ var importerBackupPanelDisplayNames = map[string]string{
 // restore for the openpanel backup type, in its own systemd unit so an
 // admin restart doesn't kill it halfway.
 var importerRestoreVietPanelBackupRun = func(backupPath string) error {
-	_, err := startDetached("openpanel-user-restore", "", []string{"opencli", "user-restore", "--file", backupPath,
+	_, err := startDetached("openpanel-user-restore", "", []string{"vietcli", "user-restore", "--file", backupPath,
 		"--temp-dir=" + ImporterRestoreTempDir})
 	return err
 }
@@ -708,7 +708,7 @@ func (im *Importer) ServeImportTransfer(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		args := []string{"opencli", "user-transfer", "--account", openpanelUsername, "--host", server, "--username", username}
+		args := []string{"vietcli", "user-transfer", "--account", openpanelUsername, "--host", server, "--username", username}
 		if password != "" {
 			args = append(args, "--password", password)
 		}

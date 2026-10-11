@@ -253,7 +253,7 @@ func (p *Plans) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		"websites_limit": "websites", "disk_limit": "disk", "inodes_limit": "inodes", "db_limit": "databases",
 	}
 
-	args := []string{"opencli", "plan-create"}
+	args := []string{"vietcli", "plan-create"}
 	for _, f := range fields {
 		key := f
 		if mapped, ok := openCLIKeys[f]; ok {
@@ -285,7 +285,7 @@ func (p *Plans) HandleCreate(w http.ResponseWriter, r *http.Request) {
 // HandleDelete handles POST /plan/delete/{plan_name}.
 func (p *Plans) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	planName := r.PathValue("plan_name")
-	success, _ := runOpenCLI("", "opencli", "plan-delete", planName, "--json")
+	success, _ := runOpenCLI("", "vietcli", "plan-delete", planName, "--json")
 	if success {
 		auth.AddFlash(w, r, p.Sessions, "Plan deleted successfully.", "success")
 	} else {
@@ -345,7 +345,7 @@ func (p *Plans) handleEditPost(w http.ResponseWriter, r *http.Request, planID st
 	}
 
 	args := []string{
-		"opencli", "plan-edit",
+		"vietcli", "plan-edit",
 		"id=" + planID,
 		"name=" + r.FormValue("name"),
 		"description=" + r.FormValue("description"),

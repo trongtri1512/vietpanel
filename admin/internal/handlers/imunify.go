@@ -50,7 +50,7 @@ var imunifyIsPortOpenRun = func(host string, port int) bool {
 // non-blocking at all. That (mis-named but real) blocking behavior is
 // preserved here rather than "fixed" into an actually-async start.
 var imunifyStartDetachedRun = func() {
-	cmd := exec.Command("opencli", "imunify", "start")
+	cmd := exec.Command("vietcli", "imunify", "start")
 	_ = cmd.Run()
 }
 

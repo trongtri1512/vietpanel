@@ -28,7 +28,7 @@ var licenseRunOpenCLI = func(args ...string) (stdout, stderr string, err error) 
 
 // ServeLicense handles GET /license.
 func (l *LicensePage) ServeLicense(w http.ResponseWriter, r *http.Request) {
-	stdout, _, err := licenseRunOpenCLI("opencli", "license", "key", "--json")
+	stdout, _, err := licenseRunOpenCLI("vietcli", "license", "key", "--json")
 	var key interface{}
 	if err == nil {
 		key = strings.TrimSpace(stdout)
@@ -50,7 +50,7 @@ func (l *LicensePage) ServeLicense(w http.ResponseWriter, r *http.Request) {
 func (l *LicensePage) ServeLicenseKey(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		stdout, _, err := licenseRunOpenCLI("opencli", "license", "key", "--json")
+		stdout, _, err := licenseRunOpenCLI("vietcli", "license", "key", "--json")
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to read license key")
 			return
@@ -65,7 +65,7 @@ func (l *LicensePage) ServeLicenseKey(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusBadRequest, "Missing key in request")
 			return
 		}
-		stdout, _, err := licenseRunOpenCLI("opencli", "license", key, "--json", "--no-restart")
+		stdout, _, err := licenseRunOpenCLI("vietcli", "license", key, "--json", "--no-restart")
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "License key validation failed")
 			return
@@ -76,7 +76,7 @@ func (l *LicensePage) ServeLicenseKey(w http.ResponseWriter, r *http.Request) {
 
 // ServeLicenseInfo handles GET /license/info.
 func (l *LicensePage) ServeLicenseInfo(w http.ResponseWriter, r *http.Request) {
-	stdout, _, err := licenseRunOpenCLI("opencli", "license", "info", "--json")
+	stdout, _, err := licenseRunOpenCLI("vietcli", "license", "info", "--json")
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to retrieve license info")
 		return
@@ -86,7 +86,7 @@ func (l *LicensePage) ServeLicenseInfo(w http.ResponseWriter, r *http.Request) {
 
 // ServeLicenseVerify handles POST /license/verify.
 func (l *LicensePage) ServeLicenseVerify(w http.ResponseWriter, r *http.Request) {
-	stdout, _, err := licenseRunOpenCLI("opencli", "license", "verify", "--json")
+	stdout, _, err := licenseRunOpenCLI("vietcli", "license", "verify", "--json")
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to verify license")
 		return
@@ -96,7 +96,7 @@ func (l *LicensePage) ServeLicenseVerify(w http.ResponseWriter, r *http.Request)
 
 // ServeLicenseDelete handles DELETE /license/delete.
 func (l *LicensePage) ServeLicenseDelete(w http.ResponseWriter, r *http.Request) {
-	stdout, _, err := licenseRunOpenCLI("opencli", "license", "delete", "--json")
+	stdout, _, err := licenseRunOpenCLI("vietcli", "license", "delete", "--json")
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to delete license")
 		return
@@ -106,7 +106,7 @@ func (l *LicensePage) ServeLicenseDelete(w http.ResponseWriter, r *http.Request)
 
 // ServeSupportReport handles GET /support/report.
 func (l *LicensePage) ServeSupportReport(w http.ResponseWriter, r *http.Request) {
-	stdout, _, err := licenseRunOpenCLI("opencli", "report", "--public", "--non-interactive")
+	stdout, _, err := licenseRunOpenCLI("vietcli", "report", "--public", "--non-interactive")
 	if err != nil {
 		auth.AddFlash(w, r, l.Sessions, "Generating report failed. Please try running from the terminal: 'opencli report --public --non-interactive'.", "error")
 		http.Redirect(w, r, "/license", http.StatusSeeOther)

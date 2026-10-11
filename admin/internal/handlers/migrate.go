@@ -36,7 +36,7 @@ var (
 // restart mid-migration doesn't kill it), with stdout/stderr redirected to
 // MigrateLogPath and the child's PID recorded to MigrateProcessPIDFile.
 var migrateStartRun = func(host, root, password string) error {
-	pid, err := startDetached("openpanel-server-migrate", MigrateLogPath, []string{"opencli", "server-migrate", "-h", host, "--user", root, "--password", password})
+	pid, err := startDetached("openpanel-server-migrate", MigrateLogPath, []string{"vietcli", "server-migrate", "-h", host, "--user", root, "--password", password})
 	if err != nil {
 		return err
 	}

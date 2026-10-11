@@ -120,7 +120,7 @@ var updatesComposeUpRun = func() error {
 
 var updatesUpdateNowRun = func() error {
 	// --no-restart leaves both services running and just sets the restart-needed flags
-	_, err := startDetached("openpanel-update", "", []string{"timeout", "600s", "opencli", "update", "--force", "--no-restart"})
+	_, err := startDetached("openpanel-update", "", []string{"timeout", "600s", "vietcli", "update", "--force", "--no-restart"})
 	return err
 }
 

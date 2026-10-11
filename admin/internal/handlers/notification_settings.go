@@ -306,7 +306,7 @@ func (n *NotificationSettings) HandleUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	if newEmail := formValueOrNil(r, "email"); newEmail != nil && *newEmail != mainConfig.Get("DEFAULT", "email", "") {
-		runOpenCLI("", "opencli", "config", "update", "email", *newEmail)
+		runOpenCLI("", "vietcli", "config", "update", "email", *newEmail)
 	}
 
 	updateSMTPFieldIfChanged(r, mainConfig, "mail_server", nil)
@@ -433,7 +433,7 @@ func updateNumericIfChanged(r *http.Request, key, currentVal string) {
 		return
 	}
 	if strconv.Itoa(n) != strings.TrimSpace(currentVal) {
-		runOpenCLI("", "opencli", "admin", "notifications", "update", key, strconv.Itoa(n))
+		runOpenCLI("", "vietcli", "admin", "notifications", "update", key, strconv.Itoa(n))
 	}
 }
 
@@ -445,11 +445,11 @@ func updateSMTPFieldIfChanged(r *http.Request, mainConfig config.Data, field str
 	if validate != nil && !validate(*newVal) {
 		return
 	}
-	runOpenCLI("", "opencli", "config", "update", field, *newVal)
+	runOpenCLI("", "vietcli", "config", "update", field, *newVal)
 }
 
 func runOpenCLINotificationUpdate(key, value string) {
-	runOpenCLI("", "opencli", "admin", "notifications", "update", key, value)
+	runOpenCLI("", "vietcli", "admin", "notifications", "update", key, value)
 }
 
 var emailRe = regexp.MustCompile(`^[^@]+@[^@]+\.[^@]+$`)

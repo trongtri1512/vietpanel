@@ -360,7 +360,7 @@ func (a *APIUsers) handleCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	args := []string{"opencli", "user-add", body.Username, body.Password, body.Email, body.PlanName}
+	args := []string{"vietcli", "user-add", body.Username, body.Password, body.Email, body.PlanName}
 	if body.SQLType == "mysql" || body.SQLType == "mariadb" {
 		args = append(args, "--sql="+body.SQLType)
 	}
@@ -398,7 +398,7 @@ func (a *APIUsers) handleChangePlan(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	output, runErr := apiCheckOutputRun("opencli", "user-change_plan", username, body.PlanName)
+	output, runErr := apiCheckOutputRun("vietcli", "user-change_plan", username, body.PlanName)
 	if runErr == nil {
 		dropOpenpanelFeaturesCache()
 		writeJSONStatus(w, http.StatusCreated, map[string]interface{}{
@@ -426,7 +426,7 @@ func (a *APIUsers) handlePatch(w http.ResponseWriter, r *http.Request, username 
 
 	switch {
 	case body.Password != "":
-		output, runErr := apiCheckOutputRun("opencli", "user-password", username, body.Password)
+		output, runErr := apiCheckOutputRun("vietcli", "user-password", username, body.Password)
 		if runErr == nil {
 			writeJSONStatus(w, http.StatusCreated, map[string]interface{}{
 				"success":  true,
@@ -448,9 +448,9 @@ func (a *APIUsers) handlePatch(w http.ResponseWriter, r *http.Request, username 
 		var output string
 		var runErr error
 		if body.Action == "suspend" {
-			output, runErr = apiCheckOutputRun("opencli", "user-suspend", username, "-y")
+			output, runErr = apiCheckOutputRun("vietcli", "user-suspend", username, "-y")
 		} else {
-			output, runErr = apiCheckOutputRun("opencli", "user-unsuspend", username)
+			output, runErr = apiCheckOutputRun("vietcli", "user-unsuspend", username)
 		}
 
 		if runErr == nil {
@@ -484,7 +484,7 @@ func (a *APIUsers) handleDelete(w http.ResponseWriter, r *http.Request, username
 		return
 	}
 
-	output, runErr := apiCheckOutputRun("opencli", "user-delete", username, "-y")
+	output, runErr := apiCheckOutputRun("vietcli", "user-delete", username, "-y")
 	if runErr == nil {
 		writeJSONStatus(w, http.StatusCreated, map[string]interface{}{
 			"success":  true,

@@ -25,7 +25,7 @@ import (
 var (
 	PostfwdConfigPath     = "/usr/local/mail/openmail/postfwd/postfwd.cf"
 	EmailsMailLogPath     = "/usr/local/mail/openmail/docker-data/dms/mail-logs/mail.log"
-	EmailsRatelimitScript = []string{"opencli", "email-ratelimit"}
+	EmailsRatelimitScript = []string{"vietcli", "email-ratelimit"}
 )
 
 type postfwdRule struct {

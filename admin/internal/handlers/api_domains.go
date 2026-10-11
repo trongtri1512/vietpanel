@@ -83,7 +83,7 @@ func (a *APIDomains) HandleAddDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stdout, stderr, returncode := apiRunCapture("opencli", "domains-add", body.Domain, body.Username, "--docroot", body.Docroot)
+	stdout, stderr, returncode := apiRunCapture("vietcli", "domains-add", body.Domain, body.Username, "--docroot", body.Docroot)
 	writeAPIRunResult(w, stdout, stderr, returncode)
 }
 
@@ -109,7 +109,7 @@ func (a *APIDomains) HandleDomainAction(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	stdout, stderr, returncode := apiRunCapture("opencli", cliCmd, domain)
+	stdout, stderr, returncode := apiRunCapture("vietcli", cliCmd, domain)
 	writeAPIRunResult(w, stdout, stderr, returncode)
 }
 
@@ -140,9 +140,9 @@ func (a *APIDomains) ServeDomainDocroot(w http.ResponseWriter, r *http.Request) 
 			writeJSONError(w, http.StatusBadRequest, "docroot must start with /var/www/html/")
 			return
 		}
-		stdout, stderr, returncode = apiRunCapture("opencli", "domains-docroot", domain, "update", body.Docroot)
+		stdout, stderr, returncode = apiRunCapture("vietcli", "domains-docroot", domain, "update", body.Docroot)
 	} else {
-		stdout, stderr, returncode = apiRunCapture("opencli", "domains-docroot", domain)
+		stdout, stderr, returncode = apiRunCapture("vietcli", "domains-docroot", domain)
 	}
 
 	writeAPIRunResult(w, stdout, stderr, returncode)

@@ -156,7 +156,7 @@ func (a *APIImport) ServeTransfers(w http.ResponseWriter, r *http.Request) {
 		username = apiJSONValueToString(v)
 	}
 
-	args := []string{"opencli", "user-transfer", "--account", openpanelUsername, "--host", server, "--username", username}
+	args := []string{"vietcli", "user-transfer", "--account", openpanelUsername, "--host", server, "--username", username}
 	if v, present := data["password"]; present && apiJSONTruthy(v) {
 		args = append(args, "--password", apiJSONValueToString(v))
 	}

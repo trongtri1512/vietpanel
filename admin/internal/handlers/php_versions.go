@@ -32,7 +32,7 @@ import (
 // being a failure, so the output text always has to be inspected
 // regardless of exit code.
 var phpDomainVersionGetRun = func(domain string) (string, error) {
-	out, err := exec.Command("opencli", "php-domain", domain).CombinedOutput()
+	out, err := exec.Command("vietcli", "php-domain", domain).CombinedOutput()
 	if _, isExit := err.(*exec.ExitError); isExit {
 		return string(out), nil
 	}
@@ -40,7 +40,7 @@ var phpDomainVersionGetRun = func(domain string) (string, error) {
 }
 
 var phpDomainVersionSetRun = func(domain, version string) (string, error) {
-	out, err := exec.Command("opencli", "php-domain", domain, "--update", version).CombinedOutput()
+	out, err := exec.Command("vietcli", "php-domain", domain, "--update", version).CombinedOutput()
 	if _, isExit := err.(*exec.ExitError); isExit {
 		return string(out), nil
 	}

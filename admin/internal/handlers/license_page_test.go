@@ -155,7 +155,7 @@ func TestServeLicenseKeyPostSuccess(t *testing.T) {
 	if !strings.Contains(string(body), `"response":"activated"`) {
 		t.Fatalf("expected response JSON, got %s", body)
 	}
-	want := []string{"opencli", "license", "enterprise-xyz", "--json", "--no-restart"}
+	want := []string{"vietcli", "license", "enterprise-xyz", "--json", "--no-restart"}
 	if len(gotArgs) != len(want) {
 		t.Fatalf("expected args %v, got %v", want, gotArgs)
 	}

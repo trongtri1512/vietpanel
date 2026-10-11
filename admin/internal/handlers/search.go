@@ -68,7 +68,7 @@ func (s *Search) ServeSearchFilter(w http.ResponseWriter, r *http.Request) {
 // searchDomainWhoOwnsRun is injectable so tests never shell out to a real
 // opencli binary.
 var searchDomainWhoOwnsRun = func(domain string) (string, error) {
-	out, err := exec.Command("opencli", "domains-whoowns", domain).Output()
+	out, err := exec.Command("vietcli", "domains-whoowns", domain).Output()
 	return string(out), err
 }
 

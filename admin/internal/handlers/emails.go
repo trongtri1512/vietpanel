@@ -283,7 +283,7 @@ type emailQuota struct {
 // emailsListAccountsRun tries opencli first, falling back to reading
 // postfix-accounts.cf directly if that fails.
 var emailsListAccountsRun = func() []emailQuota {
-	out, err := exec.Command("opencli", "email-setup", "email", "list").Output()
+	out, err := exec.Command("vietcli", "email-setup", "email", "list").Output()
 	if err == nil {
 		var result []emailQuota
 		for _, line := range strings.Split(string(out), "\n") {
@@ -368,7 +368,7 @@ func (e *Emails) ServeEmailsSettings(w http.ResponseWriter, r *http.Request) {
 
 			if domainExists {
 				auth.AddFlash(w, r, e.Sessions, fmt.Sprintf("Error setting webmail domain: '%s' already exists in Caddy configuration.", webmailDomain), "error")
-			} else if err := exec.Command("opencli", "email-webmail", "domain", webmailDomain).Run(); err != nil {
+			} else if err := exec.Command("vietcli", "email-webmail", "domain", webmailDomain).Run(); err != nil {
 				auth.AddFlash(w, r, e.Sessions, "Failed to update webmail domain.", "error")
 			} else {
 				auth.AddFlash(w, r, e.Sessions, "Webmail domain updated successfully!", "success")
@@ -378,7 +378,7 @@ func (e *Emails) ServeEmailsSettings(w http.ResponseWriter, r *http.Request) {
 
 		case webmailSoftware != "":
 			if webmailSoftware == "roundcube" {
-				if err := exec.Command("opencli", "email-webmail", webmailSoftware).Run(); err != nil {
+				if err := exec.Command("vietcli", "email-webmail", webmailSoftware).Run(); err != nil {
 					auth.AddFlash(w, r, e.Sessions, "Failed to restart webmail service.", "danger")
 				} else {
 					auth.AddFlash(w, r, e.Sessions, "Configuration updated successfully! Webmail service will be restarted in the background.", "success")
@@ -407,7 +407,7 @@ func (e *Emails) ServeEmailsSettings(w http.ResponseWriter, r *http.Request) {
 					if value == "1" {
 						action = "enable"
 					}
-					_ = exec.Command("opencli", "email-server", "postfwd", action).Start()
+					_ = exec.Command("vietcli", "email-server", "postfwd", action).Start()
 				} else {
 					_ = updateEnvVariable(key, value)
 				}
@@ -503,7 +503,7 @@ func (e *Emails) ServeUpdatePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSONMessage(w, http.StatusBadRequest, "Email and password are required.")
 		return
 	}
-	ok, out := runEmailsCmd([]string{"opencli", "email-setup", "email", "update", email, password})
+	ok, out := runEmailsCmd([]string{"vietcli", "email-setup", "email", "update", email, password})
 	if ok {
 		writeJSON(w, map[string]string{"message": "Password updated."})
 		return
@@ -520,7 +520,7 @@ func (e *Emails) ServeQuotaSet(w http.ResponseWriter, r *http.Request) {
 		writeJSONMessage(w, http.StatusBadRequest, "Email and quota are required.")
 		return
 	}
-	ok, out := runEmailsCmd([]string{"opencli", "email-setup", "quota", "set", email, quota})
+	ok, out := runEmailsCmd([]string{"vietcli", "email-setup", "quota", "set", email, quota})
 	if ok {
 		writeJSON(w, map[string]string{"message": "Quota updated."})
 		return
@@ -536,7 +536,7 @@ func (e *Emails) ServeQuotaDel(w http.ResponseWriter, r *http.Request) {
 		writeJSONMessage(w, http.StatusBadRequest, "Email is required.")
 		return
 	}
-	ok, out := runEmailsCmd([]string{"opencli", "email-setup", "quota", "del", email})
+	ok, out := runEmailsCmd([]string{"vietcli", "email-setup", "quota", "del", email})
 	if ok {
 		writeJSON(w, map[string]string{"message": "Quota removed."})
 		return
@@ -554,7 +554,7 @@ func (e *Emails) ServeRestrict(w http.ResponseWriter, r *http.Request) {
 		writeJSONMessage(w, http.StatusBadRequest, "Invalid parameters.")
 		return
 	}
-	ok, out := runEmailsCmd([]string{"opencli", "email-setup", "email", "restrict", action, rtype, email})
+	ok, out := runEmailsCmd([]string{"vietcli", "email-setup", "email", "restrict", action, rtype, email})
 	if ok {
 		writeJSON(w, map[string]string{"message": "Restriction updated."})
 		return
@@ -569,7 +569,7 @@ func (e *Emails) ServeDeleteEmails(w http.ResponseWriter, r *http.Request) {
 		writeJSONMessage(w, http.StatusBadRequest, "No emails provided.")
 		return
 	}
-	args := append([]string{"opencli", "email-setup", "email", "del"}, body.Emails...)
+	args := append([]string{"vietcli", "email-setup", "email", "del"}, body.Emails...)
 	ok, out := runEmailsCmd(args)
 	if ok {
 		writeJSON(w, map[string]string{"message": fmt.Sprintf("Deleted %d account(s).", len(body.Emails))})
@@ -803,7 +803,7 @@ func isIPv4(value string) bool {
 }
 
 func getWebmailDomain(publicIP string) string {
-	out, err := exec.Command("opencli", "email-webmail").Output()
+	out, err := exec.Command("vietcli", "email-webmail").Output()
 	if err != nil {
 		return ""
 	}

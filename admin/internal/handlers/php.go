@@ -173,7 +173,7 @@ func (p *PHP) ServePHP(w http.ResponseWriter, r *http.Request) {
 // even start the process counts as an error there. The POST side treats
 // any nonzero exit as an error.
 var phpDefaultVersionGetRun = func(username string) (string, error) {
-	out, err := exec.Command("opencli", "php-default", username).CombinedOutput()
+	out, err := exec.Command("vietcli", "php-default", username).CombinedOutput()
 	if _, isExit := err.(*exec.ExitError); isExit {
 		return string(out), nil
 	}
@@ -181,7 +181,7 @@ var phpDefaultVersionGetRun = func(username string) (string, error) {
 }
 
 var phpDefaultVersionSetRun = func(username, version string) error {
-	return exec.Command("opencli", "php-default", username, "--update", version).Run()
+	return exec.Command("vietcli", "php-default", username, "--update", version).Run()
 }
 
 // ServePHPDefaultVersion handles GET/POST /json/php/default_version/{username}.

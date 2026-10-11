@@ -163,11 +163,11 @@ func (a *APISettingsResellers) handlePost(w http.ResponseWriter, r *http.Request
 
 	case "rename_user":
 		var out string
-		ok, out = runOpenCLI(adminCommandError, "opencli", "admin", "rename", username, body.NewUsername)
+		ok, out = runOpenCLI(adminCommandError, "vietcli", "admin", "rename", username, body.NewUsername)
 		message = opencliResultMessage(ok, out)
 
 	case "update":
-		args := []string{"opencli", "admin", "update", username}
+		args := []string{"vietcli", "admin", "update", username}
 		if body.AllowedPlans != "" {
 			args = append(args, "--allowed_plans="+body.AllowedPlans)
 		}
@@ -183,7 +183,7 @@ func (a *APISettingsResellers) handlePost(w http.ResponseWriter, r *http.Request
 
 	case "update_branding":
 		var out string
-		ok, out = runOpenCLI(adminCommandError, "opencli", "admin", "update", username, "--logo_url="+body.LogoURL)
+		ok, out = runOpenCLI(adminCommandError, "vietcli", "admin", "update", username, "--logo_url="+body.LogoURL)
 		if ok {
 			message = "Branding updated for " + username + "."
 		} else {
@@ -192,17 +192,17 @@ func (a *APISettingsResellers) handlePost(w http.ResponseWriter, r *http.Request
 
 	case "suspend":
 		var out string
-		ok, out = runOpenCLI(adminCommandError, "opencli", "admin", "suspend", username)
+		ok, out = runOpenCLI(adminCommandError, "vietcli", "admin", "suspend", username)
 		message = opencliResultMessage(ok, out)
 
 	case "unsuspend":
 		var out string
-		ok, out = runOpenCLI(adminCommandError, "opencli", "admin", "unsuspend", username)
+		ok, out = runOpenCLI(adminCommandError, "vietcli", "admin", "unsuspend", username)
 		message = opencliResultMessage(ok, out)
 
 	case "delete":
 		var out string
-		ok, out = runOpenCLI(adminCommandError, "opencli", "admin", "delete", username)
+		ok, out = runOpenCLI(adminCommandError, "vietcli", "admin", "delete", username)
 		message = opencliResultMessage(ok, out)
 	}
 

@@ -17,7 +17,7 @@ type APISupport struct{}
 // here is reported as a JSON body instead of a flash message plus
 // redirect, since there's no browser session to redirect.
 func (a *APISupport) ServeSupportReport(w http.ResponseWriter, r *http.Request) {
-	stdout, _, err := licenseRunOpenCLI("opencli", "report", "--public", "--non-interactive")
+	stdout, _, err := licenseRunOpenCLI("vietcli", "report", "--public", "--non-interactive")
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)

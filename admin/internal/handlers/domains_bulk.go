@@ -197,7 +197,7 @@ func (d *Domains) HandleBulkAdd(w http.ResponseWriter, r *http.Request) {
 			result.Current = l.Domain
 			pendingBulkDomainsMu.Unlock()
 
-			args := []string{"opencli", "domains-add", l.Domain, l.Username}
+			args := []string{"vietcli", "domains-add", l.Domain, l.Username}
 			if l.Docroot != "" {
 				args = append(args, "--docroot", l.Docroot)
 			}

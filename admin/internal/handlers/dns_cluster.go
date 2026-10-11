@@ -331,7 +331,7 @@ func dnsSlaveReachableViaSSH(slaveIP string) bool {
 var dnsDomainsAllRun = func() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "opencli", "domains-all").Output()
+	out, err := exec.CommandContext(ctx, "vietcli", "domains-all").Output()
 	return string(out), err
 }
 

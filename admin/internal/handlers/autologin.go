@@ -59,7 +59,7 @@ var autologinOpenpanelDomainRun = func() string {
 	if d := readUserpanelDomainFresh(); d != "" {
 		return d
 	}
-	out, err := exec.Command("opencli", "domain").Output()
+	out, err := exec.Command("vietcli", "domain").Output()
 	if err != nil {
 		return ""
 	}
@@ -97,7 +97,7 @@ func readUserpanelDomainFresh() string {
 }
 
 var autologinOpenpanelPortRun = func() string {
-	out, err := exec.Command("opencli", "port").Output()
+	out, err := exec.Command("vietcli", "port").Output()
 	if err != nil {
 		return "2083"
 	}

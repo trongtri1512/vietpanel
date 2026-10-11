@@ -31,7 +31,7 @@ var WAFRulesDir = "/etc/openpanel/caddy/coreruleset/rules/"
 // wafRunOpenCLIRun is injectable so tests never shell out to a real
 // opencli binary. A nonzero exit is reported as an error.
 var wafRunOpenCLIRun = func(args ...string) error {
-	return exec.Command("opencli", args...).Run()
+	return exec.Command("vietcli", args...).Run()
 }
 
 // wafResolveRuleFile resolves filename against rulesDir and confirms the

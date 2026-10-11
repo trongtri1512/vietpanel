@@ -103,14 +103,16 @@ func main() {
 	certFile, keyFile, useTLS := tlsCertPaths(listenAddr)
 	go func() {
 		log.Printf("BOOTSTRAP - listening on %s (tls=%v)", listenAddr, useTLS)
-		var serveErr error
+		
 		if useTLS {
-			serveErr = srv.ListenAndServeTLS(certFile, keyFile)
+			// Start HTTPS server
+			if err := srv.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+				fatalLogger.Fatalf("BOOTSTRAP - HTTPS server error: %v", err)
+			}
 		} else {
-			serveErr = srv.ListenAndServe()
-		}
-		if serveErr != nil && serveErr != http.ErrServerClosed {
-			fatalLogger.Fatalf("BOOTSTRAP - server error: %v", serveErr)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				fatalLogger.Fatalf("BOOTSTRAP - server error: %v", err)
+			}
 		}
 	}()
 	go flushRedisCache(a.Cache)

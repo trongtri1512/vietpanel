@@ -41,14 +41,14 @@ type taskInfo struct {
 // isOpencliCommand reports whether a /proc cmdline invokes the opencli
 // entrypoint. In practice opencli is a bash script, so the top-level
 // invocation shows up as e.g. "/bin/bash /usr/local/bin/opencli sentinel"
-// rather than argv[0] being "opencli" -- so every field is checked, not
+// rather than argv[0] being "vietcli" -- so every field is checked, not
 // just argv[0]. The subcommand scripts it shells out to (e.g. sentinel.sh)
-// run as their own processes without "opencli" in their cmdline at all, so
+// run as their own processes without "vietcli" in their cmdline at all, so
 // this naturally only matches the top-level command the admin invoked,
 // not its internal child processes.
 func isOpencliCommand(command string) bool {
 	for _, field := range strings.Fields(command) {
-		if filepath.Base(field) == "opencli" {
+		if filepath.Base(field) == "vietcli" {
 			return true
 		}
 	}
@@ -61,8 +61,8 @@ func isOpencliCommand(command string) bool {
 func displayOpencliCommand(command string) string {
 	fields := strings.Fields(command)
 	for i, field := range fields {
-		if filepath.Base(field) == "opencli" {
-			return strings.Join(append([]string{"opencli"}, fields[i+1:]...), " ")
+		if filepath.Base(field) == "vietcli" {
+			return strings.Join(append([]string{"vietcli"}, fields[i+1:]...), " ")
 		}
 	}
 	return command

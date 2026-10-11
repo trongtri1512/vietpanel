@@ -69,7 +69,7 @@ func (s *APISecurity) ServeBasicAuth(w http.ResponseWriter, r *http.Request) {
 
 // ServeBlacklistUseragents handles GET/POST /api/security/blacklist-useragents.
 func (s *APISecurity) ServeBlacklistUseragents(w http.ResponseWriter, r *http.Request) {
-	enabledOut, _, _ := runOpenCLICaptured("opencli", "config", "get", "blacklist_useragents")
+	enabledOut, _, _ := runOpenCLICaptured("vietcli", "config", "get", "blacklist_useragents")
 	enabled := strings.TrimSpace(enabledOut)
 
 	content, err := os.ReadFile(BlacklistUseragentsFilePath)
@@ -96,7 +96,7 @@ func (s *APISecurity) ServeBlacklistUseragents(w http.ResponseWriter, r *http.Re
 
 		if data.Enabled != "" && enabled != data.Enabled {
 			updated = true
-			_, _, _ = runOpenCLICaptured("opencli", "config", "update", "blacklist_useragents", data.Enabled)
+			_, _, _ = runOpenCLICaptured("vietcli", "config", "update", "blacklist_useragents", data.Enabled)
 			enabled = data.Enabled
 		}
 
@@ -125,7 +125,7 @@ func (s *APISecurity) ServeBlacklistUseragents(w http.ResponseWriter, r *http.Re
 // real. The real implementation starts the command and doesn't wait for
 // it to finish, same as ServeDisableAdmin's HTML equivalent.
 var apiSecurityDisableAdminRun = func() {
-	_ = exec.Command("opencli", "admin", "off").Start()
+	_ = exec.Command("vietcli", "admin", "off").Start()
 }
 
 // HandleDisableAdmin handles POST /api/security/disable-admin. Unlike the

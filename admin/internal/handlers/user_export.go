@@ -188,7 +188,7 @@ func (u *Users) ServeUserExportStatus(w http.ResponseWriter, r *http.Request) {
 // userExportBackupCmdRun is injectable so tests never actually shell out.
 var userExportBackupCmdRun = func(username string) error {
 	// own systemd unit so an admin restart doesn't kill a big backup halfway
-	_, err := startDetached("openpanel-user-backup", "", []string{"opencli", "user-backup", "--account", username})
+	_, err := startDetached("openpanel-user-backup", "", []string{"vietcli", "user-backup", "--account", username})
 	return err
 }
 

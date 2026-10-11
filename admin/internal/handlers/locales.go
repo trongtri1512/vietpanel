@@ -108,12 +108,12 @@ var localesFetchFolders = func() ([]githubContentItem, int, error) {
 // localesInstallRun is injectable so tests never shell out to a real
 // opencli binary.
 var localesInstallRun = func(locale string) error {
-	return exec.Command("opencli", "locale", locale).Run()
+	return exec.Command("vietcli", "locale", locale).Run()
 }
 
 // runs all locales in one opencli call, injectable for tests
 var localesInstallAllRun = func(locales []string) error {
-	return exec.Command("opencli", append([]string{"locale"}, locales...)...).Run()
+	return exec.Command("vietcli", append([]string{"locale"}, locales...)...).Run()
 }
 
 // drops VietPanel's cached locale list so installs/deletes show up right away, injectable for tests

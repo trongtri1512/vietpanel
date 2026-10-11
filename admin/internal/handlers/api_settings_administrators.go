@@ -162,22 +162,22 @@ func (a *APISettingsAdministrators) handlePost(w http.ResponseWriter, r *http.Re
 
 	case "rename_user":
 		var out string
-		ok, out = runOpenCLI(adminCommandError, "opencli", "admin", "rename", body.Username, body.NewUsername)
+		ok, out = runOpenCLI(adminCommandError, "vietcli", "admin", "rename", body.Username, body.NewUsername)
 		message = opencliResultMessage(ok, out)
 
 	case "suspend":
 		var out string
-		ok, out = runOpenCLI(adminCommandError, "opencli", "admin", "suspend", body.Username)
+		ok, out = runOpenCLI(adminCommandError, "vietcli", "admin", "suspend", body.Username)
 		message = opencliResultMessage(ok, out)
 
 	case "unsuspend":
 		var out string
-		ok, out = runOpenCLI(adminCommandError, "opencli", "admin", "unsuspend", body.Username)
+		ok, out = runOpenCLI(adminCommandError, "vietcli", "admin", "unsuspend", body.Username)
 		message = opencliResultMessage(ok, out)
 
 	case "delete":
 		var out string
-		ok, out = runOpenCLI(adminCommandError, "opencli", "admin", "delete", body.Username)
+		ok, out = runOpenCLI(adminCommandError, "vietcli", "admin", "delete", body.Username)
 		message = opencliResultMessage(ok, out)
 	}
 

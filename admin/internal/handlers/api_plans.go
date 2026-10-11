@@ -138,7 +138,7 @@ func (p *APIPlans) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	args := []string{
-		"opencli", "plan-create",
+		"vietcli", "plan-create",
 		"name=" + jsonStringOr(data, "name", ""),
 		"description=" + jsonStringOr(data, "description", ""),
 		"emails=" + jsonStringOr(data, "email_limit", "0"),
@@ -225,7 +225,7 @@ func (p *APIPlans) handleGet(w http.ResponseWriter, r *http.Request, planIDStr s
 }
 
 func (p *APIPlans) handleDelete(w http.ResponseWriter, r *http.Request, planIDStr string) {
-	output, runErr := apiCheckOutputRun("opencli", "plan-delete", planIDStr, "--json")
+	output, runErr := apiCheckOutputRun("vietcli", "plan-delete", planIDStr, "--json")
 	if runErr == nil {
 		writeJSON(w, map[string]interface{}{
 			"success": true,
@@ -264,7 +264,7 @@ func (p *APIPlans) handleEdit(w http.ResponseWriter, r *http.Request, planIDStr 
 	diskLimit := jsonTruthyStringOr(data, "disk_limit", "0")
 
 	args := []string{
-		"opencli", "plan-edit", "id=" + planIDStr,
+		"vietcli", "plan-edit", "id=" + planIDStr,
 		"name=" + jsonStringOrNone(data, "name"),
 		"description=" + jsonStringOrNone(data, "description"),
 		"emails=" + jsonStringOr(data, "email_limit", "0"),

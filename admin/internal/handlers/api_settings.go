@@ -79,7 +79,7 @@ func (a *APISettings) ServeAPISettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		out, err := exec.Command("opencli", "config", "update", "api", action).CombinedOutput()
+		out, err := exec.Command("vietcli", "config", "update", "api", action).CombinedOutput()
 		if err != nil {
 			cmdRepr := "['opencli', 'config', 'update', 'api', '" + action + "']"
 			auth.AddFlash(w, r, a.Sessions, "Error executing opencli: '"+cmdRepr+"': "+string(out), "error")

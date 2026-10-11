@@ -241,7 +241,7 @@ func (s *ServerUtils) HandleDropSwapCache(w http.ResponseWriter, r *http.Request
 // --- demo mode ---
 
 var demoModeRun = func() error {
-	return exec.Command("opencli", "config", "update", "demo_mode", "on").Start() // fire-and-forget, matches subprocess.Popen
+	return exec.Command("vietcli", "config", "update", "demo_mode", "on").Start() // fire-and-forget, matches subprocess.Popen
 }
 
 type demoModePageData struct {

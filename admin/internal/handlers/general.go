@@ -35,19 +35,19 @@ var generalPortRe = regexp.MustCompile(`^[0-9]{1,5}$`)
 // Injectable so tests never shell out to a real opencli binary.
 var (
 	generalOpenpanelPortRun = func() (string, error) {
-		out, err := exec.Command("opencli", "port").Output()
+		out, err := exec.Command("vietcli", "port").Output()
 		return strings.TrimSpace(string(out)), err
 	}
 	generalOpenadminPortRun = func() (string, error) {
-		out, err := exec.Command("opencli", "admin", "port").Output()
+		out, err := exec.Command("vietcli", "admin", "port").Output()
 		return strings.TrimSpace(string(out)), err
 	}
 	generalAdminDomainRun = func() (string, error) {
-		out, err := exec.Command("opencli", "domain").Output()
+		out, err := exec.Command("vietcli", "domain").Output()
 		return strings.TrimSpace(string(out)), err
 	}
 	generalOpenpanelProxyRun = func() (string, error) {
-		out, err := exec.Command("opencli", "proxy").Output()
+		out, err := exec.Command("vietcli", "proxy").Output()
 		return strings.TrimSpace(string(out)), err
 	}
 	generalHostnameRun = func() (string, error) {
@@ -55,11 +55,11 @@ var (
 		return strings.TrimSpace(string(out)), err
 	}
 
-	generalSetOpenpanelPortRun = func(port string) { _ = exec.Command("opencli", "port", "set", port, "--no-restart").Run() }
-	generalSetDomainRun        = func(domain string) { _ = exec.Command("opencli", "domain", "set", domain, "--no-restart").Run() }
-	generalSetDevModeRun       = func(value string) { _ = exec.Command("opencli", "config", "update", "dev_mode", value).Run() }
-	generalSetAdminPortRun     = func(port string) { _ = exec.Command("opencli", "admin", "port", port, "--no-restart").Run() }
-	generalSetProxyRun         = func(proxy string) { _ = exec.Command("opencli", "proxy", "set", proxy, "--no-restart").Run() }
+	generalSetOpenpanelPortRun = func(port string) { _ = exec.Command("vietcli", "port", "set", port, "--no-restart").Run() }
+	generalSetDomainRun        = func(domain string) { _ = exec.Command("vietcli", "domain", "set", domain, "--no-restart").Run() }
+	generalSetDevModeRun       = func(value string) { _ = exec.Command("vietcli", "config", "update", "dev_mode", value).Run() }
+	generalSetAdminPortRun     = func(port string) { _ = exec.Command("vietcli", "admin", "port", port, "--no-restart").Run() }
+	generalSetProxyRun         = func(proxy string) { _ = exec.Command("vietcli", "proxy", "set", proxy, "--no-restart").Run() }
 )
 
 // GeneralOpenpanelRestartFlagPath / GeneralOpenadminRestartFlagPath are

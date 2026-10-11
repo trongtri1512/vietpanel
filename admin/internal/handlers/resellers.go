@@ -250,7 +250,7 @@ func (rs *Resellers) runAction(action, username, password string, r *http.Reques
 		if !resellersEnabled() {
 			return false, "Resellers are disabled. Enable them on this page first."
 		}
-	    return runOpenCLI(adminCommandError, "opencli", "admin", "new", username, password, "--reseller")
+	    return runOpenCLI(adminCommandError, "vietcli", "admin", "new", username, password, "--reseller")
 		hash, err := auth.GeneratePasswordHash(password)
 		if err != nil {
 			return false, "Failed creating a new reseller user: " + username
@@ -261,10 +261,10 @@ func (rs *Resellers) runAction(action, username, password string, r *http.Reques
 		return true, "Successfully created a new reseller user: " + username
 
 	case "rename_user":
-		return runOpenCLI(adminCommandError, "opencli", "admin", "rename", username, r.FormValue("new_username"))
+		return runOpenCLI(adminCommandError, "vietcli", "admin", "rename", username, r.FormValue("new_username"))
 
 	case "update":
-		args := []string{"opencli", "admin", "update", username}
+		args := []string{"vietcli", "admin", "update", username}
 		if v := r.FormValue("allowed_plans"); v != "" {
 			args = append(args, "--allowed_plans="+v)
 		}
@@ -282,18 +282,18 @@ func (rs *Resellers) runAction(action, username, password string, r *http.Reques
 		// update_reseller_account in opencli's admin.sh, which only
 		// touches fields whose flag is actually passed.
 		logoURL := r.FormValue("logo_url")
-		ok, out := runOpenCLI(adminCommandError, "opencli", "admin", "update", username, "--logo_url="+logoURL)
+		ok, out := runOpenCLI(adminCommandError, "vietcli", "admin", "update", username, "--logo_url="+logoURL)
 		if !ok {
 			return false, opencliResultMessage(ok, out)
 		}
 		return true, "Branding updated for " + username + "."
 
 	case "suspend":
-		return runOpenCLI(adminCommandError, "opencli", "admin", "suspend", username)
+		return runOpenCLI(adminCommandError, "vietcli", "admin", "suspend", username)
 	case "unsuspend":
-		return runOpenCLI(adminCommandError, "opencli", "admin", "unsuspend", username)
+		return runOpenCLI(adminCommandError, "vietcli", "admin", "unsuspend", username)
 	case "delete":
-		return runOpenCLI(adminCommandError, "opencli", "admin", "delete", username)
+		return runOpenCLI(adminCommandError, "vietcli", "admin", "delete", username)
 
 	default:
 		return false, "Unknown action."

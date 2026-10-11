@@ -195,16 +195,16 @@ func (a *Administrators) runAction(action, username, password string, r *http.Re
 		return true, "Successfully created a new admin user: " + username
 
 	case "rename_user":
-		return runOpenCLI(adminCommandError, "opencli", "admin", "rename", username, r.FormValue("new_username"))
+		return runOpenCLI(adminCommandError, "vietcli", "admin", "rename", username, r.FormValue("new_username"))
 
 	case "suspend":
-		return runOpenCLI(adminCommandError, "opencli", "admin", "suspend", username)
+		return runOpenCLI(adminCommandError, "vietcli", "admin", "suspend", username)
 
 	case "unsuspend":
-		return runOpenCLI(adminCommandError, "opencli", "admin", "unsuspend", username)
+		return runOpenCLI(adminCommandError, "vietcli", "admin", "unsuspend", username)
 
 	case "delete":
-		return runOpenCLI(adminCommandError, "opencli", "admin", "delete", username)
+		return runOpenCLI(adminCommandError, "vietcli", "admin", "delete", username)
 
 	default:
 		return false, "Unknown action."
@@ -351,7 +351,7 @@ func firstLine(s string) string {
 }
 
 func notifySentinel(action, title, message string) {
-	cmd := exec.Command("opencli", "sentinel", "--action="+action, "--title="+title, "--message="+message)
+	cmd := exec.Command("vietcli", "sentinel", "--action="+action, "--title="+title, "--message="+message)
 	_ = cmd.Start() // fire-and-forget: we don't wait for or care about the child process's exit
 }
 

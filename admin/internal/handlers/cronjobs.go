@@ -59,7 +59,7 @@ func splitCronLine(line string) (CronJob, bool) {
 	}
 
 	if strings.HasPrefix(command, "/usr/local/bin/opencli") {
-		command = strings.Replace(command, "/usr/local/bin/opencli", "opencli", 1)
+		command = strings.Replace(command, "/usr/local/bin/opencli", "vietcli", 1)
 	}
 	// older saves wrote sentinel as this removed script, showing it as opencli sentinel fixes the line on next save
 	if strings.HasPrefix(command, legacySentinelCommand) {
@@ -101,8 +101,8 @@ func addOrUpdateCron(lineNumber int, schedule string, loggingEnabled bool) error
 		}
 
 		command := parsed.Command
-		if strings.HasPrefix(command, "opencli") {
-			command = strings.Replace(command, "opencli", "/usr/local/bin/opencli", 1)
+		if strings.HasPrefix(command, "vietcli") {
+			command = strings.Replace(command, "vietcli", "/usr/local/bin/opencli", 1)
 		}
 
 		if loggingEnabled {

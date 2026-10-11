@@ -201,7 +201,7 @@ func TestServeAPISettingsPostSuccessRedirectsWithoutRestartingService(t *testing
 	srv, client := newAPISettingsTestServer(t)
 
 	binDir := t.TempDir()
-	fakeOpenCLI := filepath.Join(binDir, "opencli")
+	fakeOpenCLI := filepath.Join(binDir, "vietcli")
 	os.WriteFile(fakeOpenCLI, []byte("#!/bin/sh\necho \"Updated api to $4\"\n"), 0755)
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", binDir)

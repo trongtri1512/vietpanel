@@ -15,7 +15,7 @@ import (
 // runOpenCLINotificationUpdate) are not behind an injectable var anywhere
 // in this package -- notification_settings.go's own HTML-page handler
 // shells out the same way and its tests don't mock it either. Since every
-// caller ignores runOpenCLI's return value, a missing "opencli" binary in
+// caller ignores runOpenCLI's return value, a missing "vietcli" binary in
 // the test environment fails fast without affecting the HTTP response, so
 // these tests exercise the field-selection/validation logic (which is the
 // actual behavior under test) plus the real on-disk SSH-whitelist side

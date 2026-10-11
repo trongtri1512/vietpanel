@@ -61,7 +61,7 @@ const sslCustomKeysHomeDir = "/var/www/html/"
 // opencli binary.
 var opencliSSLRun = func(args ...string) (stdout, stderr string, exitCode int, err error) {
 	cmdArgs := append([]string{"domains-ssl"}, args...)
-	cmd := exec.Command("opencli", cmdArgs...)
+	cmd := exec.Command("vietcli", cmdArgs...)
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -79,7 +79,7 @@ var opencliSSLRun = func(args ...string) (stdout, stderr string, exitCode int, e
 // which prints "<username> <context>" for the domain's owner. Injectable so
 // tests never shell out to a real opencli binary.
 var domainWhoOwnsContextRun = func(domain string) (string, error) {
-	out, err := exec.Command("opencli", "domains-whoowns", domain, "--context").Output()
+	out, err := exec.Command("vietcli", "domains-whoowns", domain, "--context").Output()
 	return string(out), err
 }
 

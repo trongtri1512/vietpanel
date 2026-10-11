@@ -77,7 +77,7 @@ func readCaddyFileForDomain(domainURL string) (ssl, status, waf, hsts string, cl
 
 // cloudflareRun is a var so tests can skip the real opencli call
 var cloudflareRun = func(args ...string) (string, error) {
-	out, err := exec.Command("opencli", append([]string{"domains-cloudflare"}, args...)...).CombinedOutput()
+	out, err := exec.Command("vietcli", append([]string{"domains-cloudflare"}, args...)...).CombinedOutput()
 	return string(out), err
 }
 
@@ -249,7 +249,7 @@ func (d *Domains) HandleAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args := []string{"opencli", "domains-add", domain, username}
+	args := []string{"vietcli", "domains-add", domain, username}
 	// custom docroot is an Enterprise feature, Community always gets /var/www/html/<domain>
 	if docroot := strings.TrimSpace(r.FormValue("docroot")); docroot != "" && chromeSite.LicenseType == "Enterprise" {
 		if errMsg := validateDocroot(docroot); errMsg != "" {
@@ -311,21 +311,21 @@ func (d *Domains) HandleToggleFeature(w http.ResponseWriter, r *http.Request) {
 		if r.FormValue("modsec_action") == "On" {
 			action = "enable"
 		}
-		cliArgs = []string{"opencli", "waf", "domain", domain, action}
+		cliArgs = []string{"vietcli", "waf", "domain", domain, action}
 
 	case "hsts":
 		action = "disable"
 		if r.FormValue("hsts_action") == "On" {
 			action = "enable"
 		}
-		cliArgs = []string{"opencli", "domains-hsts", domain, action}
+		cliArgs = []string{"vietcli", "domains-hsts", domain, action}
 
 	case "cloudflare":
 		action = "disable"
 		if r.FormValue("cloudflare_action") == "enable" {
 			action = "enable"
 		}
-		cliArgs = []string{"opencli", "domains-cloudflare", action, domain}
+		cliArgs = []string{"vietcli", "domains-cloudflare", action, domain}
 		// the script prints errors to stdout, so stderr is usually empty
 		fallbackErr = "Caddy reload failed, run 'opencli domains-cloudflare " + action + " " + domain + "' for details."
 
@@ -336,7 +336,7 @@ func (d *Domains) HandleToggleFeature(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/domains", http.StatusSeeOther)
 			return
 		}
-		cliArgs = []string{"opencli", "domains-dns", newStatus, domain}
+		cliArgs = []string{"vietcli", "domains-dns", newStatus, domain}
 		switch {
 		case strings.HasSuffix(newStatus, "e"):
 			action = newStatus + "d"
@@ -347,13 +347,13 @@ func (d *Domains) HandleToggleFeature(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "suspend":
-		cliArgs = []string{"opencli", "domains-suspend", domain}
+		cliArgs = []string{"vietcli", "domains-suspend", domain}
 		action = "executed"
 	case "unsuspend":
-		cliArgs = []string{"opencli", "domains-unsuspend", domain}
+		cliArgs = []string{"vietcli", "domains-unsuspend", domain}
 		action = "executed"
 	case "delete":
-		cliArgs = []string{"opencli", "domains-delete", domain}
+		cliArgs = []string{"vietcli", "domains-delete", domain}
 		action = "executed"
 
 	default:

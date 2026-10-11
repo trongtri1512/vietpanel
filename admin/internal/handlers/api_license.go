@@ -22,7 +22,7 @@ type APILicense struct{}
 func (a *APILicense) ServeLicense(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		stdout, _, err := licenseRunOpenCLI("opencli", "license", "key", "--json")
+		stdout, _, err := licenseRunOpenCLI("vietcli", "license", "key", "--json")
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to read license key")
 			return
@@ -30,7 +30,7 @@ func (a *APILicense) ServeLicense(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]string{"key": strings.TrimSpace(stdout)})
 
 	case http.MethodDelete:
-		stdout, _, err := licenseRunOpenCLI("opencli", "license", "delete", "--json")
+		stdout, _, err := licenseRunOpenCLI("vietcli", "license", "delete", "--json")
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to delete license")
 			return
@@ -48,7 +48,7 @@ func (a *APILicense) ServeLicense(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusBadRequest, "Missing key in request")
 			return
 		}
-		stdout, _, err := licenseRunOpenCLI("opencli", "license", key, "--json", "--no-restart")
+		stdout, _, err := licenseRunOpenCLI("vietcli", "license", key, "--json", "--no-restart")
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "License key validation failed")
 			return

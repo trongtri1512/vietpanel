@@ -80,7 +80,7 @@ func (u *Users) handleEditUser(w http.ResponseWriter, r *http.Request, username 
 	var changes []string
 
 	if newIP != "" && newIP != oldIP {
-		success, output := runOpenCLI("", "opencli", "user-ip", username, newIP, "-y")
+		success, output := runOpenCLI("", "vietcli", "user-ip", username, newIP, "-y")
 		if !opencliChangeSucceeded(success, output) {
 			fail("changing IP address", output)
 			return
@@ -106,7 +106,7 @@ func (u *Users) handleEditUser(w http.ResponseWriter, r *http.Request, username 
 	}
 
 	if newEmail != "" && newEmail != oldEmail {
-		success, output := runOpenCLI("", "opencli", "user-email", username, newEmail)
+		success, output := runOpenCLI("", "vietcli", "user-email", username, newEmail)
 		if !opencliChangeSucceeded(success, output) {
 			fail("changing email", output)
 			return
@@ -116,7 +116,7 @@ func (u *Users) handleEditUser(w http.ResponseWriter, r *http.Request, username 
 	}
 
 	if newPassword != "" {
-		success, output := runOpenCLI("", "opencli", "user-password", username, newPassword)
+		success, output := runOpenCLI("", "vietcli", "user-password", username, newPassword)
 		if !opencliChangeSucceeded(success, output) {
 			fail("changing password", output)
 			return
@@ -126,7 +126,7 @@ func (u *Users) handleEditUser(w http.ResponseWriter, r *http.Request, username 
 	}
 
 	if newPlanName != "" && newPlanName != oldPlanName {
-		success, output := runOpenCLI("", "opencli", "user-change_plan", username, newPlanName)
+		success, output := runOpenCLI("", "vietcli", "user-change_plan", username, newPlanName)
 		if !opencliChangeSucceeded(success, output) {
 			fail("changing plan", output)
 			return
@@ -137,7 +137,7 @@ func (u *Users) handleEditUser(w http.ResponseWriter, r *http.Request, username 
 	}
 
 	if newUsername != "" && newUsername != username {
-		success, output := runOpenCLI("", "opencli", "user-rename", username, newUsername)
+		success, output := runOpenCLI("", "vietcli", "user-rename", username, newUsername)
 		if !opencliChangeSucceeded(success, output) {
 			fail("renaming user", output)
 			return

@@ -45,7 +45,7 @@ var (
 		return string(out), err
 	}
 	ftpRefreshRun = func() (string, error) {
-		out, err := exec.Command("opencli", "ftp-users").CombinedOutput()
+		out, err := exec.Command("vietcli", "ftp-users").CombinedOutput()
 		return string(out), err
 	}
 	ftpRestartRun = func() error {
