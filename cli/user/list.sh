@@ -110,7 +110,7 @@ strip_suspended_prefix() {
     fi
 }
 
-# scans redis (via openpanel_redis, same as lib/redis.sh) for live login sessions and fills ONLINE_USERS with every username that owns at least one
+# scans redis (via lib/redis.sh) for live login sessions and fills ONLINE_USERS with every username that owns at least one
 declare -A ONLINE_USERS
 build_online_users() {
     local keys key uname

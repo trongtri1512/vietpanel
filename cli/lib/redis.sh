@@ -17,11 +17,13 @@
 # it is safe to `source` from any script.
 # ======================================================================
 
-REDIS_CONTAINER="openpanel_redis"
+# Same socket the panel connects to (panel/internal/app/app.go: RedisSocket), served by
+# the host redis-server that install.sh configures. Every redis_cli caller silently no-ops
+# if this is wrong, so the panel keeps serving memoized data for up to 24h after a change.
+REDIS_SOCKET="/tmp/redis/redis.sock"
 
-# Runs a redis-cli command inside the redis container.
 redis_cli() {
-    podman exec "$REDIS_CONTAINER" redis-cli "$@"
+    redis-cli -s "$REDIS_SOCKET" "$@"
 }
 
 # Deletes one or more exact keys. No-op if called with no args.

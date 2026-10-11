@@ -162,6 +162,11 @@ fi
 # upstream enables podman.socket only AFTER storage.conf exists - keep that ordering
 systemctl enable --now podman.socket
 
+# cli/lib/podman.sh addresses each account's socket as /hostfs/run/user/<uid>/podman/podman.sock
+# so one path works whether vietcli runs on the host or inside the panel container. Without this
+# symlink every per-account podman call fails and user-add dies with "Podman not responding".
+ln -sf / /hostfs
+
 echo "[vietpanel] pulling shared images into $SHARED_STORE"
 podman --root "$SHARED_STORE" pull docker.io/library/alpine:latest >/dev/null \
   || { echo "FATAL: failed to pull alpine into shared store"; exit 1; }
