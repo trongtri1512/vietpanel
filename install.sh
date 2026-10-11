@@ -48,6 +48,15 @@ if [ -n "$PHP_FPM_UNIT" ]; then
 fi
 systemctl enable --now nginx
 
+# mysql-server only ships the `mysql` name; ~150 vietcli call sites invoke `mariadb`.
+# Upstream always creates this shim (PODMAN_INSTALL.sh:652) and install.sh used to skip it,
+# which made every DB-backed verb die with exit 127.
+if ! command -v mariadb >/dev/null 2>&1; then
+  if command -v mysql >/dev/null 2>&1; then
+    ln -sf "$(command -v mysql)" /usr/local/bin/mariadb
+  fi
+fi
+
 log "2/9 go toolchain"
 if ! command -v go >/dev/null || ! go version | grep -qE 'go1\.(2[5-9]|[3-9][0-9])'; then
   ARCH=$(dpkg --print-architecture); [[ "$ARCH" == "amd64" ]] && GOARCH=amd64 || GOARCH=arm64

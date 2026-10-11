@@ -46,14 +46,23 @@ func handleDatabases(a *appctx.App, w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case status.State == "not_found":
-		web.Flash(a, w, r, "warning", "MongoDB service is not yet installed. Starting it in the background..")
+		// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+		if r.URL.Query().Get("output") != "json" {
+			web.Flash(a, w, r, "warning", "MongoDB service is not yet installed. Starting it in the background..")
+		}
 		docker.StartOrStopContainer(ctx, userContext, "mongodb", "activate", "detached")
 	case status.State != "running":
-		web.Flash(a, w, r, "warning", "MongoDB container is not running. Please allow a few moments for the initialization..")
+		// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+		if r.URL.Query().Get("output") != "json" {
+			web.Flash(a, w, r, "warning", "MongoDB container is not running. Please allow a few moments for the initialization..")
+		}
 	default:
 		dbs, listErr := mongomanager.ListDatabases(ctx, userContext)
 		if listErr != nil {
-			web.Flash(a, w, r, "error", web.Tr(a, r, "Error fetching databases: %(error)s", "error", listErr.Error()))
+			// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+			if r.URL.Query().Get("output") != "json" {
+				web.Flash(a, w, r, "error", web.Tr(a, r, "Error fetching databases: %(error)s", "error", listErr.Error()))
+			}
 		} else {
 			for _, d := range dbs {
 				databaseInfo = append(databaseInfo, DatabaseRow{Database: d.Name, SizeDisplay: formatSize(d.SizeBytes), IsSystem: mongomanager.IsSystemDatabase(d.Name)})

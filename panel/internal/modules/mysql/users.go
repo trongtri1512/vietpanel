@@ -41,14 +41,20 @@ func handleDatabasesUsers(a *appctx.App, w http.ResponseWriter, r *http.Request)
 		}
 		rows, execErr := mysqlmanager.Exec(ctx, userContext, query, "")
 		if execErr != nil {
-			web.Flash(a, w, r, "error", web.Tr(a, r, "Error fetching users: %(error)s", "error", execErr.Error()))
+			// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+			if r.URL.Query().Get("output") != "json" {
+				web.Flash(a, w, r, "error", web.Tr(a, r, "Error fetching users: %(error)s", "error", execErr.Error()))
+			}
 		} else {
 			for _, row := range rows {
 				usersOutput = append(usersOutput, toStringCell(row[0]))
 			}
 		}
 	} else {
-		web.Flash(a, w, r, "warning", web.Tr(a, r, mysqlWarningFlashMessage(mysqlVersion, status.State, status.Health), "service", mysqlVersion, "state", status.State))
+		// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+		if r.URL.Query().Get("output") != "json" {
+			web.Flash(a, w, r, "warning", web.Tr(a, r, mysqlWarningFlashMessage(mysqlVersion, status.State, status.Health), "service", mysqlVersion, "state", status.State))
+		}
 	}
 
 	if r.URL.Query().Get("output") == "json" {

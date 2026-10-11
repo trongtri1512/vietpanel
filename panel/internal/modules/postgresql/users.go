@@ -35,10 +35,16 @@ func handleDatabasesUsers(a *appctx.App, w http.ResponseWriter, r *http.Request)
 
 	switch {
 	case status.State == "not_found":
-		web.Flash(a, w, r, "warning", "Postgres service is not yet installed. Starting it in the background..")
+		// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+		if r.URL.Query().Get("output") != "json" {
+			web.Flash(a, w, r, "warning", "Postgres service is not yet installed. Starting it in the background..")
+		}
 		docker.StartOrStopContainer(ctx, userContext, "postgres", "activate", "detached")
 	case status.State != "running":
-		web.Flash(a, w, r, "warning", "Postgres container is not running. Please allow a few moments for the initialization..")
+		// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+		if r.URL.Query().Get("output") != "json" {
+			web.Flash(a, w, r, "warning", "Postgres container is not running. Please allow a few moments for the initialization..")
+		}
 	default:
 		query := "SELECT rolname FROM pg_roles ORDER BY rolname"
 		if !showAll {
@@ -46,7 +52,10 @@ func handleDatabasesUsers(a *appctx.App, w http.ResponseWriter, r *http.Request)
 		}
 		rows, execErr := postgresmanager.Exec(ctx, userContext, query, "postgres")
 		if execErr != nil {
-			web.Flash(a, w, r, "error", web.Tr(a, r, "Error fetching users: %(error)s", "error", execErr.Error()))
+			// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+			if r.URL.Query().Get("output") != "json" {
+				web.Flash(a, w, r, "error", web.Tr(a, r, "Error fetching users: %(error)s", "error", execErr.Error()))
+			}
 		} else {
 			for _, row := range rows {
 				usersList = append(usersList, toStringCell(row[0]))

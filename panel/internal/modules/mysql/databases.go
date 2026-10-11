@@ -90,7 +90,10 @@ func handleDatabases(a *appctx.App, w http.ResponseWriter, r *http.Request) {
 
 		rows, execErr := mysqlmanager.Exec(ctx, userContext, query, "")
 		if execErr != nil {
-			web.Flash(a, w, r, "error", web.Tr(a, r, "Error fetching databases: %(error)s", "error", execErr.Error()))
+			// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+			if r.URL.Query().Get("output") != "json" {
+				web.Flash(a, w, r, "error", web.Tr(a, r, "Error fetching databases: %(error)s", "error", execErr.Error()))
+			}
 		} else {
 			assignedLookup := map[string]string{}
 			for _, row := range rows {
@@ -106,7 +109,10 @@ func handleDatabases(a *appctx.App, w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		web.Flash(a, w, r, "warning", web.Tr(a, r, mysqlWarningFlashMessage(mysqlVersion, status.State, status.Health), "service", mysqlVersion, "state", status.State))
+		// a ?output=json poll would queue a flash no HTML render ever pops, leaking it onto the next page
+		if r.URL.Query().Get("output") != "json" {
+			web.Flash(a, w, r, "warning", web.Tr(a, r, mysqlWarningFlashMessage(mysqlVersion, status.State, status.Health), "service", mysqlVersion, "state", status.State))
+		}
 	}
 
 	if r.URL.Query().Get("output") == "json" {
