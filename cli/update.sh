@@ -86,14 +86,14 @@ Usage: vietcli update [OPTION]...
 Options:
     --check             Check if update is available
     --force             Force update even when autopatch/autoupdate is disabled
-    --no-restart        Don't restart VietPanel/OpenAdmin after the update, flag them as needing a restart instead
+    --no-restart        Don't restart VietPanel/VietAdmin after the update, flag them as needing a restart instead
     (no argument)       Update if autopatch/autoupdate is enabled
-    --admin             Update OpenAdmin UI only
+    --admin             Update VietAdmin UI only
     --panel             Update VietPanel UI only
     --cli               Update OpenCLI only
     --translations      Update translation files and restart VietPanel UI
     --system            Update system packages and kernel, purge older kernels, check if reboot required
-    --modules           Update OpenAdmin modules/features list
+    --modules           Update VietAdmin modules/features list
     --compose           Update docker-compose.yml template in /etc/openpanel/docker/compose/1.0/
     --env               Update .env template in /etc/openpanel/docker/compose/1.0/
     --php               Update /etc/openpanel/php/ and add new PHP versions to the template and all users
@@ -439,7 +439,7 @@ run_custom_postupdate_script() {
 # ---------------------- RUNS AFTER UPDATE ---------------------- #
 update_modules() {
     local no_log="${1:-}"
-    local msg="Updating OpenAdmin modules"
+    local msg="Updating VietAdmin modules"
     # shellcheck disable=SC2015  # echo can't meaningfully fail here; used as if/else shorthand
     [[ "$no_log" == "--no-log" ]] && echo "$msg" || log "$msg"
     local url="https://raw.githubusercontent.com/stefanpejcic/openpanel-configuration/refs/heads/main/openadmin/config/features.json"
@@ -825,7 +825,7 @@ update_translations() {
 
 # ---------------------- CHECKS IF CUSTOM FILE EXISTS AND RUNS IT ---------------------- #
 
-# https://github.com/stefanpejcic/VietPanel/issues/984
+# https://github.com/stefanpejcic/OpenPanel/issues/984
 run_version_specific_scripts_in_range() {
     local from_version="$1"
     local to_version="$2"
@@ -860,7 +860,7 @@ run_version_specific_scripts_in_range() {
 
 run_version_specific_script() {
     local version="$1"
-    local url="https://raw.githubusercontent.com/stefanpejcic/VietPanel/refs/heads/main/UPDATES/$version/UPDATE.sh"
+    local url="https://raw.githubusercontent.com/stefanpejcic/OpenPanel/refs/heads/main/UPDATES/$version/UPDATE.sh"
     log_info "Checking for version-specific update script"
     if wget --spider -q "$url" 2>/dev/null; then
         log_info "Downloading and executing version-specific script: $url"
@@ -1015,7 +1015,7 @@ update_openpanel() {
 
 update_openadmin() {
     # shellcheck disable=SC2015
-    [[ "$1" == "--no-log" ]] && echo "Updating OpenAdmin" || log "Updating OpenAdmin"
+    [[ "$1" == "--no-log" ]] && echo "Updating VietAdmin" || log "Updating VietAdmin"
     if [[ -d /usr/local/admin ]]; then
         cd /usr/local/admin || return
 
@@ -1043,10 +1043,10 @@ update_openadmin() {
                 [[ -f "/tmp/report.html.backup" ]] && cp /tmp/report.html.backup /usr/local/admin/templates/emails/reports.html
                 echo "Restart needed" > "$OPENADMIN_RESTART_FLAG"
                 # shellcheck disable=SC2015
-                [[ "$1" == "--no-log" ]] && echo "[!] OpenAdmin updated, restart the 'admin' service to apply it" || log "[!] OpenAdmin updated, restart the 'admin' service to apply it"
+                [[ "$1" == "--no-log" ]] && echo "[!] VietAdmin updated, restart the 'admin' service to apply it" || log "[!] VietAdmin updated, restart the 'admin' service to apply it"
             else
                 rm -f "/usr/local/admin/${admin_binary}.new"
-                log_error "Failed to download $url, kept the previous OpenAdmin binary"
+                log_error "Failed to download $url, kept the previous VietAdmin binary"
             fi
             return
         else
@@ -1084,7 +1084,7 @@ update_openadmin() {
 			'
         fi
 
-        echo "[✔] OpenAdmin update triggered (applying in background)" || log "[✔] OpenAdmin update triggered (applying in background)"
+        echo "[✔] VietAdmin update triggered (applying in background)" || log "[✔] VietAdmin update triggered (applying in background)"
     fi
 }
 

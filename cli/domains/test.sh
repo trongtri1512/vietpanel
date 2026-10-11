@@ -626,7 +626,7 @@ for s in "${SERVICES[@]}"; do
     printf "  %-16s %-8s ${tcolor}%-10s${N} %-22s %s\n" "$s" "${cpu_limit:-?}" "${throttled_ms} ms" "$mem_txt" "$notes"
 
     if [ "$throttled_ms" -gt 50 ]; then
-        add_finding "$throttled_ms" 2 "$s hit its CPU limit (${cpu_limit:-?} CPU) and was paused for ${throttled_ms} ms during this test." "Raise ${prefix}_CPU in $ENV_FILE (now ${cpu_limit:-?}) and recreate the container, or raise the plan limits in OpenAdmin."
+        add_finding "$throttled_ms" 2 "$s hit its CPU limit (${cpu_limit:-?} CPU) and was paused for ${throttled_ms} ms during this test." "Raise ${prefix}_CPU in $ENV_FILE (now ${cpu_limit:-?}) and recreate the container, or raise the plan limits in VietAdmin."
     fi
     if [ "$mem_pct" -ge 90 ]; then
         add_finding 0 2 "$s uses ${mem_pct}% of its memory limit (${ram_limit:-?})." "Raise ${prefix}_RAM in $ENV_FILE (now ${ram_limit:-?}) and recreate the container."
@@ -650,7 +650,7 @@ CORES=$(nproc); LOAD=$(cut -d' ' -f1 /proc/loadavg)
 MEM_AVAIL=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo); MEM_TOTAL=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
 DISK=$(df -P / | awk 'NR==2 {print $5}' | tr -d '%')
 printf "  %-36s %s\n" "load (1 min) / CPU cores" "$LOAD / $CORES" "memory available" "$MEM_AVAIL of $MEM_TOTAL MB" "disk used (/)" "$DISK%"
-gt "$LOAD" "$CORES" && add_finding 0 2 "Server load ($LOAD) is higher than the number of CPU cores ($CORES), everything on the server is slowed down." "Find what uses the CPU with top, or in OpenAdmin > Server > Processes."
+gt "$LOAD" "$CORES" && add_finding 0 2 "Server load ($LOAD) is higher than the number of CPU cores ($CORES), everything on the server is slowed down." "Find what uses the CPU with top, or in VietAdmin > Server > Processes."
 [ "$MEM_AVAIL" -lt $(( MEM_TOTAL / 10 )) ] && add_finding 0 2 "Only $MEM_AVAIL MB of memory is free on the server." "Find what uses it: free -m; ps aux --sort=-rss | head"
 [ "$DISK" -ge 90 ] && add_finding 0 2 "Disk is ${DISK}% full." "Free up space: old backups, logs in /var/log, unused images (podman image prune)."
 
@@ -751,7 +751,7 @@ elif ! points_here "$PUBLIC_IPS"; then
         add_finding 0 4 "$DNS_LEAD: $DOMAIN points to $(tr '\n' ' ' <<<"$PUBLIC_IPS")instead of this server ($IP_TXT), so visitors reach a different server." "$POINT_FIX"
     fi
 elif [ -z "$PUBLIC_MS" ]; then
-    add_finding 0 4 "$DOMAIN points to this server ($PUBLIC_IP), but the site doesn't answer over the public IP." "Check that ports 80/443 are open in the firewall (OpenAdmin > Security > Firewall) and that $DOMAIN has an SSL certificate (VietPanel > Domains > SSL Certificates)."
+    add_finding 0 4 "$DOMAIN points to this server ($PUBLIC_IP), but the site doesn't answer over the public IP." "Check that ports 80/443 are open in the firewall (VietAdmin > Security > Firewall) and that $DOMAIN has an SSL certificate (VietPanel > Domains > SSL Certificates)."
 fi
 if [ -n "$PUBLIC_IP" ] && [ "$BEHIND_CDN" = no ]; then
     if [ -z "$WWW_IPS" ]; then

@@ -3,7 +3,7 @@
 # Script Name: user/restore.sh
 # Description: Restores a single VietPanel user account from a full account .tar.gz backup.
 # Usage: vietcli user-restore --file <ARCHIVE> [--force] [--new-username=NAME] [--quiet] [--temp-dir=<PATH> ]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 01.10.2023
 # Last Modified: 21.08.2026

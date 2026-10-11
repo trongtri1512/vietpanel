@@ -1,5 +1,5 @@
-# cPanel 2 OpenPanel account import
-Import cPanel full account backup to OpenPanel
+# cPanel 2 VietPanel account import
+Import cPanel full account backup to VietPanel
 
 Maintained by [CodeWithJuber](https://github.com/CodeWithJuber)
 
@@ -53,7 +53,7 @@ bash cPanel-to-OpenPanel/cp-import.sh --backup-location=/path/to/cpanel_backup.f
 ## Parameters
 
 - `--backup-location=` Path to the cPanel backup file
-- `--plan-name=`      Name of the hosting plan in OpenPanel
+- `--plan-name=`      Name of the hosting plan in VietPanel
 - `--dry-run`         extract archive and display data without actually importing account
 
 ## Troubleshooting

@@ -1,4 +1,4 @@
-/* OpenPanel UI product tour - cross-page step-by-step walkthrough built on driver.js */
+/* VietPanel UI product tour - cross-page step-by-step walkthrough built on driver.js */
 (function () {
     var STORAGE_ACTIVE = 'op_tour_active';
     var STORAGE_INDEX = 'op_tour_index';

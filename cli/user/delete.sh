@@ -319,7 +319,7 @@ delete_emails "$USERNAME"
 delete_ftp_users "$context" &
 delete_user_from_database "$USERNAME" &
 delete_all_user_files "$context" &
-delete_system_user "$context" #& NOT DETACHED TO TEST FOR https://github.com/stefanpejcic/VietPanel/issues/1023
+delete_system_user "$context" #& NOT DETACHED TO TEST FOR https://github.com/stefanpejcic/OpenPanel/issues/1023
 postfwd_setup "$USERNAME" &
 
 # 4. wait for all of the above functions to finish

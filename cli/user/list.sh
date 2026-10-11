@@ -4,7 +4,7 @@
 # Description: Display all users: id, username, email, plan, registered date,
 #              online status, 2FA, IP, domain count, resource usage, notes.
 # Usage: vietcli user-list [--json] [--total] [--quota]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 16.10.2023
 # Last Modified: 08.10.2026

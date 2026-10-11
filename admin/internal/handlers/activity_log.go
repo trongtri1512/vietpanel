@@ -347,7 +347,7 @@ var activityDescriptions = map[string]func(r *http.Request) string{
 	"POST /server/demo-mode":  func(r *http.Request) string { return "Changed demo mode" },
 
 	// security
-	"POST /security/disable-admin":        func(r *http.Request) string { return "Disabled OpenAdmin" },
+	"POST /security/disable-admin":        func(r *http.Request) string { return "Disabled VietAdmin" },
 	"POST /security/basic_auth":           func(r *http.Request) string { return "Changed Basic Authentication" },
 	"POST /security/blacklist-useragents": func(r *http.Request) string { return "Edited blocked user agents" },
 	"POST /security/waf":                  func(r *http.Request) string { return "Changed WAF settings" },

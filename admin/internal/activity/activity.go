@@ -1,4 +1,4 @@
-// Package activity keeps a per-account log of the changes each administrator and reseller makes in OpenAdmin
+// Package activity keeps a per-account log of the changes each administrator and reseller makes in VietAdmin
 package activity
 
 import (

@@ -34,7 +34,7 @@ if ($manualValid) {
     $cfg['Servers'][1]['AllowNoPassword'] = false;
     $cfg['ServerDefault']                 = 1;
 } else {
-    // auto login from OpenPanel UI: pma.php?user=USERNAME&token=..
+    // auto login from VietPanel UI: pma.php?user=USERNAME&token=..
     $serverIndex = 1;
     foreach ($sockets as $socketPath) {
         $username = explode('/', $socketPath)[2];

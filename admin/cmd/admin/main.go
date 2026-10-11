@@ -62,7 +62,7 @@ func main() {
 		case found:
 			appLog.Printf("HTTPS - %s certificate is configured.", certPaths.CertType)
 		case hostname.Domain != "":
-			appLog.Println("HTTP - Domain is set but no certificate exists, point domain A record to issue LetsEncrypt SSL or add custom cert: https://openpanel.com/docs/articles/server/how-to-set-custom-ssl-openpanel-webmail/")
+			appLog.Println("HTTP - Domain is set but no certificate exists, point domain A record to issue LetsEncrypt SSL or add custom cert: https://github.com/trongtri1512/vietpanel/articles/server/how-to-set-custom-ssl-openpanel-webmail/")
 		default:
 			appLog.Println("HTTP - IP is set but no certificate exists.")
 		}

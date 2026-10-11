@@ -252,7 +252,7 @@ func handleLoginTwofa(a *appctx.App, w http.ResponseWriter, r *http.Request, ses
 	completeLogin(a, w, r, sess, userID, username, "logged in with 2FA code", "2fa")
 }
 
-// loginNotifyMessage builds the "New login to VietPanel" email, it needs "login from" for older OpenAdmin versions to pick the user template
+// loginNotifyMessage builds the "New login to VietPanel" email, it needs "login from" for older VietAdmin versions to pick the user template
 func loginNotifyMessage(a *appctx.App, r *http.Request, kind, ip string) userEmail {
 	method := map[string]string{"password": "password", "2fa": "password and 2FA code", "passkey": "passkey", "api": "API"}[kind]
 	if method == "" {

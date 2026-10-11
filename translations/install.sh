@@ -1,6 +1,6 @@
 #!/bin/bash
 ###
-# Install desired locale for OpenPanel UI
+# Install desired locale for VietPanel UI
 #
 # Usage:
 #

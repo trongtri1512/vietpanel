@@ -63,7 +63,7 @@ func (t *TwoFA) ServeSettings(w http.ResponseWriter, r *http.Request) {
 		sess, _ := t.Sessions.Get(r)
 		secret, _ := sess.Values[pendingTOTPSecretKey].(string)
 		if secret == "" {
-			key, err := totp.Generate(totp.GenerateOpts{Issuer: "OpenAdmin", AccountName: user.Username})
+			key, err := totp.Generate(totp.GenerateOpts{Issuer: "VietAdmin", AccountName: user.Username})
 			if err != nil {
 				http.Error(w, "could not generate 2FA secret", http.StatusInternalServerError)
 				return
@@ -84,11 +84,11 @@ func (t *TwoFA) ServeSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // qrDataURIForSecret rebuilds the same otpauth:// URL pyotp's
-// provisioning_uri() would (Issuer=OpenAdmin, default SHA1/6-digit/30s,
+// provisioning_uri() would (Issuer=VietAdmin, default SHA1/6-digit/30s,
 // matching the ValidateOpts login.go's HandleTwoFASubmit already verifies
 // against) and renders it as a PNG data URI, mirroring make_qr_data_uri().
 func qrDataURIForSecret(secret, accountName string) (string, error) {
-	key, err := otp.NewKeyFromURL("otpauth://totp/OpenAdmin:" + accountName + "?secret=" + secret + "&issuer=OpenAdmin")
+	key, err := otp.NewKeyFromURL("otpauth://totp/VietAdmin:" + accountName + "?secret=" + secret + "&issuer=VietAdmin")
 	if err != nil {
 		return "", err
 	}

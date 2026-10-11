@@ -396,7 +396,7 @@
       "name": "Coraza WAF"
     },
     {
-      "description": "View server & OpenPanel information", 
+      "description": "View server & VietPanel information", 
       "link": "/server/info", 
       "module": "info", 
       "name": "Server Information"

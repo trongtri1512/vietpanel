@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ##########################################################################################
-# Welcome Message for OpenPanel admins                                                   #
+# Welcome Message for VietPanel admins                                                   #
 #                                                                                        #
 # This script displays a welcome message to administrators upon logging into the server. #
 #                                                                                        #
@@ -31,7 +31,7 @@ read_config() {
 
 
 get_public_ip() {
-    ip=$(curl --silent --max-time 1 -4 https://ip.openpanel.com || wget --timeout=1 -qO- https://ipv4.openpanel.com || curl --silent --max-time 1 -4 https://ifconfig.me)
+    ip=$(curl --silent --max-time 1 -4 https://ip.openpanel.com || wget --timeout=1 -qO- https://ifconfig.me/ip || curl --silent --max-time 1 -4 https://ifconfig.me)
     
     if [ -z "$ip" ] || ! [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         ip=$(hostname -I | awk '{print $1}')
@@ -70,7 +70,7 @@ DB_PATH="/etc/openpanel/openadmin/users.db"
 
 echo -e  "================================================================"
 echo -e  ""
-echo -e  "This server has installed OpenPanel v${VERSION} 🚀"
+echo -e  "This server has installed VietPanel v${VERSION} 🚀"
 echo -e  ""
 echo -e  "OPENADMIN LINK: ${GREEN}${admin_url}${RESET}"
 echo -e  ""
@@ -104,7 +104,7 @@ if [[ $? -ne 0 || $user_count -eq 0 ]]; then
     echo -e ""
 fi
 echo -e  "Need assistance or looking to learn more? We've got you covered:"
-echo -e  "        - 📚 Admin Docs: https://openpanel.com/docs/admin/intro/"
+echo -e  "        - 📚 Admin Docs: https://github.com/trongtri1512/vietpanel/admin/intro/"
 echo -e  "        - 💬 Forums: https://community.openpanel.org/"
 echo -e  "        - 👉 Discord: https://discord.openpanel.org/"
 echo -e  ""

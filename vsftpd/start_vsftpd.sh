@@ -13,7 +13,7 @@ print_banner
 
 
 # 2. combine all user files in one file used for the service
-echo "[*] Collecting lists of FTP users from all OpenPanel accounts..."
+echo "[*] Collecting lists of FTP users from all VietPanel accounts..."
 
 USERS=""
 
@@ -29,7 +29,7 @@ for dir in /etc/openpanel/ftp/users/*; do
     fi
 done
 
-# 3. save the list for display on OpenAdmin
+# 3. save the list for display on VietAdmin
 echo "[*] Updating cached list in '/etc/openpanel/ftp/all.users' file..."
 echo "USERS=\"$USERS\"" > /etc/openpanel/ftp/all.users
 
@@ -60,7 +60,7 @@ if [ "$TOTAL_USER_COUNT" -gt 0 ]; then
   for USER_LIST_FILE in $USER_LIST_FILES; do
     BASE_DIR=$(dirname "$USER_LIST_FILE")
     OPENPANEL_USER=$(basename "$BASE_DIR")
-    echo "[!] Processing users for OpenPanel account: $OPENPANEL_USER"
+    echo "[!] Processing users for VietPanel account: $OPENPANEL_USER"
     while IFS='|' read -r NAME HASHED_PASS FOLDER UID GID; do
       USER_COUNT=$((USER_COUNT + 1))
       [ -z "$NAME" ] && continue  # Skip empty lines

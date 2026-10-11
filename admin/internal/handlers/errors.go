@@ -67,11 +67,11 @@ func NotFoundHandler(mux *http.ServeMux) http.Handler {
 			w.WriteHeader(http.StatusNotFound)
 			if apiEnabled() {
 				json.NewEncoder(w).Encode(map[string]string{
-					"error": "This api route does not exist. Please check the documentation: https://openpanel.com/docs/articles/dev-experience/openadmin-api",
+					"error": "This api route does not exist. Please check the documentation: https://github.com/trongtri1512/vietpanel/articles/dev-experience/openadmin-api",
 				})
 			} else {
 				json.NewEncoder(w).Encode(map[string]string{
-					"error": "API access is disabled! To enable api access OpenAdmin > Settings",
+					"error": "API access is disabled! To enable api access VietAdmin > Settings",
 				})
 			}
 			return

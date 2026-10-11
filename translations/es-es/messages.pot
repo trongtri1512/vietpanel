@@ -1,6 +1,6 @@
-# Spanish translations for OpenPanel.
+# Spanish translations for VietPanel.
 # Copyright (C) 2025 OPENPANEL
-# This file is distributed under the same license as the OpenPanel project.
+# This file is distributed under the same license as the VietPanel project.
 #
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
@@ -2112,7 +2112,7 @@ msgid "No Mautic Installations"
 msgstr ""
 
 #: templates/mautic.html:303
-msgid "No Mautic sites managed via OpenPanel. Install a new Mautic site."
+msgid "No Mautic sites managed via VietPanel. Install a new Mautic site."
 msgstr ""
 
 #: templates/mautic.html:305 templates/wordpress.html:396
@@ -2290,7 +2290,7 @@ msgstr ""
 
 #: templates/wordpress.html:394
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
 msgstr ""
 
@@ -6671,7 +6671,7 @@ msgid "Back to"
 msgstr ""
 
 #: templates/partials/_header.html:137
-msgid "OpenAdmin"
+msgid "VietAdmin"
 msgstr ""
 
 #: templates/partials/_header.html:162
@@ -7561,11 +7561,11 @@ msgid "Web Server"
 msgstr ""
 
 #: templates/system/server_info.html:328
-msgid "OpenPanel Information"
+msgid "VietPanel Information"
 msgstr ""
 
 #: templates/system/server_info.html:334
-msgid "OpenPanel Version"
+msgid "VietPanel Version"
 msgstr ""
 
 #: templates/system/server_info.html:347
@@ -7703,11 +7703,11 @@ msgid "Or copy and paste this link in your browser:"
 msgstr ""
 
 #: templates/user/email_template.html:101
-msgid "Password Reset requested from OpenPanel server:"
+msgid "Password Reset requested from VietPanel server:"
 msgstr ""
 
 #: templates/user/email_template.html:103
-msgid "Notification sent from OpenPanel server:"
+msgid "Notification sent from VietPanel server:"
 msgstr ""
 
 #: templates/user/email_template.html:142

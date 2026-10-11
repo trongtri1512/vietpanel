@@ -1,6 +1,6 @@
-# OpenCLI  
+# VietCLI  
 
-OpenCLI is the command-line interface for managing [VietPanel](https://openpanel.com/).  
+VietCLI is the command-line interface for managing [VietPanel](https://github.com/trongtri1512/vietpanel/).  
 
 On installation, the `vietcli.sh` script is added to the system path, and `vietcli --help` generates the list of all commands (`aliases.txt`).  
 
@@ -14,9 +14,9 @@ For example: to run user/add.sh script you would type: `vietcli user-add`.
 
 ## Updates
 
-VietPanel is proud of the modularity, so you can independently update just the OpenCLI when needed.
+VietPanel is proud of the modularity, so you can independently update just the VietCLI when needed.
 
-To update OpenCLI:
+To update VietCLI:
 
 ```sh
 vietcli update --cli

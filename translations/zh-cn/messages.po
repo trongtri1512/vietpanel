@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: OpenPanel\n"
+"Project-Id-Version: VietPanel\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
 "POT-Creation-Date: 2026-10-05 12:31+0200\n"
 "PO-Revision-Date: 2026-01-15 00:00+0500\n"
@@ -119,8 +119,8 @@ msgid "Password Reset Requested"
 msgstr "已请求重置密码"
 
 #: openpanel/internal/modules/account/forgotpassword.go:203
-msgid "OpenPanel [%(domain)s] - Password Reset Requested"
-msgstr "OpenPanel [%(domain)s] - 已请求重置密码"
+msgid "VietPanel [%(domain)s] - Password Reset Requested"
+msgstr "VietPanel [%(domain)s] - 已请求重置密码"
 
 #: openpanel/internal/modules/account/forgotpassword.go:321
 msgid "Reset link is invalid"
@@ -5764,9 +5764,9 @@ msgstr "开始导览"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:377
 msgid ""
-"A guided walkthrough of the OpenPanel UI and pages. You can also start it "
+"A guided walkthrough of the VietPanel UI and pages. You can also start it "
 "anytime from the menu."
-msgstr "对 OpenPanel 界面和各页面的引导式导览。您也可以随时从菜单中启动。"
+msgstr "对 VietPanel 界面和各页面的引导式导览。您也可以随时从菜单中启动。"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:383
 msgid "Add a domain"
@@ -15149,9 +15149,9 @@ msgstr "无WordPress安装"
 
 #: openpanel/internal/web/templates/manager/wp/list.html:344
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
-msgstr "没有通过OpenPanel管理的WordPress网站。安装新的WordPress网站或扫描以查找现有安装。"
+msgstr "没有通过VietPanel管理的WordPress网站。安装新的WordPress网站或扫描以查找现有安装。"
 
 #: openpanel/internal/web/templates/manager/wp/list.html:346
 #: openpanel/internal/web/templates/system/cronjobs.html:489
@@ -16634,8 +16634,8 @@ msgid "Back to"
 msgstr "返回到"
 
 #: openpanel/internal/web/templates/partials/_impersonate.html:4
-msgid "OpenAdmin"
-msgstr "OpenAdmin"
+msgid "VietAdmin"
+msgstr "VietAdmin"
 
 #: openpanel/internal/web/templates/partials/_search.html:7
 msgid "Open search"
@@ -16949,13 +16949,13 @@ msgstr "扩展"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
 msgid ""
-"Mounted into the PHP service by OpenPanel, it can't be installed or disabled"
+"Mounted into the PHP service by VietPanel, it can't be installed or disabled"
 " here."
-msgstr "由 OpenPanel 挂载到 PHP 服务中，无法在此安装或禁用。"
+msgstr "由 VietPanel 挂载到 PHP 服务中，无法在此安装或禁用。"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
-msgid "Provided by OpenPanel"
-msgstr "由 OpenPanel 提供"
+msgid "Provided by VietPanel"
+msgstr "由 VietPanel 提供"
 
 #: openpanel/internal/web/templates/php/extensions.html:82
 msgid "No extensions installed yet for this PHP version."
@@ -17597,8 +17597,8 @@ msgid "Enter IP addresses or CIDRs (one per line)"
 msgstr "输入 IP 地址或 CIDR（每行一个）"
 
 #: openpanel/internal/web/templates/system/license_error.html:17
-msgid "OpenPanel Enterprise license key is invalid!"
-msgstr "OpenPanel 企业版许可证密钥无效！"
+msgid "VietPanel Enterprise license key is invalid!"
+msgstr "VietPanel 企业版许可证密钥无效！"
 
 #: openpanel/internal/web/templates/system/license_error.html:21
 msgid "Verify License"
@@ -18436,8 +18436,8 @@ msgid "Password Reset requested from server:"
 msgstr "密码重置请求来自服务器："
 
 #: openpanel/internal/web/templates/user/email_template.html:82
-msgid "Password Reset requested from OpenPanel server:"
-msgstr "密码重置请求来自 OpenPanel 服务器："
+msgid "Password Reset requested from VietPanel server:"
+msgstr "密码重置请求来自 VietPanel 服务器："
 
 #: openpanel/internal/web/templates/user/email_template.html:121
 msgid "Click here to login to your account"
@@ -18527,8 +18527,8 @@ msgid "Locale / Language"
 msgstr "区域设置 / 语言"
 
 #: openpanel/internal/web/templates/user/locale.html:11
-msgid "Choose the language OpenPanel is shown in for your account."
-msgstr "选择 OpenPanel 在您的账户中显示的语言。"
+msgid "Choose the language VietPanel is shown in for your account."
+msgstr "选择 VietPanel 在您的账户中显示的语言。"
 
 #: openpanel/internal/web/templates/user/login.html:6
 msgid "Sign in to your account"

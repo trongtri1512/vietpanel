@@ -1,7 +1,7 @@
 #!/bin/bash
 ################################################################################
 # Script Name: lib/notifications.sh
-# Description: Shared helpers for reading and writing OpenAdmin notifications.
+# Description: Shared helpers for reading and writing VietAdmin notifications.
 # Usage: . /usr/local/vietcli/lib/notifications.sh
 # Author: Stefan Pejcic
 # Created: 24.09.2026

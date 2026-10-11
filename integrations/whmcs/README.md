@@ -1,5 +1,5 @@
-# OpenPanel WHMCS Module 😎
-WHMCS module for [OpenPanel](https://openpanel.com)
+# VietPanel WHMCS Module 😎
+WHMCS module for [VietPanel](https://github.com/trongtri1512/vietpanel)
 
 ![screenshot](/screenshots/account_manage.png)
 
@@ -10,7 +10,7 @@ WHMCS module for [OpenPanel](https://openpanel.com)
 
 ### Requirements
 
-- Server with OpenPanel Enterprise license
+- Server with VietPanel Enterprise license
 - WHMCS
 
 ### Installation
@@ -40,7 +40,7 @@ From WHMCS client area:
 
 ### Configuration
 
-How to setup WHMCS and OpenPanel: https://openpanel.com/docs/articles/extensions/openpanel-and-whmcs/
+How to setup WHMCS and VietPanel: https://github.com/trongtri1512/vietpanel
 
 ###  Troubleshooting
 
@@ -50,8 +50,8 @@ On WHMCS:
 3. Run actions in WHMCS
 4. Check the log on `YOUR_WHMCS_ADMIN_URI/index.php?rp=/admin/logs/module-log`
 
-On OpenPanel server:
-1. [Enable `DEV_MODE` on OpenAdmin](https://dev.openpanel.com/cli/config.html#dev-mode)
+On VietPanel server:
+1. [Enable `DEV_MODE` on VietAdmin](https://github.com/trongtri1512/vietpanel)
 2. Send requests from WHMCS server
 3. View the logs in: `/var/log/openpanel/admin/api.log`
 

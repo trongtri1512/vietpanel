@@ -31,7 +31,7 @@ func sslCertPath(domain, httpsType string) string {
 	return ""
 }
 
-// readSSLCertInfo parses the leaf cert to get expiry, same approach as OpenAdmin's domains list
+// readSSLCertInfo parses the leaf cert to get expiry, same approach as VietAdmin's domains list
 func readSSLCertInfo(domain, httpsType string) SSLCertInfo {
 	path := sslCertPath(domain, httpsType)
 	if path == "" {

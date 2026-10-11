@@ -1,9 +1,9 @@
 <?php
 /*
 Plugin Name: Force SSL behind Varnish
-Description: Forces SSL for wp-admin, to avoid CORS errors behind Varnish Caching in OpenPanel.
+Description: Forces SSL for wp-admin, to avoid CORS errors behind Varnish Caching in VietPanel.
 Version: 1.0
-Plugin URI: https://openpanel.com/docs/articles/docker/https-wordpress-behind-varnish-proxy/
+Plugin URI: https://github.com/trongtri1512/vietpanel/articles/docker/https-wordpress-behind-varnish-proxy/
 Author: Stefan Pejcic
 */
 

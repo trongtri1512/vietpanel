@@ -1,17 +1,17 @@
 {
   "schema": "1.0",
   "type": "whmcs-servers",
-  "name": "OpenPanel",
+  "name": "VietPanel",
   "license": "proprietary",
   "category": "provisioning",
   "description": {
-    "name": "OpenPanel",
+    "name": "VietPanel",
     "tagline": "Next Generation Hosting Panel.",
     "long": ""
   },
   "support": {
-    "homepage": "https://openpanel.com/",
-    "docs_url": "https://openpanel.com/docs/articles/dev-experience/openadmin-api/"
+    "homepage": "https://github.com/trongtri1512/vietpanel/",
+    "docs_url": "https://github.com/trongtri1512/vietpanel"
   },
   "authors": [
     {

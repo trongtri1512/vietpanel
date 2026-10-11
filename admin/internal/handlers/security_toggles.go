@@ -15,12 +15,12 @@ import (
 )
 
 // SecurityToggles bundles a handful of small self-contained config-toggle
-// pages: disabling OpenAdmin, basic auth, and the useragent blacklist.
+// pages: disabling VietAdmin, basic auth, and the useragent blacklist.
 type SecurityToggles struct {
 	Sessions *auth.Manager
 }
 
-// --- disable OpenAdmin ---
+// --- disable VietAdmin ---
 
 type disableAdminPageData struct {
 	webtemplates.Chrome
@@ -40,11 +40,11 @@ func (s *SecurityToggles) ServeDisableAdmin(w http.ResponseWriter, r *http.Reque
 
 	if r.Method == http.MethodPost {
 		_ = exec.Command("vietcli", "admin", "off").Start() // fire-and-forget
-		auth.AddFlash(w, r, s.Sessions, "OpenAdmin is now disabled and all further actions need to be performed via terminal.", "info")
+		auth.AddFlash(w, r, s.Sessions, "VietAdmin is now disabled and all further actions need to be performed via terminal.", "info")
 	}
 
 	webtemplates.Render(w, "disable_admin.html", disableAdminPageData{
-		Chrome:    buildChrome(r, "Disable OpenAdmin"),
+		Chrome:    buildChrome(r, "Disable VietAdmin"),
 		CSRFToken: csrf.Token(r),
 		Flashes:   auth.PopFlashes(w, r, s.Sessions),
 	})
@@ -70,7 +70,7 @@ func (s *SecurityToggles) ServeBasicAuth(w http.ResponseWriter, r *http.Request)
 
 	cfg := config.Load(config.AdminConfigPath)
 	webtemplates.Render(w, "basic_auth.html", basicAuthPageData{
-		Chrome:            buildChrome(r, "OpenAdmin Basic Auth"),
+		Chrome:            buildChrome(r, "VietAdmin Basic Auth"),
 		BasicAuth:         cfg.Get("SECURITY", "basic_auth", ""),
 		BasicAuthUsername: cfg.Get("SECURITY", "basic_auth_username", ""),
 		BasicAuthPassword: cfg.Get("SECURITY", "basic_auth_password", ""),
@@ -100,7 +100,7 @@ func (s *SecurityToggles) handleBasicAuthPost(w http.ResponseWriter, r *http.Req
 	}
 
 	os.WriteFile(bootstrap.RestartFlagPath, []byte("Restart needed"), 0644)
-	auth.AddFlash(w, r, s.Sessions, "Basic_auth settings for OpenAdmin edited successfully.", "success")
+	auth.AddFlash(w, r, s.Sessions, "Basic_auth settings for VietAdmin edited successfully.", "success")
 	http.Redirect(w, r, "/security/basic_auth", http.StatusSeeOther)
 }
 
@@ -110,7 +110,7 @@ var BlacklistUseragentsFilePath = "/etc/openpanel/openpanel/conf/blacklist_usera
 
 // OpenpanelRestartFlagPath is the flag file VietPanel's own UI checks for
 // restart-needed state -- distinct from bootstrap.RestartFlagPath, which
-// is OpenAdmin's own restart flag.
+// is VietAdmin's own restart flag.
 var OpenpanelRestartFlagPath = "/root/openpanel_restart_needed"
 
 type blacklistUseragentsPageData struct {

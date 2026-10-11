@@ -1,4 +1,4 @@
-// Package admindb wraps OpenAdmin's SQLite users.db: the user and webauthn_credential tables backing admin login, 2FA, and passkeys. migrate() below backfills totp columns and the webauthn table onto existing databases at startup.
+// Package admindb wraps VietAdmin's SQLite users.db: the user and webauthn_credential tables backing admin login, 2FA, and passkeys. migrate() below backfills totp columns and the webauthn table onto existing databases at startup.
 package admindb
 
 import (

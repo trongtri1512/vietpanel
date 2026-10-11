@@ -325,7 +325,7 @@ notify_disk_limits() {
         (( dp >= DISK_NOTIFY_PERCENT )) && text+="disk ${dp}% ($(blocks_to_gb "$du") of $(blocks_to_gb "$dh") GB) "
         (( ip >= INODES_NOTIFY_PERCENT )) && text+="inodes ${ip}% (${iu} of ${ih}) "
 
-        # both are always sent so the user sees the whole picture, OpenAdmin marks the one over its limit
+        # both are always sent so the user sees the whole picture, VietAdmin marks the one over its limit
         usage=$(jq -cn \
             --arg du "$(blocks_to_gb "$du") GB" --arg dh "$(blocks_to_gb "$dh") GB" --argjson dp "$dp" --argjson dl "$DISK_NOTIFY_PERCENT" \
             --arg iu "$iu" --arg ih "$ih files" --argjson ip "$ip" --argjson il "$INODES_NOTIFY_PERCENT" \

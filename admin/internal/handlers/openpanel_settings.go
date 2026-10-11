@@ -329,7 +329,7 @@ func (o *OpenpanelSettings) ServeOpenpanelSettings(w http.ResponseWriter, r *htt
 		} else {
 			restartNeeded = true
 			successMessages = append(successMessages, "Configuration saved successfully.")
-			// menu_style also switches OpenAdmin's own menu, apply it right away
+			// menu_style also switches VietAdmin's own menu, apply it right away
 			SetMenuStyleFromConfig(OpenpanelSettingsConfigPath)
 		}
 

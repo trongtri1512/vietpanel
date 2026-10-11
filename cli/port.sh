@@ -38,7 +38,7 @@ PROXY_FILE="/etc/openpanel/nginx/vhosts/openpanel_proxy.conf"
 
 
 get_current_port() {
-  # used to also require /.dockerenv, but OpenAdmin always runs natively on the host now, so the file's presence alone is the signal
+  # used to also require /.dockerenv, but VietAdmin always runs natively on the host now, so the file's presence alone is the signal
   if [ -f /etc/openpanel/no_port ]; then
       current_port=443
   fi

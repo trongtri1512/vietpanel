@@ -750,7 +750,7 @@ else
 	    if [ -f "$DOMAIN_CADDY_CONF" ]; then
 			"${RSYNC_CMD[@]}" "$DOMAIN_CADDY_CONF" "${REMOTE_USER}"@"${REMOTE_HOST}":/etc/openpanel/caddy/domains/
 			if [[ "$LIVE_TRANSFER" == true ]]; then
-			   # https://github.com/stefanpejcic/VietPanel/issues/897
+			   # https://github.com/stefanpejcic/OpenPanel/issues/897
 		       sed -E -i 's|reverse_proxy (https?://)[^ ]+|reverse_proxy \1'"$REMOTE_HOST"'|g' "$DOMAIN_CADDY_CONF"
 			fi
 		fi

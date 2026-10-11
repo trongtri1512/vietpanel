@@ -11,7 +11,7 @@ set -e
 log() { echo "[*] $1"; }
 error() { echo "ERROR: $1" >&2; exit 1; }
 
-# Check if OpenPanel is installed
+# Check if VietPanel is installed
 is_openpanel_installed() {
     [[ -f "$PANEL_CONFIG" ]]
 }
@@ -27,7 +27,7 @@ is_container_running() {
     docker --context=default ps --filter "name=$CONTAINER_NAME" --filter "status=running" | grep -q "$CONTAINER_NAME"
 }
 
-# Enable FTP module in OpenPanel config
+# Enable FTP module in VietPanel config
 enable_ftp_module() {
     if grep -q "^enabled_modules=.*ftp" "$PANEL_CONFIG"; then
         log "FTP module already enabled."
@@ -35,7 +35,7 @@ enable_ftp_module() {
         log "Enabling FTP module..."
         sed -i '/^enabled_modules=/ s/$/,ftp/' "$PANEL_CONFIG"
         docker --context=default restart openpanel
-        log "OpenPanel restarted to apply changes."
+        log "VietPanel restarted to apply changes."
     fi
 }
 
@@ -68,8 +68,8 @@ open_firewall_ports() {
 # Main execution
 main() {
     
-    # Check OpenPanel installation
-    is_openpanel_installed || error "OpenPanel not installed."
+    # Check VietPanel installation
+    is_openpanel_installed || error "VietPanel not installed."
 
     log "Setting up FTP service..."
 
@@ -84,14 +84,14 @@ main() {
         error "FTP container failed to start."
     }
     
-    # Configure OpenPanel
+    # Configure VietPanel
     enable_ftp_module
     
     # Configure firewall
     open_firewall_ports
     
     log ""
-    log "SUCCESS: FTP is now running and enabled for all OpenPanel users."
+    log "SUCCESS: FTP is now running and enabled for all VietPanel users."
     log ""
 }
 

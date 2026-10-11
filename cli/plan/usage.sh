@@ -3,7 +3,7 @@
 # Script Name: usage.sh
 # Description: Display all users that are currently using the plan.
 # Usage: vietcli plan-usage <PLAN_NAME> [--json]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 30.11.2023
 # Last Modified: 21.08.2026

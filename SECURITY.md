@@ -1,10 +1,10 @@
-# OpenPanel Security policy
+# VietPanel Security policy
 
-Welcome and thanks for taking interest in OpenPanel!
+Welcome and thanks for taking interest in VietPanel!
 
-We are mostly interested in reports by actual OpenPanel users but all high quality contributions are welcome.
+We are mostly interested in reports by actual VietPanel users but all high quality contributions are welcome.
 
-If you believe that you have have discovered a vulnerability in OpenPanel, please let our development team know by reporting it here: [Report a vulnerability](https://github.com/stefanpejcic/OpenPanel/security/advisories/new)
+If you believe that you have have discovered a vulnerability in VietPanel, please let our development team know by reporting it here: [Report a vulnerability](https://github.com/stefanpejcic/OpenPanel/security/advisories/new)
 
 We ask you to include a detailed description of the vulnerability, a list of services involved (e.g. nginx, opencli) and the versions which you've tested, full steps to reproduce the vulnerability, and include your findings and expected results.
 
@@ -16,7 +16,7 @@ With that, good luck hacking us ;)
 
 | Version | Supported          |
 | ------- | ------------------ |
-| [Latest](https://openpanel.com/docs/changelog/intro/#latest)  | :white_check_mark: |
+| [Latest](https://github.com/trongtri1512/vietpanel/docs/changelog/intro/#latest)  | :white_check_mark: |
 
 ## Qualifying Vulnerabilities
 

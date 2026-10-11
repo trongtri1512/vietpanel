@@ -3,7 +3,7 @@
 # Script Name: docker.sh
 # Description: Open an interactive shell inside a system or user container, picking the user and container via fzf if not given.
 # Usage: vietcli docker [<user> [<container>]]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 07.03.2025
 # Last Modified: 21.08.2026

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync this repo's gettext catalogs with the strings OpenPanel's Go app
+"""Sync this repo's gettext catalogs with the strings VietPanel's Go app
 actually translates.
 
 What it does:
@@ -323,7 +323,7 @@ def main():
     parser.add_argument("--repo-dir", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                          help="path to this openpanel-translations checkout (default: parent of this script's dir)")
     parser.add_argument("--project-version", default=None,
-                         help="Project-Id-Version string, e.g. 'OpenPanel 2.0.3' (default: read from <source>/version)")
+                         help="Project-Id-Version string, e.g. 'VietPanel 2.0.3' (default: read from <source>/version)")
     args = parser.parse_args()
 
     source_root = os.path.abspath(args.source)
@@ -337,9 +337,9 @@ def main():
         version_file = os.path.join(source_root, "version")
         if os.path.isfile(version_file):
             with open(version_file) as f:
-                project_version = f"OpenPanel {f.read().strip()}"
+                project_version = f"VietPanel {f.read().strip()}"
         else:
-            project_version = "OpenPanel"
+            project_version = "VietPanel"
 
     print(f"Extracting strings from {source_root} ...")
     extracted = extract(source_root)

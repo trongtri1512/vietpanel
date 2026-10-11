@@ -3,7 +3,7 @@
 # Script Name: imunify.sh
 # Description: Install and manage ImunifyAV service.
 # Usage: vietcli imunify [status|start|stop|install|update|uninstall]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 04.08.2025
 # Last Modified: 21.08.2026
@@ -62,7 +62,7 @@ EOF
 
 configure_av_limits_and_email() {
 
-  echo "Configuring ImunifyAV notifications to use 'OpenAdmin > Settings > Notifications'..."
+  echo "Configuring ImunifyAV notifications to use 'VietAdmin > Settings > Notifications'..."
   wget --timeout=5 --tries=3 --inet4-only -O /etc/sysconfig/imunify360/iav_hook.sh https://gist.githubusercontent.com/stefanpejcic/2318eae67c6833bb313eae7476aaa22f/raw/04bb0b6b4af7ff4515d17abaed891c50ff4f36d4/imav_email.sh
   chmod +x /etc/sysconfig/imunify360/iav_hook.sh
   imunify-antivirus notifications-config update '{"rules": {"USER_SCAN_MALWARE_FOUND": {"SCRIPT": {"scripts": ["/etc/sysconfig/imunify360/iav_hook.sh"], "enabled": true}}}}'
@@ -265,7 +265,7 @@ uninstall_av() {
     echo "→ If you're sure, run: userdel _imunify"
   fi
 
-  echo "Removing ImunifyAV from OpenAdmin > Services Status..."
+  echo "Removing ImunifyAV from VietAdmin > Services Status..."
   FILE="/etc/openpanel/openadmin/config/services.json"
   TMP_FILE="services.tmp.json"
   if jq 'map(select(.name != "ImunifyAV"))' "$FILE" > "$TMP_FILE"; then

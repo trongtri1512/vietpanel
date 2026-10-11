@@ -3,7 +3,7 @@
 # Script Name: ftp/password.sh
 # Description: Change password for FTP sub-user of openpanel user.
 # Usage: vietcli ftp-password <username> <new_password> <openpanel_username> [--debug]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 22.05.2024
 # Last Modified: 21.08.2026

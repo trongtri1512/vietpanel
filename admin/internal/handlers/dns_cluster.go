@@ -446,7 +446,7 @@ func (d *DNSCluster) ServeDNSCluster(w http.ResponseWriter, r *http.Request) {
 					auth.AddFlash(w, r, d.Sessions, "IP address already exists in configuration.", "error")
 				} else if !dnsSlaveReachableViaRNDC(ip) {
 					auth.AddFlash(w, r, d.Sessions, fmt.Sprintf(
-						"Cannot reach %s via rndc on port %s. Ensure the slave has allow-new-zones yes, a matching rndc key, and controls block configured. See: https://openpanel.com/docs/articles/domains/how-to-setup-dns-cluster-in-openpanel/",
+						"Cannot reach %s via rndc on port %s. Ensure the slave has allow-new-zones yes, a matching rndc key, and controls block configured. See: https://github.com/trongtri1512/vietpanel/articles/domains/how-to-setup-dns-cluster-in-openpanel/",
 						ip, DNSClusterRNDCPort), "error")
 				} else if err := addIPToConfig(DNSClusterConfigPath, ip); err != nil {
 					auth.AddFlash(w, r, d.Sessions, "Failed to add IP to DNS cluster: "+err.Error(), "error")
@@ -539,7 +539,7 @@ func (d *DNSCluster) ServeDNSClusterInfo(w http.ResponseWriter, r *http.Request)
 	code, stdout, stderr, timedOut, err := dnsSSHRun(ip, 5*time.Second, "uname -a")
 	if timedOut {
 		result["status"] = "timeout"
-		result["error"] = "Connection timed out. Please check documentation: https://openpanel.com/docs/articles/domains/how-to-setup-dns-cluster-in-openpanel/"
+		result["error"] = "Connection timed out. Please check documentation: https://github.com/trongtri1512/vietpanel/articles/domains/how-to-setup-dns-cluster-in-openpanel/"
 		writeJSON(w, result)
 		return
 	}

@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: OpenPanel\n"
+"Project-Id-Version: VietPanel\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
 "POT-Creation-Date: 2026-10-05 12:31+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
@@ -121,8 +121,8 @@ msgid "Password Reset Requested"
 msgstr "Redefinição de senha solicitada"
 
 #: openpanel/internal/modules/account/forgotpassword.go:203
-msgid "OpenPanel [%(domain)s] - Password Reset Requested"
-msgstr "OpenPanel [%(domain)s] - Redefinição de senha solicitada"
+msgid "VietPanel [%(domain)s] - Password Reset Requested"
+msgstr "VietPanel [%(domain)s] - Redefinição de senha solicitada"
 
 #: openpanel/internal/modules/account/forgotpassword.go:321
 msgid "Reset link is invalid"
@@ -6121,10 +6121,10 @@ msgstr "Fazer o tour"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:377
 msgid ""
-"A guided walkthrough of the OpenPanel UI and pages. You can also start it "
+"A guided walkthrough of the VietPanel UI and pages. You can also start it "
 "anytime from the menu."
 msgstr ""
-"Um tour guiado pela interface e páginas do OpenPanel. Você também pode "
+"Um tour guiado pela interface e páginas do VietPanel. Você também pode "
 "iniciá-lo a qualquer momento pelo menu."
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:383
@@ -15918,10 +15918,10 @@ msgstr "Sem instalações do WordPress"
 
 #: openpanel/internal/web/templates/manager/wp/list.html:344
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
 msgstr ""
-"Nenhum site WordPress gerenciado pelo OpenPanel. Instale um novo site "
+"Nenhum site WordPress gerenciado pelo VietPanel. Instale um novo site "
 "WordPress ou faça uma varredura para encontrar instalações existentes."
 
 #: openpanel/internal/web/templates/manager/wp/list.html:346
@@ -17484,8 +17484,8 @@ msgid "Back to"
 msgstr "Voltar para"
 
 #: openpanel/internal/web/templates/partials/_impersonate.html:4
-msgid "OpenAdmin"
-msgstr "OpenAdmin"
+msgid "VietAdmin"
+msgstr "VietAdmin"
 
 #: openpanel/internal/web/templates/partials/_search.html:7
 msgid "Open search"
@@ -17814,15 +17814,15 @@ msgstr "Extensão"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
 msgid ""
-"Mounted into the PHP service by OpenPanel, it can't be installed or disabled"
+"Mounted into the PHP service by VietPanel, it can't be installed or disabled"
 " here."
 msgstr ""
-"Montada no serviço PHP pelo OpenPanel, não pode ser instalada nem desativada"
+"Montada no serviço PHP pelo VietPanel, não pode ser instalada nem desativada"
 " aqui."
 
 #: openpanel/internal/web/templates/php/extensions.html:67
-msgid "Provided by OpenPanel"
-msgstr "Fornecida pelo OpenPanel"
+msgid "Provided by VietPanel"
+msgstr "Fornecida pelo VietPanel"
 
 #: openpanel/internal/web/templates/php/extensions.html:82
 msgid "No extensions installed yet for this PHP version."
@@ -18519,8 +18519,8 @@ msgid "Enter IP addresses or CIDRs (one per line)"
 msgstr "Digite endereços IP ou CIDRs (um por linha)"
 
 #: openpanel/internal/web/templates/system/license_error.html:17
-msgid "OpenPanel Enterprise license key is invalid!"
-msgstr "A chave de licença do OpenPanel Enterprise é inválida!"
+msgid "VietPanel Enterprise license key is invalid!"
+msgstr "A chave de licença do VietPanel Enterprise é inválida!"
 
 #: openpanel/internal/web/templates/system/license_error.html:21
 msgid "Verify License"
@@ -19399,8 +19399,8 @@ msgid "Password Reset requested from server:"
 msgstr "Redefinição de senha solicitada pelo servidor:"
 
 #: openpanel/internal/web/templates/user/email_template.html:82
-msgid "Password Reset requested from OpenPanel server:"
-msgstr "Redefinição de senha solicitada pelo servidor OpenPanel:"
+msgid "Password Reset requested from VietPanel server:"
+msgstr "Redefinição de senha solicitada pelo servidor VietPanel:"
 
 #: openpanel/internal/web/templates/user/email_template.html:121
 msgid "Click here to login to your account"
@@ -19495,8 +19495,8 @@ msgid "Locale / Language"
 msgstr "Localidade / Idioma"
 
 #: openpanel/internal/web/templates/user/locale.html:11
-msgid "Choose the language OpenPanel is shown in for your account."
-msgstr "Escolha o idioma em que o OpenPanel é exibido para sua conta."
+msgid "Choose the language VietPanel is shown in for your account."
+msgstr "Escolha o idioma em que o VietPanel é exibido para sua conta."
 
 #: openpanel/internal/web/templates/user/login.html:6
 msgid "Sign in to your account"

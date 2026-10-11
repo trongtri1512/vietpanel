@@ -226,7 +226,7 @@ func RequireAPIFeatureEnabled(next http.HandlerFunc) http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error": "API access is disabled! To enable api access OpenAdmin > Settings",
+				"error": "API access is disabled! To enable api access VietAdmin > Settings",
 			})
 			return
 		}

@@ -3,7 +3,7 @@
 # Script Name: plans.sh
 # Description: Display all plans: id, name, description, limits..
 # Usage: vietcli plan-list [--json]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 30.11.2023
 # Last Modified: 21.08.2026

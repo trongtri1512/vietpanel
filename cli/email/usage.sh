@@ -39,7 +39,7 @@ readonly QUOTA_NOTIFY_PERCENT=90
 
 usage() {
     echo "Usage: vietcli email-usage <USERNAME|--all>"
-    echo "Docs: https://openpanel.com/docs/articles/vietcli/email"
+    echo "Docs: https://github.com/trongtri1512/vietpanel/docs/articles/vietcli/email"
     exit 1
 }
 

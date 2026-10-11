@@ -128,7 +128,7 @@ func buildNotificationCards(prefs []NotificationPref) []NotificationCard {
 	for _, d := range notificationDefs {
 		c := NotificationCard{Key: d.Key, Title: d.Title, Description: d.Description, Group: d.Group, On: values[d.Key]}
 		if d.Parent == "" {
-			c.DocsURL = "https://openpanel.com/docs/panel/account/notifications/#" + d.Anchor
+			c.DocsURL = "https://github.com/trongtri1512/vietpanel/panel/account/notifications/#" + d.Anchor
 			cards = append(cards, c)
 			continue
 		}

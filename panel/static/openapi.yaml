@@ -2,23 +2,23 @@
 # To update: regenerate rather than hand-editing this file directly.
 openapi: 3.0.3
 info:
-  title: OpenPanel API
+  title: VietPanel API
   version: 2.0.2
   description: |-
-    REST API for OpenPanel, a self-hosted web hosting control panel. Every feature available in the panel's web UI can also be accessed programmatically.
+    REST API for VietPanel, a self-hosted web hosting control panel. Every feature available in the panel's web UI can also be accessed programmatically.
 
     All endpoints require a Bearer token obtained from `POST /api/login`. Beyond authentication, each endpoint also requires its documented feature to be enabled on the account's hosting plan.
 
     Success responses are JSON objects (`200`) unless noted otherwise (a handful of endpoints stream a file download instead). Error responses always include an `error` field and use standard HTTP status codes (400, 401, 403, 404, 409, 500, 503, 504).
   contact:
-    name: OpenPanel
-    url: https://openpanel.com
+    name: VietPanel
+    url: https://github.com/trongtri1512/vietpanel
   license:
-    name: OpenPanel EULA
-    url: https://openpanel.com/LICENSE
+    name: VietPanel EULA
+    url: https://github.com/trongtri1512/vietpanel/LICENSE
 servers:
 - url: /
-  description: This OpenPanel installation
+  description: This VietPanel installation
 tags:
 - name: Authentication
   description: Requires the `api` feature to be enabled on the account's plan.

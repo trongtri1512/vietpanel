@@ -8,7 +8,7 @@
 
 ## Installation
 
-- Download or git clone the OpenPanel.php file to your [FOSSBilling](https://github.com/FOSSBilling/FOSSBilling) installation at the following location: /library/Server/Manager
+- Download or git clone the VietPanel.php file to your [FOSSBilling](https://github.com/FOSSBilling/FOSSBilling) installation at the following location: /library/Server/Manager
 
 
 ## Features
@@ -21,7 +21,7 @@
 - ✅ Change account password
 
 #### Website Functions
-- ❌ Create Website (This will also create the user in OpenPanel)
+- ❌ Create Website (This will also create the user in VietPanel)
 - ❌ Change Website Package
 - ❌ Suspend/Un-suspend Website
 

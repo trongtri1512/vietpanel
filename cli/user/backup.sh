@@ -3,7 +3,7 @@
 # Script Name: user/backup.sh
 # Description: Creates a full account .tar.gz backup of a single VietPanel user account.
 # Usage: vietcli user-backup --account <USER> [--output <DIR>] [--quiet] [--no-throttle]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 01.10.2023
 # Last Modified: 30.09.2026

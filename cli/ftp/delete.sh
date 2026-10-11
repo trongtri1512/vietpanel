@@ -3,7 +3,7 @@
 # Script Name: ftp/delete.sh
 # Description: Delete FTP sub-user for openpanel user.
 # Usage: vietcli ftp-delete <username> <openpanel_username> [--debug]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 22.05.2024
 # Last Modified: 21.08.2026

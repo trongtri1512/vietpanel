@@ -97,11 +97,11 @@ check_username_is_valid() {
 
     if is_username_valid "$new_username"; then
         echo "Error: The username '$new_username' is not valid. Ensure it is a single word with no hyphens or underscores, contains only letters and numbers, and has a length between 3 and 20 characters."
-        echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#openpanel"
+        echo "       docs: https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#openpanel"
         exit 1
     elif is_username_forbidden "$new_username"; then
         echo "Error: The username '$new_username' is not allowed."
-        echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#reserved-usernames"
+        echo "       docs: https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#reserved-usernames"
         exit 1
     fi
 }

@@ -1,7 +1,7 @@
 #!/bin/bash
 ################################################################################
 # Script Name: lib/email.sh
-# Description: Shared helpers for sending emails through OpenAdmin's /send_email.
+# Description: Shared helpers for sending emails through VietAdmin's /send_email.
 # Usage: . /usr/local/vietcli/lib/email.sh
 # Author: Stefan Pejcic
 # Created: 25.09.2026
@@ -28,7 +28,7 @@
 # THE SOFTWARE.
 ################################################################################
 
-# OpenAdmin sends the email with the SMTP settings from Settings > Notifications,
+# VietAdmin sends the email with the SMTP settings from Settings > Notifications,
 # the one-time mail_security_token in openpanel.config proves the request is local.
 # This file only defines functions, so it's safe to source from any script.
 
@@ -36,7 +36,7 @@ EMAIL_CONF_FILE="/etc/openpanel/openpanel/conf/openpanel.config"
 EMAIL_ADMIN_INI="/etc/openpanel/openadmin/config/admin.ini"
 EMAIL_USERS_DIR="/etc/openpanel/openpanel/core/users"
 
-# sends one email, returns 0 only when OpenAdmin says it was sent, type "user" gets OpenAdmin's panel user template
+# sends one email, returns 0 only when VietAdmin says it was sent, type "user" gets VietAdmin's panel user template
 # usage: send_email <recipient> <subject> <body> [type] [usage JSON, drawn as usage bars in the user template] [upgrade plan name] [upgrade text] [tips shown under the upgrade section]
 send_email() {
   local recipient="$1" subject="$2" body="$3" type="${4-}" usage="${5-}" upgrade_plan="${6-}" upgrade_text="${7-}" tips="${8-}"

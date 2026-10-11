@@ -149,7 +149,7 @@ case "$2" in
 	    sed -i '/# Terminate TLS and pass to Varnish/,+3 s/^#//' "$CONF_FILE"    # Uncomment 3 lines under "Terminate TLS and pass to Varnish"
 	    start_varnish
 	    reload_caddy
-		detect_wp_sites_and_add_mu_plugin                                        # https://github.com/stefanpejcic/VietPanel/issues/853
+		detect_wp_sites_and_add_mu_plugin                                        # https://github.com/stefanpejcic/OpenPanel/issues/853
 		;;
 	off) # DISABLE
 	    sed -i '/# Handle HTTPS traffic (port 443)/,+6 s/^#//' "$CONF_FILE"      # Uncomment 3 lines under "Handle HTTPS traffic (port 443)"

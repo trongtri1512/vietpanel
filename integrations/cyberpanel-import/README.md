@@ -1,5 +1,5 @@
-# CyberPanel 2 OpenPanel account import
-Free OpenPanel module to import CyberPanel backup in OpenPanel
+# CyberPanel 2 VietPanel account import
+Free VietPanel module to import CyberPanel backup in VietPanel
 
 ## Features
 
@@ -36,7 +36,7 @@ bash CyberPanel-to-OpenPanel/cp-import.sh --backup-location=/path/to/cyberpanel_
 ## Parameters
 
 - `--backup-location=` Path to the CyberPanel backup file
-- `--plan-name=`      Name of the hosting plan in OpenPanel
+- `--plan-name=`      Name of the hosting plan in VietPanel
 - `--dry-run`         extract archive and display data without actually importing account
 
 ## Disclaimer

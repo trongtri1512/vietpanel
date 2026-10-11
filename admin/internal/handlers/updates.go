@@ -329,7 +329,7 @@ func (u *Updates) ServeUpdateNow(w http.ResponseWriter, r *http.Request) {
 	if err := updatesUpdateNowRun(); err != nil {
 		auth.AddFlash(w, r, u.Sessions, "Error: Failed to start the update process. Details: "+err.Error(), "error")
 	} else {
-		auth.AddFlash(w, r, u.Sessions, "Update process started successfully. VietPanel and OpenAdmin won't be restarted automatically, restart them once the update log shows it's completed.", "info")
+		auth.AddFlash(w, r, u.Sessions, "Update process started successfully. VietPanel and VietAdmin won't be restarted automatically, restart them once the update log shows it's completed.", "info")
 	}
 	http.Redirect(w, r, "/settings/updates", http.StatusSeeOther)
 }

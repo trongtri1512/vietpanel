@@ -39,7 +39,7 @@ func (a *APISecurity2FA) ServeStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := totp.Generate(totp.GenerateOpts{Issuer: "OpenAdmin", AccountName: user.Username})
+	key, err := totp.Generate(totp.GenerateOpts{Issuer: "VietAdmin", AccountName: user.Username})
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "could not generate 2FA secret")
 		return

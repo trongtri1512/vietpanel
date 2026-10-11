@@ -13,7 +13,7 @@
 #              Also not usable from a `nohup bash -c "..."` detached subshell
 #              unless you `export -f podman_user podman_compose_user` first —
 #              simplest is usually to inline CONTAINER_HOST there too.
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 10.07.2026
 # Company: OpenPanel, LLC.

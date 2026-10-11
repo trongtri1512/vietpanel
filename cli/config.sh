@@ -91,7 +91,7 @@ update_config() {
         echo "ERROR: Parameter '$param_name' was not found in the configuration file."
         echo
         echo "Usage: vietcli config update <parameter_name> <new_value>"
-        echo "See the list of available parameters here: https://openpanel.com/docs/articles/vietcli/config#available-options"
+        echo "See the list of available parameters here: https://github.com/trongtri1512/vietpanel/docs/articles/vietcli/config#available-options"
     fi
 }
 
@@ -110,7 +110,7 @@ case "$command" in
             echo "ERROR: New value is not provided for the parameter '$param_name'."
             echo
             echo "Usage: vietcli config update <parameter_name> <new_value>"
-            echo "See the list of available parameters with examples here: https://openpanel.com/docs/articles/vietcli/config#update"
+            echo "See the list of available parameters with examples here: https://github.com/trongtri1512/vietpanel/docs/articles/vietcli/config#update"
             exit 1            
         fi
         new_value="$3"
@@ -129,7 +129,7 @@ case "$command" in
         echo "ERROR: Invalid command, only 'get' and 'update' are allowed."
         echo
         echo "Usage: vietcli config [get|update] <parameter_name> [new_value]"
-        echo "See the list of available commands here: https://openpanel.com/docs/articles/vietcli/config"
+        echo "See the list of available commands here: https://github.com/trongtri1512/vietpanel/docs/articles/vietcli/config"
         exit 1
         ;;
 esac

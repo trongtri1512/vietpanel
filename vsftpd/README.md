@@ -1,15 +1,15 @@
-# FTP module for [OpenPanel](https://openpanel.co)
+# FTP module for [VietPanel](https://openpanel.co)
 
-Small and flexible docker image with vsftpd server + OpenPanel module to allow users to manage ftp sub-users.
+Small and flexible docker image with vsftpd server + VietPanel module to allow users to manage ftp sub-users.
 
 ### Usage
 
 This image can be used in two ways:
-- as an FTP module for OpenPanel
+- as an FTP module for VietPanel
 - as a standalone FTP server
 
 
-#### OpenPanel Module
+#### VietPanel Module
 
 To create new FTP accounts:
 ```bash

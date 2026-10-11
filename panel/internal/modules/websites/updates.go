@@ -213,7 +213,7 @@ func latestMediaWikiVersionForUpdates(ctx context.Context) (string, error) {
 			return "", err
 		}
 		// releases.wikimedia.org returns 403 to Go's default "Go-http-client" User-Agent - confirmed live, a plain browser/curl-like UA is required
-		req.Header.Set("User-Agent", "VietPanel/1.0 (+https://openpanel.com)")
+		req.Header.Set("User-Agent", "VietPanel/1.0 (+https://github.com/trongtri1512/vietpanel)")
 		client := &http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {

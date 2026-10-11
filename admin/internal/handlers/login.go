@@ -215,7 +215,7 @@ func blockIPTemporarily(ip string, blockLimit int) {
 		appendLogLine(ErrorLogPath, fmt.Sprintf("%s - Failed to block IP %s on Firewall: csf not available: %v", time.Now(), ip, err))
 		return
 	}
-	msg := fmt.Sprintf("Too many failed login attempts on OpenAdmin")
+	msg := fmt.Sprintf("Too many failed login attempts on VietAdmin")
 	if err := exec.Command("csf", "-td", ip, msg).Run(); err != nil {
 		appendLogLine(ErrorLogPath, fmt.Sprintf("%s - Failed to block IP %s on Firewall: %v", time.Now(), ip, err))
 		return
@@ -318,7 +318,7 @@ func (l *Login) pending2FAUser(r *http.Request) *admindb.User {
 
 const webauthnSessionKey = "passkey_login_session"
 
-var webauthnInvalidHostError = "Passkeys require OpenAdmin to be accessed over a domain name (not an IP address). Set up a custom domain to use this feature."
+var webauthnInvalidHostError = "Passkeys require VietAdmin to be accessed over a domain name (not an IP address). Set up a custom domain to use this feature."
 
 func webauthnRPID(r *http.Request) string {
 	host := r.Header.Get("X-Forwarded-Host")
@@ -391,7 +391,7 @@ func (l *Login) HandlePasskeyBegin(w http.ResponseWriter, r *http.Request) {
 
 	wa, err := webauthn.New(&webauthn.Config{
 		RPID:          rpID,
-		RPDisplayName: "OpenAdmin",
+		RPDisplayName: "VietAdmin",
 		RPOrigins:     []string{webauthnOrigin(r)},
 	})
 	if err != nil {
@@ -451,7 +451,7 @@ func (l *Login) HandlePasskeyComplete(w http.ResponseWriter, r *http.Request) {
 	rpID := webauthnRPID(r)
 	wa, err := webauthn.New(&webauthn.Config{
 		RPID:          rpID,
-		RPDisplayName: "OpenAdmin",
+		RPDisplayName: "VietAdmin",
 		RPOrigins:     []string{webauthnOrigin(r)},
 	})
 	if err != nil {

@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: OpenPanel\n"
+"Project-Id-Version: VietPanel\n"
 "Report-Msgid-Bugs-To: stefan@pejcic.rs\n"
 "POT-Creation-Date: 2026-10-05 12:31+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
@@ -117,7 +117,7 @@ msgid "Password Reset Requested"
 msgstr ""
 
 #: openpanel/internal/modules/account/forgotpassword.go:203
-msgid "OpenPanel [%(domain)s] - Password Reset Requested"
+msgid "VietPanel [%(domain)s] - Password Reset Requested"
 msgstr ""
 
 #: openpanel/internal/modules/account/forgotpassword.go:321
@@ -5756,7 +5756,7 @@ msgstr ""
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:377
 msgid ""
-"A guided walkthrough of the OpenPanel UI and pages. You can also start it "
+"A guided walkthrough of the VietPanel UI and pages. You can also start it "
 "anytime from the menu."
 msgstr ""
 
@@ -15111,7 +15111,7 @@ msgstr ""
 
 #: openpanel/internal/web/templates/manager/wp/list.html:344
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
 msgstr ""
 
@@ -16592,7 +16592,7 @@ msgid "Back to"
 msgstr ""
 
 #: openpanel/internal/web/templates/partials/_impersonate.html:4
-msgid "OpenAdmin"
+msgid "VietAdmin"
 msgstr ""
 
 #: openpanel/internal/web/templates/partials/_search.html:7
@@ -16907,12 +16907,12 @@ msgstr ""
 
 #: openpanel/internal/web/templates/php/extensions.html:67
 msgid ""
-"Mounted into the PHP service by OpenPanel, it can't be installed or disabled"
+"Mounted into the PHP service by VietPanel, it can't be installed or disabled"
 " here."
 msgstr ""
 
 #: openpanel/internal/web/templates/php/extensions.html:67
-msgid "Provided by OpenPanel"
+msgid "Provided by VietPanel"
 msgstr ""
 
 #: openpanel/internal/web/templates/php/extensions.html:82
@@ -17553,7 +17553,7 @@ msgid "Enter IP addresses or CIDRs (one per line)"
 msgstr ""
 
 #: openpanel/internal/web/templates/system/license_error.html:17
-msgid "OpenPanel Enterprise license key is invalid!"
+msgid "VietPanel Enterprise license key is invalid!"
 msgstr ""
 
 #: openpanel/internal/web/templates/system/license_error.html:21
@@ -18392,7 +18392,7 @@ msgid "Password Reset requested from server:"
 msgstr ""
 
 #: openpanel/internal/web/templates/user/email_template.html:82
-msgid "Password Reset requested from OpenPanel server:"
+msgid "Password Reset requested from VietPanel server:"
 msgstr ""
 
 #: openpanel/internal/web/templates/user/email_template.html:121
@@ -18483,7 +18483,7 @@ msgid "Locale / Language"
 msgstr ""
 
 #: openpanel/internal/web/templates/user/locale.html:11
-msgid "Choose the language OpenPanel is shown in for your account."
+msgid "Choose the language VietPanel is shown in for your account."
 msgstr ""
 
 #: openpanel/internal/web/templates/user/login.html:6

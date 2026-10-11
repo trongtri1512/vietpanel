@@ -1,1 +1,1 @@
-https://github.com/stefanpejcic/VietPanel-FTP/
+https://github.com/stefanpejcic/OpenPanel-FTP/

@@ -1,9 +1,9 @@
 ---
 name: deploy-openadmin
-description: Build the OpenAdmin Go binary and deploy it to the test server's 'admin' systemd service, then smoke-test it live.
+description: Build the VietAdmin Go binary and deploy it to the test server's 'admin' systemd service, then smoke-test it live.
 ---
 
-# Deploy OpenAdmin to the test server
+# Deploy VietAdmin to the test server
 
 Deploys the current working tree of this repo to a test server by
 replacing the `admin` systemd service's binary, then verifies it actually
@@ -19,7 +19,7 @@ and don't echo them back or persist them anywhere.
 Ask the user (if not already given earlier in this conversation) for:
 1. The server's IP address or hostname (call it `$SERVER` below).
 2. The root SSH password for that server.
-3. OpenAdmin login credentials to use for the post-deploy smoke test (a
+3. VietAdmin login credentials to use for the post-deploy smoke test (a
    username/password that can log into `https://$SERVER:2087` — confirm
    the port too, in case it's not 2087 on this server).
 

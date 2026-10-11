@@ -167,7 +167,7 @@ func handleForgotPassword(a *appctx.App, w http.ResponseWriter, r *http.Request)
 // errSMTPNotConfigured is returned when openpanel.config has no [SMTP] mail_server set - handleForgotPassword surfaces this instead of silently pretending the email was sent
 var errSMTPNotConfigured = errors.New("smtp is not configured")
 
-// sendPasswordResetEmail stashes the token in Redis (default TTL 5m, shorter than the token's own 15-minute window - a known quirk, not a bug), then emails the reset link via the same SMTP relay OpenAdmin uses (see loadSMTPConfig)
+// sendPasswordResetEmail stashes the token in Redis (default TTL 5m, shorter than the token's own 15-minute window - a known quirk, not a bug), then emails the reset link via the same SMTP relay VietAdmin uses (see loadSMTPConfig)
 func sendPasswordResetEmail(a *appctx.App, ctx context.Context, t i18n.Translator, userID int, username, email string) error {
 	cfg, ok := loadSMTPConfig(a)
 	if !ok {
@@ -204,7 +204,7 @@ func sendPasswordResetEmail(a *appctx.App, ctx context.Context, t i18n.Translato
 	return sendMail(cfg, email, subject, buf.String())
 }
 
-// smtpConfig is the [SMTP] section of openpanel.config, set via OpenAdmin's Settings > Notifications page - the same keys OpenAdmin's own mailer reads, so one set of credentials serves both apps
+// smtpConfig is the [SMTP] section of openpanel.config, set via VietAdmin's Settings > Notifications page - the same keys VietAdmin's own mailer reads, so one set of credentials serves both apps
 type smtpConfig struct {
 	Host     string
 	Port     string
@@ -240,7 +240,7 @@ func loadSMTPConfig(a *appctx.App) (smtpConfig, bool) {
 	}, true
 }
 
-// sendMail sends an HTML email over cfg's relay: implicit TLS if UseSSL, STARTTLS if UseTLS and the server advertises it, plaintext otherwise - mirrors OpenAdmin's own mailerSendRun
+// sendMail sends an HTML email over cfg's relay: implicit TLS if UseSSL, STARTTLS if UseTLS and the server advertises it, plaintext otherwise - mirrors VietAdmin's own mailerSendRun
 func sendMail(cfg smtpConfig, to, subject, htmlBody string) error {
 	msg := "From: " + cfg.From + "\r\n" +
 		"To: " + to + "\r\n" +

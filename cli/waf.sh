@@ -111,7 +111,7 @@ check_coraza_status() {
   if $image_enabled && $waf_enabled; then
     echo "CorazaWAF is ENABLED"
   elif $image_enabled; then
-    echo "CorazaWAF is DISABLED: 'waf' module is not enabled in OpenAdmin > Settings > Modules.)"
+    echo "CorazaWAF is DISABLED: 'waf' module is not enabled in VietAdmin > Settings > Modules.)"
   elif $waf_enabled; then
     echo "CorazaWAF is DISABLED: 'waf' module is enabled, but Caddy is not using $custom_image"
   else

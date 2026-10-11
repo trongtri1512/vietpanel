@@ -21,7 +21,7 @@ IONCUBE_DIR = ROOT / "php" / "ioncube"
 OLS_INI_DIR = IONCUBE_DIR / "openlitespeed"
 COMPOSE = ROOT / "docker" / "compose" / "1.0" / "docker-compose.yml"
 
-# path of this repo's php/ dir on OpenPanel servers
+# path of this repo's php/ dir on VietPanel servers
 HOST_PHP = "/etc/openpanel/php"
 HOST_IONCUBE = f"{HOST_PHP}/ioncube"
 

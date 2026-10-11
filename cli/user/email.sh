@@ -3,7 +3,7 @@
 # Script Name: user/email.sh
 # Description: Change email for user
 # Usage: vietcli user-email <USERNAME> <NEW_EMAIL>
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Radovan Jecmenica
 # Created: 06.12.2023
 # Last Modified: 21.08.2026

@@ -177,7 +177,7 @@ collect_services_status() {
   run_command "cd /root && podman-compose ps"             "VietPanel stack"                           "$tmp"
   run_command "podman ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'" "Host containers" "$tmp"
   run_command "podman stats --no-stream"                  "Host container resource usage"             "$tmp"
-  run_command "systemctl status admin --no-pager -n 20"   "OpenAdmin service"                         "$tmp"
+  run_command "systemctl status admin --no-pager -n 20"   "VietAdmin service"                         "$tmp"
   run_command "systemctl status podman.socket --no-pager -n 10" "Podman socket"                      "$tmp"
   run_command "systemctl status csf --no-pager -n 10"     "Sentinel Firewall (CSF)"                   "$tmp"
 }
@@ -194,7 +194,7 @@ collect_openpanel_settings() {
 collect_logs() {
   local tmp="$1"
   section "Logs (last $LOG_LINES lines)" "$tmp"
-  run_command "tail -n $LOG_LINES /var/log/openpanel/admin/error.log"   "OpenAdmin error log"         "$tmp"
+  run_command "tail -n $LOG_LINES /var/log/openpanel/admin/error.log"   "VietAdmin error log"         "$tmp"
   run_command "tail -n $LOG_LINES /var/log/openpanel/admin/notifications.log" "Notifications"         "$tmp"
   local c
   for c in openpanel caddy openpanel_mysql openpanel_redis; do
@@ -302,7 +302,7 @@ upload_report() {
 	  	clear
 	  fi
 	  if [ "$upload_flag" = true ]; then
-	    response=$(curl -F "file=@$output_file" https://support.openpanel.org/vietcli_server_info.php 2>/dev/null)
+	    response=$(curl -F "file=@$output_file" https://github.com/trongtri1512/vietpanel/issues/vietcli_server_info.php 2>/dev/null)
 	    if echo "$response" | grep -q "File upload failed."; then
 	      echo ""
 	      echo -e "Information collected successfully but uploading to support.openpanel.org failed. Please provide content from the following file to the support team:\n$output_file"

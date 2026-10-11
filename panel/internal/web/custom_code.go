@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// read once at startup, OpenAdmin flags a restart when these change
+// read once at startup, VietAdmin flags a restart when these change
 var customHeaderHTML, customFooterHTML template.HTML
 
 // LoadCustomCode reads in_header.html/in_footer.html from dir, "" clears them

@@ -18,7 +18,7 @@ import (
 	"vietpanel/admin/internal/webtemplates"
 )
 
-const adminCommandError = "Error occurred running opencli admin command - consult documentation: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#openadmin"
+const adminCommandError = "Error occurred running opencli admin command - consult documentation: https://github.com/trongtri1512/vietpanel/articles/accounts/forbidden-usernames/#openadmin"
 
 var (
 	adminUsernameRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
@@ -213,7 +213,7 @@ func (a *Administrators) runAction(action, username, password string, r *http.Re
 
 // updatePasswordForUser enforces role-based permission checks: an admin may
 // reset anyone's password; a plain "user" may not touch the Super
-// Administrator's password; a reseller may not touch any OpenAdmin account
+// Administrator's password; a reseller may not touch any VietAdmin account
 // (this handler is already gated to admins, so resellers never reach here
 // in practice, but the check is kept anyway as defense in depth).
 func (a *Administrators) updatePasswordForUser(username, newPassword string, currentUser *admindb.User) bool {

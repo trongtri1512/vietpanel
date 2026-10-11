@@ -174,7 +174,7 @@ var modernAreas = []navArea{
 				tabSpec{true, "/security/2fa", "Two-Factor Authentication", strings.HasPrefix(path, "/security/2fa")},
 				tabSpec{true, "/security/passkeys", "Passkeys", strings.HasPrefix(path, "/security/passkeys")},
 				tabSpec{true, "/security/blacklist-useragents", "Blocked User Agents", strings.HasPrefix(path, "/security/blacklist-useragents")},
-				tabSpec{true, "/security/disable-admin", "Disable OpenAdmin", strings.HasPrefix(path, "/security/disable-admin")},
+				tabSpec{true, "/security/disable-admin", "Disable VietAdmin", strings.HasPrefix(path, "/security/disable-admin")},
 			)
 		}},
 	{label: "Server", icon: serverIcon, menuID: "server-menu", show: adminOnly,

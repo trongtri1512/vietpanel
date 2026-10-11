@@ -39,12 +39,12 @@ var (
 
 // fallbackLogFiles is used when LogPathsFile is missing or invalid.
 var fallbackLogFiles = map[string]string{
-	"OpenAdmin Access Log":    "/var/log/openpanel/admin/access.log",
-	"OpenAdmin Error Log":     "/var/log/openpanel/admin/error.log",
-	"OpenAdmin API Log":       "/var/log/openpanel/admin/api.log",
-	"OpenAdmin Login Log":     "/var/log/openpanel/admin/login.log",
-	"OpenAdmin Notifications": "/var/log/openpanel/admin/notifications.log",
-	"OpenAdmin Crons Log":     "/var/log/openpanel/admin/cron.log",
+	"VietAdmin Access Log":    "/var/log/openpanel/admin/access.log",
+	"VietAdmin Error Log":     "/var/log/openpanel/admin/error.log",
+	"VietAdmin API Log":       "/var/log/openpanel/admin/api.log",
+	"VietAdmin Login Log":     "/var/log/openpanel/admin/login.log",
+	"VietAdmin Notifications": "/var/log/openpanel/admin/notifications.log",
+	"VietAdmin Crons Log":     "/var/log/openpanel/admin/cron.log",
 	"VietPanel Access Log":    "/var/log/openpanel/user/access.log",
 	"VietPanel Error Log":     "openpanel",
 	"OpenCLI Logs":            "/var/log/openpanel/admin/opencli.log",
@@ -164,13 +164,13 @@ func (l *Logs) ServeIndex(w http.ResponseWriter, r *http.Request) {
 
 	allNames := make([]string, 0, len(logFiles))
 	for name := range logFiles {
-		if !strings.HasPrefix(name, "OpenAdmin") && !strings.HasPrefix(name, "VietPanel") {
+		if !strings.HasPrefix(name, "VietAdmin") && !strings.HasPrefix(name, "VietPanel") {
 			allNames = append(allNames, name)
 		}
 	}
 
 	webtemplates.Render(w, "services_logs.html", mergeChrome(map[string]interface{}{
-		"OpenAdminLogs": sortedLogEntries(logFiles, "OpenAdmin"),
+		"VietAdminLogs": sortedLogEntries(logFiles, "VietAdmin"),
 		"VietPanelLogs": sortedLogEntries(logFiles, "VietPanel"),
 		"OtherLogs":     sortedLogEntries(logFiles, allNames...),
 		"CSRFToken":     csrf.Token(r),

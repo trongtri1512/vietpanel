@@ -1,7 +1,7 @@
 #!/bin/bash
 ################################################################################
 # Script Name: admin.sh
-# Description: Manage OpenAdmin service and Administrators.
+# Description: Manage VietAdmin service and Administrators.
 # Usage: vietcli admin <command> [options]
 # Author: Stefan Pejcic
 # Created: 01.11.2023
@@ -62,11 +62,11 @@ usage() {
     echo "Usage: vietcli admin <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  on                                            Enable and start the OpenAdmin service."
-    echo "  off                                           Stop and disable the OpenAdmin service."
-    echo "  port [new_port]                               Display or update OpenAdmin port."
-    echo "  log                                           Display the last 25 lines of the OpenAdmin error log."
-    echo "  logs                                          Display live logs for all OpenAdminn services."
+    echo "  on                                            Enable and start the VietAdmin service."
+    echo "  off                                           Stop and disable the VietAdmin service."
+    echo "  port [new_port]                               Display or update VietAdmin port."
+    echo "  log                                           Display the last 25 lines of the VietAdmin error log."
+    echo "  logs                                          Display live logs for all VietAdminn services."
     echo "  list                                          List all current admin users."
     echo "  new <user> <pass> [--reseller|--super]        Add a new user, optionally as a reseller or super admin."
     echo "  password <user> <pass>                        Reset the password for the specified admin user."
@@ -120,13 +120,13 @@ usage_for_notifications() {
     echo ""
     echo "Examples:"
     echo "  vietcli admin notifications get reboot        - if 'yes' you will receive notification when server is restarted."
-    echo "  vietcli admin notifications get login         - if 'yes' you will receive notification for new logins to OpenAdmin."
+    echo "  vietcli admin notifications get login         - if 'yes' you will receive notification for new logins to VietAdmin."
     echo "  vietcli admin notifications update update yes - receive notification when new VietPanel update is available."
     echo "  vietcli admin notifications update cpu 90     - receive notification when server CPU usage is over 90%."
     echo "  vietcli admin notifications update du 95      - receive notification when server disk usage is over 95%."
 	echo "  vietcli admin notifications update webhook_url https://discord.com/api/webhooks/XXXX/YYYYYYY"
     echo ""
-    echo "List of all available options: https://openpanel.com/docs/articles/vietcli/admin"
+    echo "List of all available options: https://github.com/trongtri1512/vietpanel/docs/articles/vietcli/admin"
     exit 1  
 }
 
@@ -235,7 +235,7 @@ get_config() {
     elif grep -q "^$param_name=" "$notifications_file"; then
         echo "Parameter $param_name has no value."
     else
-        echo "Parameter $param_name does not exist. Docs: https://openpanel.com/docs/articles/vietcli/admin"
+        echo "Parameter $param_name does not exist. Docs: https://github.com/trongtri1512/vietpanel/docs/articles/vietcli/admin"
     fi
 }
 
@@ -248,7 +248,7 @@ update_config() {
         echo "Updated $param_name to $new_value"
         
     else
-        echo "Parameter $param_name not found in the configuration file. Docs: https://openpanel.com/docs/articles/vietcli/admin"
+        echo "Parameter $param_name not found in the configuration file. Docs: https://github.com/trongtri1512/vietpanel/docs/articles/vietcli/admin"
     fi
 }
 
@@ -258,10 +258,10 @@ validate_password_and_username() {
     local input="$1"
     local field_name="$2"
 
-    # https://github.com/stefanpejcic/VietPanel/issues/442
+    # https://github.com/stefanpejcic/OpenPanel/issues/442
     if [[ "$input" =~ ^\$\$ ]]; then
         echo "ERROR: $field_name cannot start with '\$\$' as it may cause unintended behavior."
-	echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#openadmin"
+	echo "       docs: https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#openadmin"
         exit 1
     fi
 
@@ -270,7 +270,7 @@ validate_password_and_username() {
         :
     else
         echo "ERROR: $field_name is invalid. It must contain only letters and numbers, and be between 5 and 30 characters."
-        echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#openadmin"
+        echo "       docs: https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#openadmin"
         exit 1
     fi
     
@@ -314,12 +314,12 @@ check_edition() {
 detect_service_status() {
     if systemctl is-active --quiet $service_name; then
         admin_url=$(get_admin_url)
-        echo -e "${GREEN}●${RESET} OpenAdmin is running and is available on: $admin_url"
+        echo -e "${GREEN}●${RESET} VietAdmin is running and is available on: $admin_url"
     else
 		if [[ -f /root/openadmin_is_disabled ]]; then
-			echo -e "${RED}×${RESET} OpenAdmin is disabled. To enable it run 'vietcli admin on' "
+			echo -e "${RED}×${RESET} VietAdmin is disabled. To enable it run 'vietcli admin on' "
 		else
-			echo -e "${RED}×${RESET} OpenAdmin is not running. To enable it run 'vietcli admin on' "
+			echo -e "${RED}×${RESET} VietAdmin is not running. To enable it run 'vietcli admin on' "
 		fi
 	fi
 }
@@ -641,7 +641,7 @@ multitail_admin_logs(){
 }
 
 
-# https://github.com/stefanpejcic/VietPanel/issues/993
+# https://github.com/stefanpejcic/OpenPanel/issues/993
 # TODO: remove after 1.8+
 ensure_totp_columns
 
@@ -649,15 +649,15 @@ ensure_totp_columns
 # ---------------------- MAIN ---------------------- #
 case "$1" in
     "on")
-        echo "Enabling the OpenAdmin..."
+        echo "Enabling the VietAdmin..."
 		rm /root/openadmin_is_disabled > /dev/null 2>&1
         systemctl enable --now $service_name > /dev/null 2>&1
         detect_service_status
-		nohup vietcli sentinel --action=admin_status --title="OpenAdmin enabled" --message="Administrator-level panel has been enabled." >/dev/null 2>&1 &
+		nohup vietcli sentinel --action=admin_status --title="VietAdmin enabled" --message="Administrator-level panel has been enabled." >/dev/null 2>&1 &
 		disown
         ;;
     "log")
-		echo "Restarting OpenAdmin service:"
+		echo "Restarting VietAdmin service:"
         systemctl enable --now $service_name > /dev/null 2>&1
         echo "tail -f 25 $admin_logs_file"
         echo ""
@@ -669,8 +669,8 @@ case "$1" in
         multitail_admin_logs
         ;;
     "off")
-        echo "Disabling the OpenAdmin..."
-		nohup vietcli sentinel --action=admin_status --title="OpenAdmin disabled" --message="Administrator-level panel has been disabled." >/dev/null 2>&1 &
+        echo "Disabling the VietAdmin..."
+		nohup vietcli sentinel --action=admin_status --title="VietAdmin disabled" --message="Administrator-level panel has been disabled." >/dev/null 2>&1 &
         systemctl disable --now $service_name > /dev/null 2>&1
 		touch /root/openadmin_is_disabled
         detect_service_status
@@ -714,12 +714,12 @@ case "$1" in
 		optional_flag="$3"
         if [ -n "$new_port" ]; then
 		    if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -le 443 ]; then
-		        echo "Error: OpenAdmin port number must be greater than 443."
+		        echo "Error: VietAdmin port number must be greater than 443."
 		        exit 1
 		    fi
 
 			if [[ "$new_port" == "443" ]]; then
-				echo "Removing port for OpenAdmin"
+				echo "Removing port for VietAdmin"
 			else
             	echo "Changing port to: $new_port"
 				sed -i \
@@ -741,7 +741,7 @@ case "$1" in
 			        sed -i "s/TCP_IN = \"\(.*\)\"/TCP_IN = \"\1,${new_port}\"/" "$csf_conf"
 			        nohup csf -r > /dev/null 2>&1 < /dev/null &
 			    fi
-	            echo "Restarting OpenAdmin.."
+	            echo "Restarting VietAdmin.."
 				systemctl restart admin
 				if [[ "$new_port" == "443" ]]; then
 					echo "Restarting Caddy.."
@@ -749,12 +749,12 @@ case "$1" in
 				fi
 			else
 				if [[ "$new_port" == "443" ]]; then
-					echo "Restart OpenAdmin service and Caddy container to apply new port."
+					echo "Restart VietAdmin service and Caddy container to apply new port."
 				else
-	            	echo "Make sure to open the new port on Firewall and restart OpenAdmin service to apply new port."
+	            	echo "Make sure to open the new port on Firewall and restart VietAdmin service to apply new port."
 				fi
 			fi
-			nohup vietcli sentinel --action=admin_port --title="OpenAdmin port changed" --message="Port for administrator-level panel has been changed to '$new_port'." >/dev/null 2>&1 &
+			nohup vietcli sentinel --action=admin_port --title="VietAdmin port changed" --message="Port for administrator-level panel has been changed to '$new_port'." >/dev/null 2>&1 &
 			disown
 			echo "Done"
         else

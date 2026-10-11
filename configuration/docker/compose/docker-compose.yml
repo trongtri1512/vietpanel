@@ -1,5 +1,5 @@
 services:
-  # Database for OpenPanel users, plans, websites and domains
+  # Database for VietPanel users, plans, websites and domains
   openpanel_mysql:
     image: mariadb:10-focal
     container_name: openpanel_mysql
@@ -62,7 +62,7 @@ services:
           memory: "${REDIS_RAM:-0.5G}"
           pids: 100
 
-  # OpenPanel UI
+  # VietPanel UI
   openpanel:
     image: openpanel/openpanel:${VERSION}
     container_name: openpanel
@@ -206,14 +206,14 @@ services:
 volumes:
   mysql:
     labels:
-      description: "This volume holds the OpenPanel UI database."
+      description: "This volume holds the VietPanel UI database."
       purpose: "configuration"
 
 networks:
   openpanel_network:
     driver: bridge
     labels:
-      description: "This network allows OpenPanel UI to communicate to system containers."
+      description: "This network allows VietPanel UI to communicate to system containers."
       purpose: "internal"
     ipam:
       config:

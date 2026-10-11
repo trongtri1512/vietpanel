@@ -3,7 +3,7 @@
 # Script Name: ftp/path.sh
 # Description: Change FTP path for a user.
 # Usage: vietcli ftp-path <username> <path> <openpanel_username> [--debug]
-# Docs: https://docs.openpanel.com/
+# Docs: https://github.com/trongtri1512/vietpanel/
 # Author: Stefan Pejcic
 # Created: 10.09.2024
 # Last Modified: 21.08.2026

@@ -183,7 +183,7 @@ func TestSafeJoinOr400(t *testing.T) {
 
 func TestServeIndexGroupsLogs(t *testing.T) {
 	withScratchLogPaths(t)
-	os.WriteFile(LogPathsFile, []byte(`{"OpenAdmin Access Log": "/var/log/x.log", "VietPanel Access Log": "/var/log/y.log", "Syslog": "/var/log/syslog"}`), 0644)
+	os.WriteFile(LogPathsFile, []byte(`{"VietAdmin Access Log": "/var/log/x.log", "VietPanel Access Log": "/var/log/y.log", "Syslog": "/var/log/syslog"}`), 0644)
 
 	l := &Logs{}
 	srv, client := newLogsTestServer(t, l)
@@ -195,7 +195,7 @@ func TestServeIndexGroupsLogs(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	got := string(body)
-	for _, want := range []string{"OpenAdmin Access Log", "VietPanel Access Log", "Syslog", "Log Viewer", "</html>"} {
+	for _, want := range []string{"VietAdmin Access Log", "VietPanel Access Log", "Syslog", "Log Viewer", "</html>"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected body to contain %q, got %s", want, truncate(got))
 		}

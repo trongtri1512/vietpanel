@@ -17,7 +17,7 @@ Exception is the multi-line comment at the beginning of the files, that one need
 # Author: Stefan Pejcic
 # Created: 26.10.2023
 # Last Modified: 21.08.2026
-# Company: OpenPanel, LLC.
+# Company: VietPanel, LLC.
 # Copyright (c) openpanel.com
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -47,7 +47,7 @@ Exception is the multi-line comment at the beginning of the files, that one need
 
 # Docs
 
-Command docs live in `/home/stefan/VietPanel/website/docs/articles/vietcli/` (the VietPanel repo, `../VietPanel/website/docs/articles/vietcli/` from here), published at https://openpanel.com/docs/articles/vietcli/. They must always match the scripts exactly.
+Command docs live in `/home/stefan/VietPanel/website/docs/articles/vietcli/` (the VietPanel repo, `../VietPanel/website/docs/articles/vietcli/` from here), published at https://github.com/trongtri1512/vietpanel They must always match the scripts exactly.
 
 Whenever you change any script here, before finishing:
 

@@ -3,7 +3,7 @@
 # Script Name: email/webmail.sh
 # Description: Display or update the domain used for accessing webmail.
 # Usage: vietcli email-webmail [--debug] [domain <domain>]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: 27.08.2024
 # Created: 18.08.2024
 # Last Modified: 21.08.2026

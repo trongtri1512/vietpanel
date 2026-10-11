@@ -5,7 +5,7 @@ TOASTS EXAMPLES:
 showToast(toastMessage, 'success');
 
 // add report button with a link
-showToast(toastMessage, 'error', true, 'https://openpanel.com/report?page=xxx&error=yyyy&ver=zzz');
+showToast(toastMessage, 'error', true, 'https://github.com/trongtri1512/vietpanel/report?page=xxx&error=yyyy&ver=zzz');
 
 // do not dismiss toast after 5sec
 showToast(toastMessage, 'warning', true);

@@ -3,7 +3,7 @@
 # Script Name: ftp/add.sh
 # Description: Create FTP sub-user for openpanel user.
 # Usage: vietcli ftp-add <NEW_USERNAME> <NEW_PASSWORD> <FOLDER> <OPENPANEL_USERNAME> [--debug]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 22.05.2024
 # Last Modified: 21.08.2026
@@ -195,31 +195,31 @@ validate_data() {
 
 	if [ ${#password} -lt 8 ]; then
 	    echo "ERROR: Password is too short. It must be at least 8 characters long."
-	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    echo "       docs: https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#ftp"
 	    exit 1
 	fi
 	
 	if ! [[ $password =~ [A-Z] ]]; then
 	    echo "ERROR: Password must contain at least one uppercase letter."
-	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    echo "       docs: https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#ftp"
 	    exit 1
 	fi
 	
 	if ! [[ $password =~ [a-z] ]]; then
 	    echo "ERROR: Password must contain at least one lowercase letter."
-	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    echo "       docs: https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#ftp"
 	    exit 1
 	fi
 	
 	if ! [[ $password =~ [0-9] ]]; then
 	    echo "ERROR: Password must contain at least one digit."
-	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    echo "       docs: https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#ftp"
 	    exit 1
 	fi
 	
 	if ! [[ $password =~ [[:punct:]] ]]; then
 	    echo "ERROR: Password must contain at least one special character."
-	    echo "       docs: https://openpanel.com/docs/articles/accounts/forbidden-usernames/#ftp"
+	    echo "       docs: https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#ftp"
 	    exit 1
 	fi
 

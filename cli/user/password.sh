@@ -3,7 +3,7 @@
 # Script Name: user/password.sh
 # Description: Reset password for a user.
 # Usage: vietcli user-password <USERNAME> <NEW_PASSWORD | random>
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 30.11.2023
 # Last Modified: 21.08.2026

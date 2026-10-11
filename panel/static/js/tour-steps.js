@@ -1,4 +1,4 @@
-/* OpenPanel UI product tour - step definitions, grouped by page in walkthrough order.
+/* VietPanel UI product tour - step definitions, grouped by page in walkthrough order.
    Add new pages by appending more entries with the matching `path`. Steps whose
    `element` selector isn't found on the page (feature disabled for this user,
    Enterprise-only, widget hidden, etc.) are skipped automatically by tour.js. */

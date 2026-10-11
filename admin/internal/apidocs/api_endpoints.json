@@ -740,7 +740,7 @@
         "method": "GET",
         "path": "/api/security/basic-auth",
         "auth": "RequireAPIAdmin",
-        "description": "Returns the current HTTP Basic Auth protection settings configured for OpenAdmin itself.",
+        "description": "Returns the current HTTP Basic Auth protection settings configured for VietAdmin itself.",
         "response": {
           "basic_auth": "yes",
           "basic_auth_username": "admin",
@@ -751,7 +751,7 @@
         "method": "POST",
         "path": "/api/security/basic-auth",
         "auth": "RequireAPIAdmin",
-        "description": "Updates HTTP Basic Auth settings for OpenAdmin (enabled flag, username, password); any provided fields are written to config and OpenAdmin is flagged for restart.",
+        "description": "Updates HTTP Basic Auth settings for VietAdmin (enabled flag, username, password); any provided fields are written to config and VietAdmin is flagged for restart.",
         "body": {
           "basic_auth": "yes",
           "basic_auth_username": "admin",
@@ -759,7 +759,7 @@
         },
         "response": {
           "success": true,
-          "message": "Basic_auth settings for OpenAdmin edited successfully."
+          "message": "Basic_auth settings for VietAdmin edited successfully."
         }
       },
       {
@@ -776,7 +776,7 @@
         "method": "POST",
         "path": "/api/security/blacklist-useragents",
         "auth": "RequireAPIAdmin",
-        "description": "Updates the blacklisted user-agents list and/or the enabled flag; flags OpenPanel for restart if anything changed.",
+        "description": "Updates the blacklisted user-agents list and/or the enabled flag; flags VietPanel for restart if anything changed.",
         "body": {
           "blacklist_useragents": "sqlmap\nnikto\nmasscan",
           "enabled": "yes"
@@ -791,10 +791,10 @@
         "method": "POST",
         "path": "/api/security/disable-admin",
         "auth": "RequireAPIAdmin",
-        "description": "Disables OpenAdmin entirely (runs 'opencli admin off' in the background), after which OpenAdmin must be managed via terminal.",
+        "description": "Disables VietAdmin entirely (runs 'opencli admin off' in the background), after which VietAdmin must be managed via terminal.",
         "response": {
           "success": true,
-          "message": "OpenAdmin is now disabled and all further actions need to be performed via terminal."
+          "message": "VietAdmin is now disabled and all further actions need to be performed via terminal."
         }
       },
       {
@@ -1076,7 +1076,7 @@
         "method": "GET",
         "path": "/api/system",
         "auth": "RequireAPIToken",
-        "description": "Returns a snapshot of host system information: hostname, OS, kernel version, CPU model, uptime (seconds), running process count, OpenPanel version, and available package updates count.",
+        "description": "Returns a snapshot of host system information: hostname, OS, kernel version, CPU model, uptime (seconds), running process count, VietPanel version, and available package updates count.",
         "response": {
           "hostname": "server1",
           "os": "Ubuntu 22.04.3 LTS",
@@ -1466,7 +1466,7 @@
         "method": "GET",
         "path": "/api/server/reboot/status",
         "auth": "RequireAPIToken",
-        "description": "Lightweight liveness probe used to detect when the server has come back up after a reboot; simply confirms the OpenAdmin API is reachable and responding.",
+        "description": "Lightweight liveness probe used to detect when the server has come back up after a reboot; simply confirms the VietAdmin API is reachable and responding.",
         "response": {
           "status": "up"
         }
@@ -1610,7 +1610,7 @@
         "method": "POST",
         "path": "/api/settings/general",
         "auth": "RequireAPIAdmin",
-        "description": "Updates general server settings (domain, ports, proxy backend, dev mode); applies only the values that changed, writes OpenPanel/OpenAdmin restart-needed flag files as appropriate, and reports which settings were changed.",
+        "description": "Updates general server settings (domain, ports, proxy backend, dev mode); applies only the values that changed, writes VietPanel/VietAdmin restart-needed flag files as appropriate, and reports which settings were changed.",
         "body": {
           "force_domain": "panel.example.com",
           "2087_port": "2087",
@@ -1823,7 +1823,7 @@
           "translations": [
             {
               "locale": "en",
-              "provider": "OpenPanel",
+              "provider": "VietPanel",
               "path": "/etc/openpanel/openadmin/translations/en",
               "installed": true,
               "is_default": true
@@ -1880,7 +1880,7 @@
         "method": "POST",
         "path": "/api/settings/modules",
         "auth": "RequireAPIAdmin",
-        "description": "Replaces the enabled_modules list in the modules config file, toggles the phpmyadmin/clamav docker-compose services to match, generates the DNS rndc key if a DNS module was newly enabled, and flags OpenPanel for restart.",
+        "description": "Replaces the enabled_modules list in the modules config file, toggles the phpmyadmin/clamav docker-compose services to match, generates the DNS rndc key if a DNS module was newly enabled, and flags VietPanel for restart.",
         "body": {
           "enabled_modules": [
             "phpmyadmin",
@@ -1923,7 +1923,7 @@
         "method": "POST",
         "path": "/api/settings/custom-code",
         "auth": "RequireAPIAdmin",
-        "description": "Writes any of the custom-code fields present as string values in the body to their corresponding files and flags OpenPanel for restart. Unlike the HTML page, this API endpoint applies no Enterprise-license/reseller-role gating on the Enterprise-only fields (custom_css, custom_js, in_header, in_footer, custom_section, howto_guides).",
+        "description": "Writes any of the custom-code fields present as string values in the body to their corresponding files and flags VietPanel for restart. Unlike the HTML page, this API endpoint applies no Enterprise-license/reseller-role gating on the Enterprise-only fields (custom_css, custom_js, in_header, in_footer, custom_section, howto_guides).",
         "body": {
           "custom_css": ".brand { color: #123; }",
           "forbidden_usernames": "admin\nroot\n"
@@ -2034,7 +2034,7 @@
         "method": "GET",
         "path": "/api/settings/updates/tags",
         "auth": "RequireAPIAdmin",
-        "description": "Lists available OpenPanel docker image tags/versions fetched from Docker Hub.",
+        "description": "Lists available VietPanel docker image tags/versions fetched from Docker Hub.",
         "response": [
           "latest",
           "3.4.2",
@@ -2218,7 +2218,7 @@
         "method": "POST",
         "path": "/api/import/{panel_type}",
         "auth": "RequireAPIAdmin",
-        "description": "Starts an import of a cPanel or CyberPanel backup into a new OpenPanel account, cloning/running the import script for the given backup path and target hosting plan in the background.",
+        "description": "Starts an import of a cPanel or CyberPanel backup into a new VietPanel account, cloning/running the import script for the given backup path and target hosting plan in the background.",
         "body": {
           "path": "/root/backup-user.tar.gz",
           "plan_name": "default_plan_apache"
@@ -2242,7 +2242,7 @@
         "method": "GET",
         "path": "/api/import/backup-files",
         "auth": "RequireAPIAdmin",
-        "description": "Performs a shallow (non-recursive) scan of /, /home, and /root for cPanel/CyberPanel (backup-*.tar.gz) or OpenPanel (<user>_<date>_<time>.tar.gz) style backup archives and returns the matched absolute paths as a flat array. Delegates to the same logic as the HTML admin /json/backup-files route.",
+        "description": "Performs a shallow (non-recursive) scan of /, /home, and /root for cPanel/CyberPanel (backup-*.tar.gz) or VietPanel (<user>_<date>_<time>.tar.gz) style backup archives and returns the matched absolute paths as a flat array. Delegates to the same logic as the HTML admin /json/backup-files route.",
         "response": [
           "/home/backup-alice.tar.gz",
           "/root/bob_2024-01-15_10-30-00.tar.gz"
@@ -2252,7 +2252,7 @@
         "method": "GET",
         "path": "/api/import/transfers",
         "auth": "RequireAPIAdmin",
-        "description": "Lists every OpenPanel-to-OpenPanel transfer log file (*.log) directly under the transfer log directory, as a flat array of file paths. Delegates to the same logic as the HTML admin /json/transfers route.",
+        "description": "Lists every VietPanel-to-VietPanel transfer log file (*.log) directly under the transfer log directory, as a flat array of file paths. Delegates to the same logic as the HTML admin /json/transfers route.",
         "response": [
           "/var/log/openpanel/transfers/alice_2024.log"
         ]
@@ -2261,7 +2261,7 @@
         "method": "POST",
         "path": "/api/import/transfers",
         "auth": "RequireAPIAdmin",
-        "description": "Starts a live OpenPanel-to-OpenPanel account transfer in the background by running `opencli user-transfer` with the given target account, host, and SSH credentials. If the target server is an IP (not a domain), it also configures iptables for the transfer.",
+        "description": "Starts a live VietPanel-to-VietPanel account transfer in the background by running `opencli user-transfer` with the given target account, host, and SSH credentials. If the target server is an IP (not a domain), it also configures iptables for the transfer.",
         "body": {
           "openpanel_username": "newuser",
           "server": "example.com",
@@ -2279,7 +2279,7 @@
         "method": "GET",
         "path": "/api/import/transfers/{username}",
         "auth": "RequireAPIOwnerOrAdmin",
-        "description": "Scans the transfer log directory for logs belonging to a given OpenPanel username and reports each transfer's current status (derived from the log's PID/SUCCESS markers and whether that PID is still alive). A \"SUSPENDED_\" prefix on the username is stripped before scanning, mirroring the suspended-account naming convention used elsewhere.",
+        "description": "Scans the transfer log directory for logs belonging to a given VietPanel username and reports each transfer's current status (derived from the log's PID/SUCCESS markers and whether that PID is still alive). A \"SUSPENDED_\" prefix on the username is stripped before scanning, mirroring the suspended-account naming convention used elsewhere.",
         "response": [
           {
             "filename": "carol_success.log",

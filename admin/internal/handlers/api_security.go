@@ -1,6 +1,6 @@
 // This file implements the JSON REST API's admin-level security surface:
-// basic-auth protection for OpenAdmin itself, the useragent blacklist,
-// disabling OpenAdmin, the ConfigServer Firewall passthrough, and
+// basic-auth protection for VietAdmin itself, the useragent blacklist,
+// disabling VietAdmin, the ConfigServer Firewall passthrough, and
 // CorazaWAF status/rule-set management. Each reuses the same on-disk paths
 // and opencli/csf.pl plumbing as its HTML admin-page equivalent
 // (security_toggles.go, firewall.go, waf.go) -- only the response shape
@@ -53,7 +53,7 @@ func (s *APISecurity) ServeBasicAuth(w http.ResponseWriter, r *http.Request) {
 		os.WriteFile(bootstrap.RestartFlagPath, []byte("Restart needed"), 0644)
 		writeJSON(w, map[string]interface{}{
 			"success": true,
-			"message": "Basic_auth settings for OpenAdmin edited successfully.",
+			"message": "Basic_auth settings for VietAdmin edited successfully.",
 		})
 		return
 	}
@@ -119,7 +119,7 @@ func (s *APISecurity) ServeBlacklistUseragents(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// --- disable OpenAdmin ---
+// --- disable VietAdmin ---
 
 // apiSecurityDisableAdminRun is injectable so tests never shell out for
 // real. The real implementation starts the command and doesn't wait for
@@ -137,7 +137,7 @@ func (s *APISecurity) HandleDisableAdmin(w http.ResponseWriter, r *http.Request)
 	apiSecurityDisableAdminRun()
 	writeJSON(w, map[string]interface{}{
 		"success": true,
-		"message": "OpenAdmin is now disabled and all further actions need to be performed via terminal.",
+		"message": "VietAdmin is now disabled and all further actions need to be performed via terminal.",
 	})
 }
 

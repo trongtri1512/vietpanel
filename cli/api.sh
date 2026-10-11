@@ -1,7 +1,7 @@
 #!/bin/bash
 ################################################################################
 # Script Name: api.sh
-# Description: Check status, enable or disable OpenAdmin API access, and list available API endpoints.
+# Description: Check status, enable or disable VietAdmin API access, and list available API endpoints.
 # Usage: vietcli api <status|on|off|list>
 # Author: Stefan Pejcic
 # Created: 04.09.2024
@@ -35,12 +35,12 @@ show_usage() {
     cat <<EOF
 
 Usage: vietcli api {status|on|off|list}
-Docs:  https://openpanel.com/docs/articles/dev-experience/openadmin-api
+Docs:  https://github.com/trongtri1512/vietpanel/docs/articles/dev-experience/openadmin-api
 
 Examples:
-  vietcli api status              Display current OpenAdmin API status.
-  vietcli api on                  Enable OpenAdmin API access.
-  vietcli api off                 Disable OpenAdmin API access.
+  vietcli api status              Display current VietAdmin API status.
+  vietcli api on                  Enable VietAdmin API access.
+  vietcli api off                 Disable VietAdmin API access.
   vietcli api list                List available API endpoints with examples.
 
 EOF
@@ -69,7 +69,7 @@ case "$1" in
   status) vietcli config get api ;;
   on|off)
     vietcli config update api "$1"
-    nohup vietcli sentinel --action=admin_api --title="OpenAdmin API is $1" --message="API access for the administrator-level panel is now: '$1'." >/dev/null 2>&1 &
+    nohup vietcli sentinel --action=admin_api --title="VietAdmin API is $1" --message="API access for the administrator-level panel is now: '$1'." >/dev/null 2>&1 &
     disown
     if systemctl is-active --quiet admin; then
         systemctl restart admin 2>&1

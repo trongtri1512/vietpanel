@@ -11,7 +11,7 @@ func TestBuildNotificationCards(t *testing.T) {
 	if !cards[0].On || len(cards[0].Subs) != 2 || cards[0].Subs[0].On {
 		t.Errorf("login card wrong: %+v", cards[0])
 	}
-	if cards[0].DocsURL != "https://openpanel.com/docs/panel/account/notifications/#new-login" {
+	if cards[0].DocsURL != "https://github.com/trongtri1512/vietpanel/panel/account/notifications/#new-login" {
 		t.Errorf("got %q", cards[0].DocsURL)
 	}
 }

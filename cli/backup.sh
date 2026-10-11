@@ -1,7 +1,7 @@
 #!/bin/bash
 ################################################################################
 # Script Name: backup.sh
-# Description: Backs up (and restores) VietPanel/OpenAdmin SYSTEM AND USER
+# Description: Backs up (and restores) VietPanel/VietAdmin SYSTEM AND USER
 #              CONFIGURATION -- panel settings, per-domain webserver/DNS
 #              config, the root docker-compose.yml/.env stacks (main +
 #              mailserver's compose.yml/.env/mailserver.env only -- NOT its
@@ -12,12 +12,12 @@
 #              (CMS installer archives, the GeoIP database, the vendored
 #              Caddy WAF ruleset, ionCube/composer caches) are never
 #              touched. Destination and retention are read from
-#              /etc/openpanel/openadmin/config/backups.ini -- OpenAdmin's
+#              /etc/openpanel/openadmin/config/backups.ini -- VietAdmin's
 #              System Backups page writes that file.
 # Usage: vietcli backup [--restore <ARCHIVE>] [--quiet]
 #        vietcli backup --restore <archive_filename>
 #        vietcli backup --quiet
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 20.08.2026
 # Company: OpenPanel, LLC.
@@ -73,7 +73,7 @@ log() {
 
 die() { log "[✘] $1"; exit "${2:-1}"; }
 
-# writes one json-line summary to RUNS_FILE for OpenAdmin's Runs tab -- LOG_FILE above has the full detail
+# writes one json-line summary to RUNS_FILE for VietAdmin's Runs tab -- LOG_FILE above has the full detail
 record_run() {
     local action="$1" status="$2" archive="$3" size_bytes="$4" duration="$5" detail="$6"
     printf '{"timestamp":"%s","action":"%s","status":"%s","archive":"%s","size_bytes":%s,"duration_seconds":%s,"detail":"%s"}\n' \

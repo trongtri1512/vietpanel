@@ -41,7 +41,7 @@ log() {
 # --no-deps since we start docker-proxy ourselves, otherwise podman-compose run can tear down the whole stack (mariadb included)
 COMPOSE_RUN_FLAGS=(--rm --no-deps --entrypoint backup)
 
-# https://github.com/stefanpejcic/VietPanel/discussions/1146#discussioncomment-18528896
+# https://github.com/stefanpejcic/OpenPanel/discussions/1146#discussioncomment-18528896
 DOCKER_PROXY_WAIT_SECS=15
 DOCKER_PROXY_SETTLE_SECS=2
 

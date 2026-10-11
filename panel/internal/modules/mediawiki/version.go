@@ -26,7 +26,7 @@ func fetchDirListing(ctx context.Context, url string) (string, error) {
 		return "", err
 	}
 	// releases.wikimedia.org returns 403 to Go's default "Go-http-client" User-Agent, a plain browser/curl-like UA is required
-	req.Header.Set("User-Agent", "VietPanel/1.0 (+https://openpanel.com)")
+	req.Header.Set("User-Agent", "VietPanel/1.0 (+https://github.com/trongtri1512/vietpanel)")
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {

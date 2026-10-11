@@ -112,7 +112,7 @@ func (p *Passkeys) HandleRegisterBegin(w http.ResponseWriter, r *http.Request) {
 
 	wa, err := webauthn.New(&webauthn.Config{
 		RPID:          rpID,
-		RPDisplayName: "OpenAdmin",
+		RPDisplayName: "VietAdmin",
 		RPOrigins:     []string{webauthnOrigin(r)},
 	})
 	if err != nil {
@@ -179,7 +179,7 @@ func (p *Passkeys) HandleRegisterComplete(w http.ResponseWriter, r *http.Request
 	rpID := webauthnRPID(r)
 	wa, err := webauthn.New(&webauthn.Config{
 		RPID:          rpID,
-		RPDisplayName: "OpenAdmin",
+		RPDisplayName: "VietAdmin",
 		RPOrigins:     []string{webauthnOrigin(r)},
 	})
 	if err != nil {

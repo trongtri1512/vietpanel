@@ -3,7 +3,7 @@
 # Script Name: plan/delete
 # Description: Delete hosting plan
 # Usage: vietcli plan-delete <PLAN_NAME> [--json]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Radovan Jecmenica
 # Created: 01.12.2023
 # Last Modified: 21.08.2026

@@ -61,7 +61,7 @@ readonly RUN_TIMEOUT=900  # whole run gets killed after this, so a hung podman c
 readonly TASK_TIMEOUT=600  # each parallel check gets killed after this
 readonly RUN_TIMEOUT_TITLE="Sentinel checks timed out!"
 
-[ ! -f "$INI_FILE" ] && { echo "Error: OpenAdmin notifications settings file not found: $INI_FILE"; exit 1; }
+[ ! -f "$INI_FILE" ] && { echo "Error: VietAdmin notifications settings file not found: $INI_FILE"; exit 1; }
 [ ! -f "$CONF_FILE" ] && { echo "Error: VietPanel main configuration file not found: $CONF_FILE"; exit 1; }
 
 
@@ -156,7 +156,7 @@ get_public_ip() {
 }
 
 
-# notifications_paused checks the pause flag file admins set from OpenAdmin > Settings > Notifications; deletes it once expired, same as the timestamp inside it says
+# notifications_paused checks the pause flag file admins set from VietAdmin > Settings > Notifications; deletes it once expired, same as the timestamp inside it says
 notifications_paused() {
   [[ -f "$NOTIFICATIONS_PAUSE_FILE" ]] || return 1
   local until; until=$(cat "$NOTIFICATIONS_PAUSE_FILE" 2>/dev/null)
@@ -167,7 +167,7 @@ notifications_paused() {
   return 0
 }
 
-# title_snoozed checks the per-alert snooze flag an admin sets by clicking "Snooze" on one notification row in OpenAdmin; hashes the title the same way OpenAdmin does so both sides agree on the flag filename
+# title_snoozed checks the per-alert snooze flag an admin sets by clicking "Snooze" on one notification row in VietAdmin; hashes the title the same way VietAdmin does so both sides agree on the flag filename
 title_snoozed() {
   local title="$1"
   local hash; hash=$(printf '%s' "$title" | md5sum | cut -d' ' -f1)
@@ -187,7 +187,7 @@ webhook_notification() {
   [[ -z "$WEBHOOK_URL" ]] && return
   # text is for Slack, content for Discord which rejects more than 2000 chars
   local payload
-  payload=$(jq -nc --arg t "$title" --arg m "$message" --arg u "OpenAdmin-$HOSTNAME" \
+  payload=$(jq -nc --arg t "$title" --arg m "$message" --arg u "VietAdmin-$HOSTNAME" \
     '{text: "*\($t)*\n\($m)", username: $u, content: ("**\($t)**\n\($m)" | if length > 2000 then .[:1997] + "..." else . end)}')
   curl -X POST -H "Content-Type: application/json" -d "$payload" --max-time 5 "$WEBHOOK_URL" >/dev/null 2>&1
 }
@@ -409,7 +409,7 @@ plan_conditional_containers() {
     # backup if backup.env has any active remote backup config
     [[ -f "$home/backup.env" ]] && grep -qE '^(WEBDAV_URL|AWS_S3_BUCKET_NAME|SSH_HOST_NAME|AZURE_STORAGE_ACCOUNT_NAME|DROPBOX_REMOTE_PATH)=' "$home/backup.env" && backup_needed=1
 
-    # https://github.com/stefanpejcic/VietPanel/issues/1132
+    # https://github.com/stefanpejcic/OpenPanel/issues/1132
     # docker-proxy goes first when starting and last when stopping, cron and backup talk to podman through it
     (( cron_needed || backup_needed )) && NEEDED_CONTAINERS+=(docker-proxy)
     if (( cron_needed )); then NEEDED_CONTAINERS+=(cron); else UNNEEDED_CONTAINERS+=(cron); fi
@@ -1035,7 +1035,7 @@ check_services() {
       caddy)  docker_containers_status  'caddy'         'Caddy not active — websites down!'             ;;
       phpmyadmin)  docker_containers_status  'phpmyadmin'         'phpmyadmin not active — users can not access databases!'             ;;
       csf)    check_service_status      'csf'           'CSF Firewall not active — server unprotected!' ;;
-      admin)  check_service_status      'admin'         'OpenAdmin service not accessible!'             ;;
+      admin)  check_service_status      'admin'         'VietAdmin service not accessible!'             ;;
       mysql)  mysql_docker_containers_status                                                            ;;
       docker|podman) check_service_status 'podman.socket' 'Podman not active — user websites down!'     ;;
       panel)  redis_docker_container_status
@@ -1135,13 +1135,13 @@ check_new_logins() {
   echo "$current_count" > "$watermark_file"
 
   if (( current_count <= last_count )); then
-    ((PASS++)); echo -e "\e[32m[✔]\e[0m No new logins to OpenAdmin."; return
+    ((PASS++)); echo -e "\e[32m[✔]\e[0m No new logins to VietAdmin."; return
   fi
 
   local new_lines; new_lines=$(tail -n +"$((last_count + 1))" "$login_log")
 
   if [[ -z "$new_lines" ]]; then
-    ((PASS++)); echo -e "\e[32m[✔]\e[0m No new logins to OpenAdmin."; return
+    ((PASS++)); echo -e "\e[32m[✔]\e[0m No new logins to VietAdmin."; return
   fi
 
   local -A seen_pairs
@@ -1194,7 +1194,7 @@ check_ssh_logins() {
   local login_log="/var/log/openpanel/admin/login.log"
   local login_ips; login_ips=$(awk '{print $NF}' "$login_log" 2>/dev/null)
   if [[ -z "$login_ips" ]]; then
-    ((WARN++)); echo -e "\e[38;5;214m[!]\e[0m SSH user detected; postponing check until OpenAdmin is ready."
+    ((WARN++)); echo -e "\e[38;5;214m[!]\e[0m SSH user detected; postponing check until VietAdmin is ready."
     return
   fi
 
@@ -1212,7 +1212,7 @@ check_ssh_logins() {
   if (( ${#suspicious[@]} > 0 )); then
     ((FAIL++)); STATUS=2
     echo -e "\e[31m[✘]\e[0m Suspicious SSH IPs: ${suspicious[*]}"
-    write_notification critical security "Suspicious SSH login detected" "Active SSH session(s) from IP(s) that never logged into OpenAdmin and are not whitelisted: ${suspicious[*]}. Check with: who. If these are yours, add them to the SSH whitelist in OpenAdmin > Settings > Notifications."
+    write_notification critical security "Suspicious SSH login detected" "Active SSH session(s) from IP(s) that never logged into VietAdmin and are not whitelisted: ${suspicious[*]}. Check with: who. If these are yours, add them to the SSH whitelist in VietAdmin > Settings > Notifications."
   else
     ((PASS++))
     echo -e "\e[32m[✔]\e[0m ${#safe[@]} SSH session(s) from known IPs: ${safe[*]}"

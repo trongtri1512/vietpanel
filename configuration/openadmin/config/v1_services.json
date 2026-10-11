@@ -1,6 +1,6 @@
 [
     {
-        "name": "OpenAdmin",
+        "name": "VietAdmin",
         "type": "system",
         "on_dashboard": false,
         "real_name": "admin"
@@ -12,7 +12,7 @@
         "real_name": "docker"
     },
     {
-        "name": "OpenPanel",
+        "name": "VietPanel",
         "type": "docker",
         "on_dashboard": true,
         "real_name": "openpanel"

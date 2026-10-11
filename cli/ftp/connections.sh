@@ -3,7 +3,7 @@
 # Script Name: ftp/add.sh
 # Description: Display all active FTP connections, or only those for domains owned by an VietPanel user.
 # Usage: vietcli ftp-connections [OPENPANEL_USERNAME]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 11.09.2024
 # Last Modified: 21.08.2026

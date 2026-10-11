@@ -132,7 +132,7 @@ function backupsUserRunNow() {
     <!-- SETTINGS -->
     <div x-show="tab === 'settings'" role="tabpanel">
         <div class="mb-4 rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 p-3 text-sm text-gray-600 dark:text-gray-400">
-            <strong>Disabled</strong> (default): each user manages their own backup from their own account when backups module is enabled -- nothing runs centrally. Choosing Daily/Weekly/Monthly instead runs backups for <em>every</em> user on that schedule, via the "opencli docker-backup" <a href="/server/crons" class="font-medium underline hover:no-underline">System Cron Job</a>. See the docs for the difference between <a href="https://openpanel.com/docs/articles/backups/configuring-backups/" target="_blank" class="font-medium underline hover:no-underline">user-defined and admin-defined backups</a>.
+            <strong>Disabled</strong> (default): each user manages their own backup from their own account when backups module is enabled -- nothing runs centrally. Choosing Daily/Weekly/Monthly instead runs backups for <em>every</em> user on that schedule, via the "opencli docker-backup" <a href="/server/crons" class="font-medium underline hover:no-underline">System Cron Job</a>. See the docs for the difference between <a href="https://github.com/trongtri1512/vietpanel/docs/articles/backups/configuring-backups/" target="_blank" class="font-medium underline hover:no-underline">user-defined and admin-defined backups</a>.
         </div>
         <div class="sm:mx-auto sm:max-w-2xl">
             <form method="POST" action="/backups/user/settings" class="space-y-4">
@@ -157,7 +157,7 @@ function backupsUserRunNow() {
     <!-- CONFIGURATION -->
     <div x-show="tab === 'configuration'" x-cloak role="tabpanel" x-data="restoreComponentFor('backup_env', 'https://raw.githubusercontent.com/stefanpejcic/openpanel-configuration/refs/heads/main/backups/backup.env')">
         <div class="mb-4 rounded border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-400/10 p-3 text-sm text-amber-800 dark:text-amber-400">
-            This only applies to <strong>new users</strong> going forward -- it's the default <code class="font-mono">backup.env</code> every new account is provisioned with. It does not change any existing user's own backup settings. To apply it to all existing users too, run the script from <a href="https://github.com/stefanpejcic/OpenPanel/discussions/1146#discussioncomment-18524567" target="_blank" rel="noopener" class="underline">this discussion</a>.
+            This only applies to <strong>new users</strong> going forward -- it's the default <code class="font-mono">backup.env</code> every new account is provisioned with. It does not change any existing user's own backup settings. To apply it to all existing users too, run the script from <a href="https://github.com/trongtri1512/vietpanel/discussions/1146#discussioncomment-18524567" target="_blank" rel="noopener" class="underline">this discussion</a>.
         </div>
         <form method="POST" action="/backups/user/configuration" class="space-y-4">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">

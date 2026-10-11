@@ -1,11 +1,11 @@
-# Serbian (Latin) translations for OpenPanel.
-# Copyright (C) 2026 OpenPanel
-# This file is distributed under the same license as the OpenPanel project.
+# Serbian (Latin) translations for VietPanel.
+# Copyright (C) 2026 VietPanel
+# This file is distributed under the same license as the VietPanel project.
 # Stefan Pejčić <stefan@pejcic.rs>, 2026.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: OpenPanel\n"
+"Project-Id-Version: VietPanel\n"
 "Report-Msgid-Bugs-To: stefan@pejcic.rs\n"
 "POT-Creation-Date: 2026-10-05 12:31+0200\n"
 "PO-Revision-Date: 2026-06-24 19:00+0200\n"
@@ -119,8 +119,8 @@ msgid "Password Reset Requested"
 msgstr "Zahtevana je promena lozinke"
 
 #: openpanel/internal/modules/account/forgotpassword.go:203
-msgid "OpenPanel [%(domain)s] - Password Reset Requested"
-msgstr "OpenPanel [%(domain)s] - Zahtev za resetovanje lozinke"
+msgid "VietPanel [%(domain)s] - Password Reset Requested"
+msgstr "VietPanel [%(domain)s] - Zahtev za resetovanje lozinke"
 
 #: openpanel/internal/modules/account/forgotpassword.go:321
 msgid "Reset link is invalid"
@@ -6069,10 +6069,10 @@ msgstr "Pokreni turu"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:377
 msgid ""
-"A guided walkthrough of the OpenPanel UI and pages. You can also start it "
+"A guided walkthrough of the VietPanel UI and pages. You can also start it "
 "anytime from the menu."
 msgstr ""
-"Vođeni obilazak kroz OpenPanel interfejs i stranice. Možete ga pokrenuti u "
+"Vođeni obilazak kroz VietPanel interfejs i stranice. Možete ga pokrenuti u "
 "bilo kom trenutku iz menija."
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:383
@@ -15832,10 +15832,10 @@ msgstr "Nema WordPress instalacija"
 
 #: openpanel/internal/web/templates/manager/wp/list.html:344
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
 msgstr ""
-"Nema WordPress sajtova kojima se upravlja putem OpenPanel-a. Instalirajte "
+"Nema WordPress sajtova kojima se upravlja putem VietPanel-a. Instalirajte "
 "novi WordPress sajt ili skenirajte da pronađete postojeće instalacije."
 
 #: openpanel/internal/web/templates/manager/wp/list.html:346
@@ -17393,8 +17393,8 @@ msgid "Back to"
 msgstr "Povratak na"
 
 #: openpanel/internal/web/templates/partials/_impersonate.html:4
-msgid "OpenAdmin"
-msgstr "OpenAdmin"
+msgid "VietAdmin"
+msgstr "VietAdmin"
 
 #: openpanel/internal/web/templates/partials/_search.html:7
 msgid "Open search"
@@ -17720,15 +17720,15 @@ msgstr "Ekstenzija"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
 msgid ""
-"Mounted into the PHP service by OpenPanel, it can't be installed or disabled"
+"Mounted into the PHP service by VietPanel, it can't be installed or disabled"
 " here."
 msgstr ""
-"OpenPanel je montira u PHP servis, ovde se ne može instalirati niti "
+"VietPanel je montira u PHP servis, ovde se ne može instalirati niti "
 "isključiti."
 
 #: openpanel/internal/web/templates/php/extensions.html:67
-msgid "Provided by OpenPanel"
-msgstr "Obezbeđuje OpenPanel"
+msgid "Provided by VietPanel"
+msgstr "Obezbeđuje VietPanel"
 
 #: openpanel/internal/web/templates/php/extensions.html:82
 msgid "No extensions installed yet for this PHP version."
@@ -18422,8 +18422,8 @@ msgid "Enter IP addresses or CIDRs (one per line)"
 msgstr "Unesite IP adrese ili CIDR opsege (jedan po liniji)"
 
 #: openpanel/internal/web/templates/system/license_error.html:17
-msgid "OpenPanel Enterprise license key is invalid!"
-msgstr "OpenPanel Enterprise licencni ključ je nevažeći!"
+msgid "VietPanel Enterprise license key is invalid!"
+msgstr "VietPanel Enterprise licencni ključ je nevažeći!"
 
 #: openpanel/internal/web/templates/system/license_error.html:21
 msgid "Verify License"
@@ -19300,8 +19300,8 @@ msgid "Password Reset requested from server:"
 msgstr "Zahtev za resetovanje lozinke poslat sa servera:"
 
 #: openpanel/internal/web/templates/user/email_template.html:82
-msgid "Password Reset requested from OpenPanel server:"
-msgstr "Resetovanje lozinke zatraženo sa OpenPanel servera:"
+msgid "Password Reset requested from VietPanel server:"
+msgstr "Resetovanje lozinke zatraženo sa VietPanel servera:"
 
 #: openpanel/internal/web/templates/user/email_template.html:121
 msgid "Click here to login to your account"
@@ -19396,8 +19396,8 @@ msgid "Locale / Language"
 msgstr "Lokalizacija / Jezik"
 
 #: openpanel/internal/web/templates/user/locale.html:11
-msgid "Choose the language OpenPanel is shown in for your account."
-msgstr "Izaberite jezik na kojem se OpenPanel prikazuje za vaš nalog."
+msgid "Choose the language VietPanel is shown in for your account."
+msgstr "Izaberite jezik na kojem se VietPanel prikazuje za vaš nalog."
 
 #: openpanel/internal/web/templates/user/login.html:6
 msgid "Sign in to your account"

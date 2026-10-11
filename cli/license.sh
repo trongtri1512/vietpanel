@@ -188,7 +188,7 @@ manage_compose_volumes() {
 
 restart_services() {
     if [[ "$NO_RESTART" == "yes" ]]; then
-        echo "Please restart OpenAdmin service to enable new features."
+        echo "Please restart VietAdmin service to enable new features."
         return 0
     fi
 
@@ -198,7 +198,7 @@ restart_services() {
         disown
     fi
 
-    echo "VietPanel and OpenAdmin are restarted to apply Enterprise features."
+    echo "VietPanel and VietAdmin are restarted to apply Enterprise features."
 }
 
 toggle_email_modules() {

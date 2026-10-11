@@ -411,7 +411,7 @@ func onboardingConfigSteps(licenseType string) []quickStartStep {
 		},
 		{
 			Label:       "Set a custom domain for panel access",
-			Description: "Access OpenAdmin and VietPanel from your own domain instead of a bare IP address.",
+			Description: "Access VietAdmin and VietPanel from your own domain instead of a bare IP address.",
 			Offer:       []string{"Custom hostname", "Branded login URL", "SSL-ready"},
 			Href:        "/settings/general",
 			Done:        quickStartPanelDomainConfigured(),

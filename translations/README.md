@@ -18,10 +18,10 @@
 - 🇵🇱 Polish (PO)
 - 🇸🇪 Swedish (SV)
 
-## OpenPanel Translations
-OpenPanel needs you! If you would like to support OpenPanel, help us with the translation. 💖 
+## VietPanel Translations
+VietPanel needs you! If you would like to support VietPanel, help us with the translation. 💖 
 
-### How can you provide a translation for OpenPanel?
+### How can you provide a translation for VietPanel?
 
 1. Fork [this repository](https://github.com/stefanpejcic/openpanel-translations/).
 2. Copy `en-us` to your locale e.g. `es-es`

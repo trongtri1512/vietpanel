@@ -1,4 +1,4 @@
-/* OpenPanel UI product tour - step definitions, grouped by page in walkthrough order.
+/* VietPanel UI product tour - step definitions, grouped by page in walkthrough order.
    Add new pages by appending more entries with the matching `path`. */
 window.TOUR_HOOKS = {
     openProfileMenu: function () {
@@ -34,7 +34,7 @@ window.TOUR_STEPS = [
         path: '/dashboard',
         element: '#tour-user-activity',
         title: 'User Activity',
-        description: 'The combined activity log for all users. OpenPanel records 260+ actions across the panel for full transparency.',
+        description: 'The combined activity log for all users. VietPanel records 260+ actions across the panel for full transparency.',
         side: 'top',
         align: 'start'
     },
@@ -42,7 +42,7 @@ window.TOUR_STEPS = [
         path: '/dashboard',
         element: '#tour-latest-news',
         title: 'Latest News',
-        description: 'Articles from the OpenPanel blog — mostly new major features, or tips and tricks. Click Dismiss to hide this widget for good.',
+        description: 'Articles from the VietPanel blog — mostly new major features, or tips and tricks. Click Dismiss to hide this widget for good.',
         side: 'top',
         align: 'start'
     },
@@ -58,7 +58,7 @@ window.TOUR_STEPS = [
         path: '/dashboard',
         element: '#searchInput',
         title: 'Search',
-        description: 'Quickly find any feature, or search for a user. Click a username to view their profile, or the OpenPanel icon next to it to impersonate them.',
+        description: 'Quickly find any feature, or search for a user. Click a username to view their profile, or the VietPanel icon next to it to impersonate them.',
         side: 'right',
         align: 'start'
     },
@@ -82,7 +82,7 @@ window.TOUR_STEPS = [
         path: '/dashboard',
         element: '#tour-main-menu',
         title: 'Main Menu',
-        description: 'Accounts, Hosting Plans, Domains, Settings and the rest of OpenPanel’s features live here. With the Modern menu style, each area’s pages are tabs at the top of the page.',
+        description: 'Accounts, Hosting Plans, Domains, Settings and the rest of VietPanel’s features live here. With the Modern menu style, each area’s pages are tabs at the top of the page.',
         side: 'right',
         align: 'start'
     },
@@ -90,7 +90,7 @@ window.TOUR_STEPS = [
         path: '/dashboard',
         element: '#popup-menu',
         title: 'Profile Menu',
-        description: 'Click your profile at the bottom of the sidebar to see the OpenPanel version, switch Dark theme, or sign out.',
+        description: 'Click your profile at the bottom of the sidebar to see the VietPanel version, switch Dark theme, or sign out.',
         side: 'right',
         align: 'start',
         beforeShow: 'openProfileMenu',
@@ -108,7 +108,7 @@ window.TOUR_STEPS = [
         path: '/license',
         element: '#license-key',
         title: 'License Key',
-        description: 'Add your OpenPanel Enterprise license key to unlock additional features: DNS clustering, MariaDB, unlimited user accounts, FTP, Emails and more.',
+        description: 'Add your VietPanel Enterprise license key to unlock additional features: DNS clustering, MariaDB, unlimited user accounts, FTP, Emails and more.',
         side: 'bottom',
         align: 'start'
     },
@@ -132,7 +132,7 @@ window.TOUR_STEPS = [
         path: '/settings/general',
         element: '#page-tabs',
         title: 'Page Tabs',
-        description: 'With the Modern menu style, related pages are tabs up here - General, OpenPanel, User Defaults, Modules and more. Every area of the menu works the same way.',
+        description: 'With the Modern menu style, related pages are tabs up here - General, VietPanel, User Defaults, Modules and more. Every area of the menu works the same way.',
         side: 'bottom',
         align: 'start'
     },
@@ -172,7 +172,7 @@ window.TOUR_STEPS = [
         path: '/settings/open-panel',
         element: '#tour-menu-style',
         title: 'Menu Style',
-        description: 'Choose the default menu for OpenPanel users - Classic, with expandable groups, or Modern, with one link per area and its pages as tabs. It also switches the OpenAdmin menu right after saving.',
+        description: 'Choose the default menu for VietPanel users - Classic, with expandable groups, or Modern, with one link per area and its pages as tabs. It also switches the VietAdmin menu right after saving.',
         side: 'bottom',
         align: 'start'
     },
@@ -300,7 +300,7 @@ window.TOUR_STEPS = [
         path: '/settings/notifications',
         element: '#smtp',
         title: 'SMTP',
-        description: 'All notifications default to no-reply@openpanel.org. Set up your own SMTP server here to send email notifications to administrators and OpenPanel user accounts instead.',
+        description: 'All notifications default to no-reply@openpanel.org. Set up your own SMTP server here to send email notifications to administrators and VietPanel user accounts instead.',
         side: 'right',
         align: 'start'
     },
@@ -452,7 +452,7 @@ window.TOUR_STEPS = [
         path: '/settings/defaults',
         element: '#autostart-services',
         title: 'Autostart Services',
-        description: 'Select which services to autostart for the user when you create them. Only start those the user will actually need - OpenPanel UI pages already autostart services when needed, for example MySQL when its page is accessed, or cron when a new one is added.',
+        description: 'Select which services to autostart for the user when you create them. Only start those the user will actually need - VietPanel UI pages already autostart services when needed, for example MySQL when its page is accessed, or cron when a new one is added.',
         side: 'right',
         align: 'start'
     },
@@ -476,7 +476,7 @@ window.TOUR_STEPS = [
         path: '/users',
         element: '#exiting_users',
         title: 'User Accounts',
-        description: 'View current OpenPanel accounts. You can search, and sort by status or by column.',
+        description: 'View current VietPanel accounts. You can search, and sort by status or by column.',
         side: 'top',
         align: 'start'
     },
@@ -852,7 +852,7 @@ window.TOUR_STEPS = [
         path: '/security/basic_auth',
         element: '#enable',
         title: 'Basic Authentication',
-        description: 'Enable basic access authentication as an additional security measure for OpenAdmin.',
+        description: 'Enable basic access authentication as an additional security measure for VietAdmin.',
         side: 'right',
         align: 'start'
     },
@@ -876,7 +876,7 @@ window.TOUR_STEPS = [
         path: '/security/2fa',
         element: '#tour-2fa',
         title: 'Two-Factor Authentication',
-        description: 'Protect your OpenAdmin account with an additional one-time code from an authenticator app. This sets 2FA per account and requires it on the next login for that account.',
+        description: 'Protect your VietAdmin account with an additional one-time code from an authenticator app. This sets 2FA per account and requires it on the next login for that account.',
         side: 'top',
         align: 'start'
     },
@@ -884,7 +884,7 @@ window.TOUR_STEPS = [
         path: '/security/passkeys',
         element: '#add-passkey-btn',
         title: 'Passkeys',
-        description: 'Sign in to OpenAdmin without a password using a fingerprint, face scan, device PIN, or security key. Add a passkey here - it requires a custom domain to be set to work.',
+        description: 'Sign in to VietAdmin without a password using a fingerprint, face scan, device PIN, or security key. Add a passkey here - it requires a custom domain to be set to work.',
         side: 'right',
         align: 'start'
     },
@@ -892,7 +892,7 @@ window.TOUR_STEPS = [
         path: '/security/passkeys',
         element: '#tour-passkeys-needs-domain',
         title: 'Passkeys',
-        description: 'Sign in to OpenAdmin without a password using a fingerprint, face scan, device PIN, or security key. It requires a custom domain to be set to work.',
+        description: 'Sign in to VietAdmin without a password using a fingerprint, face scan, device PIN, or security key. It requires a custom domain to be set to work.',
         side: 'right',
         align: 'start'
     },
@@ -923,8 +923,8 @@ window.TOUR_STEPS = [
     {
         path: '/security/disable-admin',
         element: '#tour-disable-admin-confirm',
-        title: 'Disable OpenAdmin',
-        description: 'As an advanced security measure, you can disable access to the OpenAdmin interface. Once disabled, you can’t access it from the browser and need to manually enable it on the terminal with `opencli admin on`.',
+        title: 'Disable VietAdmin',
+        description: 'As an advanced security measure, you can disable access to the VietAdmin interface. Once disabled, you can’t access it from the browser and need to manually enable it on the terminal with `opencli admin on`.',
         side: 'top',
         align: 'start'
     },
@@ -972,7 +972,7 @@ window.TOUR_STEPS = [
         path: '/server/crons',
         element: '#tour-crons-schedule',
         title: 'Schedule',
-        description: 'System crons needed for OpenPanel to function. Edit the schedule for each one to tweak how often it runs.',
+        description: 'System crons needed for VietPanel to function. Edit the schedule for each one to tweak how often it runs.',
         side: 'bottom',
         align: 'start'
     },
@@ -1044,7 +1044,7 @@ window.TOUR_STEPS = [
         path: '/settings/updates',
         element: '#version',
         title: 'Versions',
-        description: 'View the currently installed OpenPanel version, the latest available version and its changelog, and set your update preferences. We recommend enabling both minor and major updates for security patches.',
+        description: 'View the currently installed VietPanel version, the latest available version and its changelog, and set your update preferences. We recommend enabling both minor and major updates for security patches.',
         side: 'right',
         align: 'start'
     },
@@ -1068,7 +1068,7 @@ window.TOUR_STEPS = [
         path: '/settings/locales',
         element: '#tour-locales-table',
         title: 'Locales',
-        description: 'View all available translations for the OpenPanel UI.',
+        description: 'View all available translations for the VietPanel UI.',
         side: 'top',
         align: 'start'
     },

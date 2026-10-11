@@ -22,7 +22,7 @@ import (
 
 const notifyConfigFilePath = "/etc/openpanel/openpanel/conf/openpanel.config"
 
-// userEmail is a notification for the panel user, OpenAdmin shows Details as a table with bold values and Tips under it
+// userEmail is a notification for the panel user, VietAdmin shows Details as a table with bold values and Tips under it
 type userEmail struct {
 	Subject, Text, Tips string
 	Details             []emailDetail
@@ -39,7 +39,7 @@ type emailDetail struct {
 func securityEmail(a *appctx.App, r *http.Request, subject, text, ifNotYou string) userEmail {
 	ip := reqip.ClientIP(r)
 	country := getCountryCode(a, r.Context(), ip)
-	// OpenAdmin shows the panel's /static/flags/<code>.png next to a 2 letter country code
+	// VietAdmin shows the panel's /static/flags/<code>.png next to a 2 letter country code
 	flag := ""
 	if len(country) == 2 {
 		flag = strings.ToLower(country)
@@ -245,7 +245,7 @@ func notifyUserOfChange(a *appctx.App, username string, message userEmail, curre
 
 	token := generateRandomTokenOnce()
 
-	adminPort := sysinfo.GetOpenAdminPort()
+	adminPort := sysinfo.GetVietAdminPort()
 	forceDomain := sysinfo.GetVietPanelDomain(ctx, a.Cache)
 	useHTTPS := forceDomain != "" && sysinfo.HasSSL(ctx, a.Cache, forceDomain)
 

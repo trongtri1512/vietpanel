@@ -143,7 +143,7 @@ get_openpanel_openadmin_links
 questions=(
     "What is the login link for admin panel?"
     "What is the login link for user panel?"
-    "How to restart OpenAdmin or VietPanel services?"
+    "How to restart VietAdmin or VietPanel services?"
     "How to reset admin password?"
     "How to create new admin account?"
     "How to list admin accounts?"
@@ -159,7 +159,7 @@ questions=(
 answers=(
     "LINK: ${GREEN}${admin_url}${NC}"
     "LINK: ${GREEN}${user_url}${NC}"
-    "VietPanel: ${RED}podman restart openpanel${NC}\n- OpenAdmin: ${RED}service admin restart${NC}"
+    "VietPanel: ${RED}podman restart openpanel${NC}\n- VietAdmin: ${RED}service admin restart${NC}"
     "execute command ${GREEN}vietcli admin password USERNAME NEW_PASSWORD${NC}"
     "execute command ${GREEN}vietcli admin new USERNAME PASSWORD${NC}"
     "execute command ${GREEN}vietcli admin list${NC}"

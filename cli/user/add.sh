@@ -3,7 +3,7 @@
 # Script Name: user/add.sh
 # Description: Create a new user with the provided plan_name.
 # Usage: vietcli user-add <USERNAME> <PASSWORD|generate> <EMAIL> "<PLAN_NAME>" [--send-email] [--debug] [--webserver="<nginx|apache|openresty|openlitespeed|litespeed|varnish+nginx|varnish+apache|varnish+openresty|varnish+openlitespeed>"] [--sql=<mysql|mariadb>] [--reseller=<RESELLER_USERNAME>] [--private-note="this user.."] [--no-sentinel]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 01.10.2023
 # Last Modified: 30.09.2026
@@ -47,7 +47,7 @@ if [[ "$#" -lt 4 || "$#" -gt 12 ]]; then
     echo "Optional flags:"
     printf "%-25s %-45s\n" "  --send-email" "Send a welcome email to the user."
     printf "%-25s %-45s\n" "  --debug" "Enable debug mode for additional output."
-    printf "%-25s %-45s\n" "  --private-note=" "Write a private note for this user (visible only on OpenAdmin)."
+    printf "%-25s %-45s\n" "  --private-note=" "Write a private note for this user (visible only on VietAdmin)."
     printf "%-25s %-45s\n" "  --reseller=" "Assign a reseller as the owner of this user."
     printf "%-25s %-45s\n" "  --webserver=" "Webserver type to use (nginx|apache|openresty|openlitespeed|litespeed, optionally varnish+ prefixed)."
     printf "%-25s %-45s\n" "  --sql=" "Database type to use (mysql|mariadb)."
@@ -205,13 +205,13 @@ validate_password_in_lists() {
 validate_username() {
     log "Validating username '$USERNAME'"
 
-    (( ${#USERNAME} >= 3 && ${#USERNAME} <= 20 )) || die "Username must be 3–20 characters. See https://openpanel.com/docs/articles/accounts/forbidden-usernames/#openpanel"
+    (( ${#USERNAME} >= 3 && ${#USERNAME} <= 20 )) || die "Username must be 3–20 characters. See https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#openpanel"
 
     [[ "$USERNAME" =~ ^[a-zA-Z][a-zA-Z0-9]*$ ]] || die "Username must start with a letter and contain only letters and numbers."
 
     if [[ -f "$FORBIDDEN_USERNAMES_FILE" ]]; then
         while IFS= read -r forbidden; do
-            [[ "${USERNAME,,}" == "${forbidden,,}" ]] && die "Username '$USERNAME' is not allowed. See https://openpanel.com/docs/articles/accounts/forbidden-usernames/#reserved-usernames"
+            [[ "${USERNAME,,}" == "${forbidden,,}" ]] && die "Username '$USERNAME' is not allowed. See https://github.com/trongtri1512/vietpanel/docs/articles/accounts/forbidden-usernames/#reserved-usernames"
         done < "$FORBIDDEN_USERNAMES_FILE"
     fi
 }
@@ -253,7 +253,7 @@ autostart_services() {
     local env_file="/home/${USERNAME}/.env"
     [[ -f "$env_file" ]] || { echo "[!] Warning: $env_file not found; skipping image pull."; return 1; }
 
-	# https://community.openpanel.org/d/239-no-such-container-openlitespeed
+	# https://github.com/trongtri1512/vietpanel/discussions/d/239-no-such-container-openlitespeed
     get_env() { grep -E "^$1=" "$env_file" | cut -d= -f2- | tr -d '\r"'\'; }
     local sql_type ws_type php_version php_svc
     sql_type="$(get_env MYSQL_TYPE)"
@@ -310,7 +310,7 @@ ensure_subuid_subgid() {
 
 readonly PASTA_SELINUX_MODULE="/etc/openpanel/docker/selinux/pasta_local.pp"
 
-# https://community.openpanel.org/d/302-user-add-pasta-failed-with-exit-code-1-netns-dir-open-permission-denied
+# https://github.com/trongtri1512/vietpanel/discussions/d/302-user-add-pasta-failed-with-exit-code-1-netns-dir-open-permission-denied
 fix_pasta_selinux() {
     command -v selinuxenabled >/dev/null 2>&1 || return 0
     selinuxenabled 2>/dev/null || return 0        # SELinux not installed/enforcing
@@ -519,7 +519,7 @@ configure_environment() {
         sed -i "s|PGADMIN_MAIL=[^\"]*|PGADMIN_MAIL=${EMAIL}|g" "${home_dir}/.env"
     fi
 
-    # private note shown on OpenAdmin
+    # private note shown on VietAdmin
     if [[ -n "$PRIVATE_NOTE" ]]; then
 		echo "$PRIVATE_NOTE" > "${home_dir}/notes.txt"
 	fi

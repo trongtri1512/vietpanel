@@ -3,7 +3,7 @@
 # Script Name: email/server.sh
 # Description: Manage mailserver
 # Usage: vietcli email-server <status|config|install|uninstall|start|stop|restart|queue|flush|view|unhold|delete|fail2ban|ports|postconf|logs|login|supervisor|postfwd|pflogsumm|update-check|update-packages|versions> [args] [--debug]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 18.08.2024
 # Last Modified: 21.08.2026
@@ -128,7 +128,7 @@ check_ent() {
 	fi
 }
 
-# add/remove services to OpenAdmin > Services > Services Status
+# add/remove services to VietAdmin > Services > Services Status
 manage_service_entry() {
     local ACTION="$1"        # "add" or "remove"
     local SERVICE_NAME="$2"
@@ -217,7 +217,7 @@ pflogsumm_get_data() {
 	podman exec openadmin_mailserver sh -c "mkdir -p /usr/local/admin/static/reports" > /dev/null 2>&1
 	podman cp /usr/local/admin/templates/emails/data openadmin_mailserver:/usr/local/admin/static/reports/data > /dev/null 2>&1
 	podman exec openadmin_mailserver sh -c "bash /opt/pflogsummUIReport.sh"
-	echo "Done, adding reports to OpenAdmin interface"
+	echo "Done, adding reports to VietAdmin interface"
 	mkdir -p /usr/local/admin/static/reports /usr/local/admin/templates/emails > /dev/null 2>&1
 	podman cp openadmin_mailserver:/usr/local/admin/static/reports/reports.html /usr/local/admin/templates/emails/reports.html > /dev/null 2>&1
 	podman cp openadmin_mailserver:/usr/local/admin/static/reports/data /usr/local/admin/templates/emails/ > /dev/null 2>&1
@@ -375,7 +375,7 @@ install_mailserver(){
 	ln -sf "$MAILSERVER_ENV" /usr/local/mail/openmail/.env
 	run bash -c "cd /usr/local/mail/openmail/ && timeout 60 podman-compose up -d mailserver roundcube"
 
-	# https://github.com/stefanpejcic/VietPanel/issues/1041#issuecomment-5123435885
+	# https://github.com/stefanpejcic/OpenPanel/issues/1041#issuecomment-5123435885
 	manage_service_entry add "Dovecot & Postfix" docker openadmin_mailserver
 	manage_service_entry add "Roundcube (Webmail)" docker openadmin_roundcube
 
@@ -517,7 +517,7 @@ remove_mailserver_and_all_config(){
 		return
 	fi
 
-	# https://github.com/stefanpejcic/VietPanel/issues/1041#issuecomment-5123435885
+	# https://github.com/stefanpejcic/OpenPanel/issues/1041#issuecomment-5123435885
 	manage_service_entry remove "Dovecot & Postfix"
 	manage_service_entry remove "Roundcube (Webmail)"
 
@@ -555,7 +555,7 @@ case "${1:-}" in
         echo "Installing the mailserver..."
         install_mailserver
 		;;
-	pflogsumm) 	# generate reports for OpenAdmin UI
+	pflogsumm) 	# generate reports for VietAdmin UI
         echo "Generating reports..."
         pflogsumm_get_data
 		;;

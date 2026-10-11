@@ -2,10 +2,10 @@
 # To update: regenerate rather than hand-editing this file directly.
 openapi: 3.0.3
 info:
-  title: OpenAdmin API
+  title: VietAdmin API
   version: 1.0.0
   description: |-
-    REST API for OpenAdmin, the administrator-level control panel for OpenPanel server management. Every feature available in OpenAdmin's web UI can also be accessed programmatically.
+    REST API for VietAdmin, the administrator-level control panel for VietPanel server management. Every feature available in VietAdmin's web UI can also be accessed programmatically.
 
     All endpoints require a Bearer token obtained from `POST /api/` (username/password login), except the login call itself and the `GET /api/` health check. Tokens expire after 15 minutes. Beyond authentication, most endpoints also require the administrator role -- see each operation's **Access** note for its exact requirement (some allow a reseller who owns the target account, and a handful of the most dangerous server-control actions require the Super Admin role specifically).
 
@@ -13,14 +13,14 @@ info:
 
     Success responses are JSON objects (`200`) unless noted otherwise. Error responses always include an `error` field and use standard HTTP status codes (400, 401, 403, 404, 409, 500).
   contact:
-    name: OpenPanel
-    url: https://openpanel.com
+    name: VietPanel
+    url: https://github.com/trongtri1512/vietpanel
   license:
-    name: OpenPanel EULA
-    url: https://openpanel.com/LICENSE
+    name: VietPanel EULA
+    url: https://github.com/trongtri1512/vietpanel/LICENSE
 servers:
 - url: /
-  description: This OpenAdmin installation
+  description: This VietAdmin installation
 tags:
 - name: Authentication
 - name: Users
@@ -2608,7 +2608,7 @@ paths:
       - bearerAuth: []
   /api/security/basic-auth:
     get:
-      summary: Returns the current HTTP Basic Auth protection settings configured for OpenAdmin itself.
+      summary: Returns the current HTTP Basic Auth protection settings configured for VietAdmin itself.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
       operationId: get_security_basic_auth
       tags:
@@ -2639,8 +2639,8 @@ paths:
       security:
       - bearerAuth: []
     post:
-      summary: Updates HTTP Basic Auth settings for OpenAdmin (enabled flag, username, password); any
-        provided fields are written to config and OpenAdmin is flagged for restart.
+      summary: Updates HTTP Basic Auth settings for VietAdmin (enabled flag, username, password); any
+        provided fields are written to config and VietAdmin is flagged for restart.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
       operationId: post_security_basic_auth
       tags:
@@ -2678,10 +2678,10 @@ paths:
                     example: true
                   message:
                     type: string
-                    example: Basic_auth settings for OpenAdmin edited successfully.
+                    example: Basic_auth settings for VietAdmin edited successfully.
                 example:
                   success: true
-                  message: Basic_auth settings for OpenAdmin edited successfully.
+                  message: Basic_auth settings for VietAdmin edited successfully.
         default:
           $ref: '#/components/responses/Error'
       security:
@@ -2722,7 +2722,7 @@ paths:
       security:
       - bearerAuth: []
     post:
-      summary: Updates the blacklisted user-agents list and/or the enabled flag; flags OpenPanel for restart
+      summary: Updates the blacklisted user-agents list and/or the enabled flag; flags VietPanel for restart
         if anything changed.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
       operationId: post_security_blacklist_useragents
@@ -2777,7 +2777,7 @@ paths:
       - bearerAuth: []
   /api/security/disable-admin:
     post:
-      summary: Disables OpenAdmin entirely (runs 'opencli admin off' in the background), after which OpenAdmin
+      summary: Disables VietAdmin entirely (runs 'opencli admin off' in the background), after which VietAdmin
         must be managed via terminal.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
       operationId: security_disable_admin
@@ -2796,11 +2796,11 @@ paths:
                     example: true
                   message:
                     type: string
-                    example: OpenAdmin is now disabled and all further actions need to be performed via
+                    example: VietAdmin is now disabled and all further actions need to be performed via
                       terminal.
                 example:
                   success: true
-                  message: OpenAdmin is now disabled and all further actions need to be performed via
+                  message: VietAdmin is now disabled and all further actions need to be performed via
                     terminal.
         default:
           $ref: '#/components/responses/Error'
@@ -3484,7 +3484,7 @@ paths:
   /api/system:
     get:
       summary: 'Returns a snapshot of host system information: hostname, OS, kernel version, CPU model,
-        uptime (seconds), running process count, OpenPanel version, and available package updates count.'
+        uptime (seconds), running process count, VietPanel version, and available package updates count.'
       description: '**Access:** Any authenticated user.'
       operationId: system
       tags:
@@ -4570,7 +4570,7 @@ paths:
   /api/server/reboot/status:
     get:
       summary: Lightweight liveness probe used to detect when the server has come back up after a reboot;
-        simply confirms the OpenAdmin API is reachable and responding.
+        simply confirms the VietAdmin API is reachable and responding.
       description: '**Access:** Any authenticated user.'
       operationId: server_reboot_status
       tags:
@@ -4872,7 +4872,7 @@ paths:
       - bearerAuth: []
     post:
       summary: Updates general server settings (domain, ports, proxy backend, dev mode); applies only
-        the values that changed, writes OpenPanel/OpenAdmin restart-needed flag files as appropriate,
+        the values that changed, writes VietPanel/VietAdmin restart-needed flag files as appropriate,
         and reports which settings were changed.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
       operationId: post_settings_general
@@ -5562,7 +5562,7 @@ paths:
                           example: en
                         provider:
                           type: string
-                          example: OpenPanel
+                          example: VietPanel
                         path:
                           type: string
                           example: /etc/openpanel/openadmin/translations/en
@@ -5579,13 +5579,13 @@ paths:
                           example: false
                       example:
                         locale: en
-                        provider: OpenPanel
+                        provider: VietPanel
                         path: /etc/openpanel/openadmin/translations/en
                         installed: true
                         is_default: true
                     example:
                     - locale: en
-                      provider: OpenPanel
+                      provider: VietPanel
                       path: /etc/openpanel/openadmin/translations/en
                       installed: true
                       is_default: true
@@ -5598,7 +5598,7 @@ paths:
                   default_locale: en
                   translations:
                   - locale: en
-                    provider: OpenPanel
+                    provider: VietPanel
                     path: /etc/openpanel/openadmin/translations/en
                     installed: true
                     is_default: true
@@ -5741,7 +5741,7 @@ paths:
     post:
       summary: Replaces the enabled_modules list in the modules config file, toggles the phpmyadmin/clamav
         docker-compose services to match, generates the DNS rndc key if a DNS module was newly enabled,
-        and flags OpenPanel for restart.
+        and flags VietPanel for restart.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
       operationId: post_settings_modules
       tags:
@@ -5868,7 +5868,7 @@ paths:
       - bearerAuth: []
     post:
       summary: Writes any of the custom-code fields present as string values in the body to their corresponding
-        files and flags OpenPanel for restart. Unlike the HTML page, this API endpoint applies no Enterprise-license/reseller-role
+        files and flags VietPanel for restart. Unlike the HTML page, this API endpoint applies no Enterprise-license/reseller-role
         gating on the Enterprise-only fields (custom_css, custom_js, in_header, in_footer, custom_section,
         howto_guides).
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
@@ -6190,7 +6190,7 @@ paths:
       - bearerAuth: []
   /api/settings/updates/tags:
     get:
-      summary: Lists available OpenPanel docker image tags/versions fetched from Docker Hub.
+      summary: Lists available VietPanel docker image tags/versions fetched from Docker Hub.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
       operationId: get_settings_updates_tags
       tags:
@@ -6715,7 +6715,7 @@ paths:
       security:
       - bearerAuth: []
     post:
-      summary: Starts an import of a cPanel or CyberPanel backup into a new OpenPanel account, cloning/running
+      summary: Starts an import of a cPanel or CyberPanel backup into a new VietPanel account, cloning/running
         the import script for the given backup path and target hosting plan in the background.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
       operationId: post_import_panel_type
@@ -6805,7 +6805,7 @@ paths:
   /api/import/backup-files:
     get:
       summary: Performs a shallow (non-recursive) scan of /, /home, and /root for cPanel/CyberPanel (backup-*.tar.gz)
-        or OpenPanel (<user>_<date>_<time>.tar.gz) style backup archives and returns the matched absolute
+        or VietPanel (<user>_<date>_<time>.tar.gz) style backup archives and returns the matched absolute
         paths as a flat array. Delegates to the same logic as the HTML admin /json/backup-files route.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
       operationId: import_backup_files
@@ -6825,7 +6825,7 @@ paths:
       - bearerAuth: []
   /api/import/transfers:
     get:
-      summary: Lists every OpenPanel-to-OpenPanel transfer log file (*.log) directly under the transfer
+      summary: Lists every VietPanel-to-VietPanel transfer log file (*.log) directly under the transfer
         log directory, as a flat array of file paths. Delegates to the same logic as the HTML admin /json/transfers
         route.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
@@ -6845,7 +6845,7 @@ paths:
       security:
       - bearerAuth: []
     post:
-      summary: Starts a live OpenPanel-to-OpenPanel account transfer in the background by running `opencli
+      summary: Starts a live VietPanel-to-VietPanel account transfer in the background by running `opencli
         user-transfer` with the given target account, host, and SSH credentials. If the target server
         is an IP (not a domain), it also configures iptables for the transfer.
       description: '**Access:** Administrator or user role (the reseller role is blocked).'
@@ -6907,7 +6907,7 @@ paths:
       - bearerAuth: []
   /api/import/transfers/{username}:
     get:
-      summary: Scans the transfer log directory for logs belonging to a given OpenPanel username and reports
+      summary: Scans the transfer log directory for logs belonging to a given VietPanel username and reports
         each transfer's current status (derived from the log's PID/SUCCESS markers and whether that PID
         is still alive). A "SUSPENDED_" prefix on the username is stripped before scanning, mirroring
         the suspended-account naming convention used elsewhere.

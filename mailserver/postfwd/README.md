@@ -1,6 +1,6 @@
 # postfwd setup on DMS Postfix
 
-By default, rate-limiting is disabled on OpenPanel servers. To enable it, edit `/usr/local/mail/openmail/postfwd/postfwd.cf` and configure the desired limits for each IP address, email address, or domain.
+By default, rate-limiting is disabled on VietPanel servers. To enable it, edit `/usr/local/mail/openmail/postfwd/postfwd.cf` and configure the desired limits for each IP address, email address, or domain.
 
 ## Enable
 

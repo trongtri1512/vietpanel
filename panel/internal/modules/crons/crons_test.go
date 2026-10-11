@@ -105,13 +105,13 @@ func TestParseCronFileNoOverlap(t *testing.T) {
 	content := `[job-exec "apache"]
 schedule = @every 30s
 container = apache
-command = curl https://openpanel.com/
+command = curl https://github.com/trongtri1512/vietpanel/
 no-overlap
 
 [job-exec "php-fpm-8.4"]
 schedule = @every 30m
 container = php-fpm-8.4
-command = curl https://openpanel.com/enterprise
+command = curl https://github.com/trongtri1512/vietpanel/enterprise
 `
 	jobs := ParseCronFile(content)
 	if len(jobs) != 2 {
@@ -129,12 +129,12 @@ func TestValidateCronFileFormat(t *testing.T) {
 	valid := `[job-exec "apache"]
 schedule = @every 30s
 container = apache
-command = curl https://openpanel.com/
+command = curl https://github.com/trongtri1512/vietpanel/
 
 [job-exec "php-fpm-8.4"]
 schedule = @every 30m
 container = php-fpm-8.4
-command = curl https://openpanel.com/enterprise
+command = curl https://github.com/trongtri1512/vietpanel/enterprise
 no-overlap
 `
 	if got := ValidateCronFileFormat(valid); got != "" {
@@ -179,11 +179,11 @@ overlap-typo`); got == "" {
 	fused := `[job-exec "apache"]
 schedule = @every 30s
 container = apache
-command = curl https://openpanel.com/
+command = curl https://github.com/trongtri1512/vietpanel/
 [job-exec "php-fpm-8.4"]
 schedule = @every 30m
 container = php-fpm-8.4
-command = curl https://openpanel.com/enterprise
+command = curl https://github.com/trongtri1512/vietpanel/enterprise
 `
 	if got := ValidateCronFileFormat(fused); got == "" {
 		t.Error("fused blocks with no blank-line separator: expected an error")

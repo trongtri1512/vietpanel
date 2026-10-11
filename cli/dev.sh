@@ -3,7 +3,7 @@
 # Script Name: dev.sh
 # Description: Overwrite VietPanel container files and restart service to apply.
 # Usage: vietcli dev [path]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 07.03.2025
 # Last Modified: 21.08.2026

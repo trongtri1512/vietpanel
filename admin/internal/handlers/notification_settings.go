@@ -82,7 +82,7 @@ type notifToggleView struct {
 
 var notifServiceOrder = []struct{ Key, Name, Desc string }{
 	{"panel", "VietPanel", "Receive a notification when VietPanel UI fails."},
-	{"admin", "OpenAdmin", "Receive a notification when OpenAdmin UI fails."},
+	{"admin", "VietAdmin", "Receive a notification when VietAdmin UI fails."},
 	{"caddy", "Caddy", "Receive a notification when webserver is not responding."},
 	{"mysql", "MySQL", "Receive a notification when database is unreachable."},
 	{"podman", "Podman", "Receive a notification when Podman service is down."},
@@ -103,15 +103,15 @@ var notifServerActionOrder = []struct{ Key, Label, Tooltip string }{
 	{"attack", "Unusual traffic or SYN flood", "Fires when suspicious traffic or DDoS attacks are detected."},
 	{"limit", "Out of Memory (OOM) errors", "Check journal logs for system services and user processes killed by OOM in the last 24 hours."},
 	{"dns", "DNS issue detected", "Triggered when the panel domain or nameservers are misconfigured or not resolving to this server. Disable if using external nameservers or Cloudflare proxy."},
-	{"login", "OpenAdmin login from new IP", `Triggered when the OpenAdmin panel is accessed from an unrecognized IP address. IP can be whitelisted in "Login Whitelist" below.`},
+	{"login", "VietAdmin login from new IP", `Triggered when the VietAdmin panel is accessed from an unrecognized IP address. IP can be whitelisted in "Login Whitelist" below.`},
 	{"ssh", "SSH login from new IP", `Triggered when root SSH access is detected from an unknown IP address. IP can be whitelisted in "Login Whitelist" below.`},
 	{"update", "New update available", "Triggered when a new version of VietPanel is available for update."},
 }
 
 var notifUserActionOrder = []struct{ Key, Label, Tooltip string }{
-	{"admin_status", "OpenAdmin enabled/disabled", `Triggered when OpenAdmin is toggled on or off from "OpenAdmin > Settings > Disable OpenAdmin" page.`},
-	{"admin_api", "API access enabled/disabled", `Fires when API status changes on "OpenAdmin > Settings > API Access" page.`},
-	{"admin_create", "Admin account created", "Triggered when a new OpenAdmin account is created."},
+	{"admin_status", "VietAdmin enabled/disabled", `Triggered when VietAdmin is toggled on or off from "VietAdmin > Settings > Disable VietAdmin" page.`},
+	{"admin_api", "API access enabled/disabled", `Fires when API status changes on "VietAdmin > Settings > API Access" page.`},
+	{"admin_create", "Admin account created", "Triggered when a new VietAdmin account is created."},
 	{"reseller_create", "Reseller account created", "Triggered when a new reseller account is created."},
 	{"admin_password", "Admin password changed", "Fires when password is changed for an Administrator or Reseller accounts."},
 	{"admin_rename", "Admin/Reseller renamed", "Fires when an Administrator or Reseller account is renamed."},
@@ -265,8 +265,8 @@ func (n *NotificationSettings) TestSMTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	body := "This is a test email from OpenAdmin confirming your SMTP settings are working."
-	if err := mailerSendRun(cfg, recipient, "OpenAdmin SMTP test", body); err != nil {
+	body := "This is a test email from VietAdmin confirming your SMTP settings are working."
+	if err := mailerSendRun(cfg, recipient, "VietAdmin SMTP test", body); err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}

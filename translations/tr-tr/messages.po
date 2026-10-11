@@ -1,11 +1,11 @@
-# Turkish translations for OpenPanel.
+# Turkish translations for VietPanel.
 # Copyright (C) 2024 OPENPANEL
-# This file is distributed under the same license as the OpenPanel project.
+# This file is distributed under the same license as the VietPanel project.
 # Slaweally, 2025.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: OpenPanel\n"
+"Project-Id-Version: VietPanel\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
 "POT-Creation-Date: 2026-10-05 12:31+0200\n"
 "PO-Revision-Date: 2025-01-27 12:00+0300\n"
@@ -120,8 +120,8 @@ msgid "Password Reset Requested"
 msgstr "Şifre Sıfırlama İstendi"
 
 #: openpanel/internal/modules/account/forgotpassword.go:203
-msgid "OpenPanel [%(domain)s] - Password Reset Requested"
-msgstr "OpenPanel [%(domain)s] - Parola Sıfırlama Talep Edildi"
+msgid "VietPanel [%(domain)s] - Password Reset Requested"
+msgstr "VietPanel [%(domain)s] - Parola Sıfırlama Talep Edildi"
 
 #: openpanel/internal/modules/account/forgotpassword.go:321
 msgid "Reset link is invalid"
@@ -6089,10 +6089,10 @@ msgstr "Turu başlat"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:377
 msgid ""
-"A guided walkthrough of the OpenPanel UI and pages. You can also start it "
+"A guided walkthrough of the VietPanel UI and pages. You can also start it "
 "anytime from the menu."
 msgstr ""
-"OpenPanel arayüzü ve sayfaları için rehberli bir tur. Bunu istediğiniz zaman"
+"VietPanel arayüzü ve sayfaları için rehberli bir tur. Bunu istediğiniz zaman"
 " menüden de başlatabilirsiniz."
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:383
@@ -15857,10 +15857,10 @@ msgstr "WordPress Kurulumu Yok"
 
 #: openpanel/internal/web/templates/manager/wp/list.html:344
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
 msgstr ""
-"OpenPanel üzerinden yönetilen WordPress sitesi yok. Yeni bir WordPress "
+"VietPanel üzerinden yönetilen WordPress sitesi yok. Yeni bir WordPress "
 "sitesi kurun veya mevcut kurulumları bulmak için tarama yapın."
 
 #: openpanel/internal/web/templates/manager/wp/list.html:346
@@ -17425,8 +17425,8 @@ msgid "Back to"
 msgstr "Geri dön"
 
 #: openpanel/internal/web/templates/partials/_impersonate.html:4
-msgid "OpenAdmin"
-msgstr "OpenAdmin"
+msgid "VietAdmin"
+msgstr "VietAdmin"
 
 #: openpanel/internal/web/templates/partials/_search.html:7
 msgid "Open search"
@@ -17755,15 +17755,15 @@ msgstr "Eklenti"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
 msgid ""
-"Mounted into the PHP service by OpenPanel, it can't be installed or disabled"
+"Mounted into the PHP service by VietPanel, it can't be installed or disabled"
 " here."
 msgstr ""
-"OpenPanel tarafından PHP hizmetine bağlanmıştır, burada yüklenemez veya "
+"VietPanel tarafından PHP hizmetine bağlanmıştır, burada yüklenemez veya "
 "devre dışı bırakılamaz."
 
 #: openpanel/internal/web/templates/php/extensions.html:67
-msgid "Provided by OpenPanel"
-msgstr "OpenPanel tarafından sağlanır"
+msgid "Provided by VietPanel"
+msgstr "VietPanel tarafından sağlanır"
 
 #: openpanel/internal/web/templates/php/extensions.html:82
 msgid "No extensions installed yet for this PHP version."
@@ -18459,8 +18459,8 @@ msgid "Enter IP addresses or CIDRs (one per line)"
 msgstr "IP adresleri veya CIDR'ler girin (satır başına bir tane)"
 
 #: openpanel/internal/web/templates/system/license_error.html:17
-msgid "OpenPanel Enterprise license key is invalid!"
-msgstr "OpenPanel Enterprise lisans anahtarı geçersiz!"
+msgid "VietPanel Enterprise license key is invalid!"
+msgstr "VietPanel Enterprise lisans anahtarı geçersiz!"
 
 #: openpanel/internal/web/templates/system/license_error.html:21
 msgid "Verify License"
@@ -19338,8 +19338,8 @@ msgid "Password Reset requested from server:"
 msgstr "Sunucudan parola sıfırlama istendi:"
 
 #: openpanel/internal/web/templates/user/email_template.html:82
-msgid "Password Reset requested from OpenPanel server:"
-msgstr "OpenPanel sunucusundan şifre sıfırlama isteği:"
+msgid "Password Reset requested from VietPanel server:"
+msgstr "VietPanel sunucusundan şifre sıfırlama isteği:"
 
 #: openpanel/internal/web/templates/user/email_template.html:121
 msgid "Click here to login to your account"
@@ -19434,8 +19434,8 @@ msgid "Locale / Language"
 msgstr "Yerel Ayar / Dil"
 
 #: openpanel/internal/web/templates/user/locale.html:11
-msgid "Choose the language OpenPanel is shown in for your account."
-msgstr "Hesabınız için OpenPanel'in hangi dilde gösterileceğini seçin."
+msgid "Choose the language VietPanel is shown in for your account."
+msgstr "Hesabınız için VietPanel'in hangi dilde gösterileceğini seçin."
 
 #: openpanel/internal/web/templates/user/login.html:6
 msgid "Sign in to your account"

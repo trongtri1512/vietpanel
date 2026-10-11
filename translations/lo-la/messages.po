@@ -1,7 +1,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: OpenPanel\n"
+"Project-Id-Version: VietPanel\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
 "POT-Creation-Date: 2026-10-05 12:31+0200\n"
 "PO-Revision-Date: 2026-06-01 00:00+0200\n"
@@ -115,8 +115,8 @@ msgid "Password Reset Requested"
 msgstr "ມີການຮ້ອງຂໍຕັ້ງລະຫັດຜ່ານໃໝ່"
 
 #: openpanel/internal/modules/account/forgotpassword.go:203
-msgid "OpenPanel [%(domain)s] - Password Reset Requested"
-msgstr "OpenPanel [%(domain)s] - ຮ້ອງຂໍການຣີເຊັດລະຫັດຜ່ານ"
+msgid "VietPanel [%(domain)s] - Password Reset Requested"
+msgstr "VietPanel [%(domain)s] - ຮ້ອງຂໍການຣີເຊັດລະຫັດຜ່ານ"
 
 #: openpanel/internal/modules/account/forgotpassword.go:321
 msgid "Reset link is invalid"
@@ -5950,10 +5950,10 @@ msgstr "ເລີ່ມການນຳທ່ຽວ"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:377
 msgid ""
-"A guided walkthrough of the OpenPanel UI and pages. You can also start it "
+"A guided walkthrough of the VietPanel UI and pages. You can also start it "
 "anytime from the menu."
 msgstr ""
-"ການນຳທ່ຽວແບບມີຄຳແນະນຳກ່ຽວກັບໜ້າຈໍ ແລະໜ້າຕ່າງໆຂອງ OpenPanel. "
+"ການນຳທ່ຽວແບບມີຄຳແນະນຳກ່ຽວກັບໜ້າຈໍ ແລະໜ້າຕ່າງໆຂອງ VietPanel. "
 "ທ່ານສາມາດເລີ່ມມັນໄດ້ທຸກເວລາຈາກເມນູ."
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:383
@@ -15618,10 +15618,10 @@ msgstr "ບໍ່ມີການຕິດຕັ້ງ WordPress"
 
 #: openpanel/internal/web/templates/manager/wp/list.html:344
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
 msgstr ""
-"ບໍ່ມີເວັບໄຊ WordPress ທີ່ຈັດການຜ່ານ OpenPanel. ຕິດຕັ້ງເວັບໄຊ WordPress ໃໝ່ "
+"ບໍ່ມີເວັບໄຊ WordPress ທີ່ຈັດການຜ່ານ VietPanel. ຕິດຕັ້ງເວັບໄຊ WordPress ໃໝ່ "
 "ຫຼື ສະແກນຫາການຕິດຕັ້ງທີ່ມີຢູ່ແລ້ວ."
 
 #: openpanel/internal/web/templates/manager/wp/list.html:346
@@ -17163,8 +17163,8 @@ msgid "Back to"
 msgstr "ກັບຄືນໄປ"
 
 #: openpanel/internal/web/templates/partials/_impersonate.html:4
-msgid "OpenAdmin"
-msgstr "OpenAdmin"
+msgid "VietAdmin"
+msgstr "VietAdmin"
 
 #: openpanel/internal/web/templates/partials/_search.html:7
 msgid "Open search"
@@ -17486,14 +17486,14 @@ msgstr "ສ່ວນເສີມ"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
 msgid ""
-"Mounted into the PHP service by OpenPanel, it can't be installed or disabled"
+"Mounted into the PHP service by VietPanel, it can't be installed or disabled"
 " here."
 msgstr ""
-"ຖືກເມົ້າເຂົ້າໃນບໍລິການ PHP ໂດຍ OpenPanel, ບໍ່ສາມາດຕິດຕັ້ງ ຫຼື ປິດໄດ້ທີ່ນີ້."
+"ຖືກເມົ້າເຂົ້າໃນບໍລິການ PHP ໂດຍ VietPanel, ບໍ່ສາມາດຕິດຕັ້ງ ຫຼື ປິດໄດ້ທີ່ນີ້."
 
 #: openpanel/internal/web/templates/php/extensions.html:67
-msgid "Provided by OpenPanel"
-msgstr "ສະໜອງໂດຍ OpenPanel"
+msgid "Provided by VietPanel"
+msgstr "ສະໜອງໂດຍ VietPanel"
 
 #: openpanel/internal/web/templates/php/extensions.html:82
 msgid "No extensions installed yet for this PHP version."
@@ -18167,8 +18167,8 @@ msgid "Enter IP addresses or CIDRs (one per line)"
 msgstr "ປ້ອນທີ່ຢູ່ IP ຫຼື CIDR (ໜຶ່ງລາຍການຕໍ່ແຖວ)"
 
 #: openpanel/internal/web/templates/system/license_error.html:17
-msgid "OpenPanel Enterprise license key is invalid!"
-msgstr "ຄີໃບອະນຸຍາດ OpenPanel Enterprise ບໍ່ຖືກຕ້ອງ!"
+msgid "VietPanel Enterprise license key is invalid!"
+msgstr "ຄີໃບອະນຸຍາດ VietPanel Enterprise ບໍ່ຖືກຕ້ອງ!"
 
 #: openpanel/internal/web/templates/system/license_error.html:21
 msgid "Verify License"
@@ -19036,8 +19036,8 @@ msgid "Password Reset requested from server:"
 msgstr "ມີການຮ້ອງຂໍຣີເຊັດລະຫັດຜ່ານຈາກເຊີບເວີ:"
 
 #: openpanel/internal/web/templates/user/email_template.html:82
-msgid "Password Reset requested from OpenPanel server:"
-msgstr "ມີການຮ້ອງຂໍຕັ້ງລະຫັດຜ່ານໃໝ່ຈາກເຊີເວີ OpenPanel:"
+msgid "Password Reset requested from VietPanel server:"
+msgstr "ມີການຮ້ອງຂໍຕັ້ງລະຫັດຜ່ານໃໝ່ຈາກເຊີເວີ VietPanel:"
 
 #: openpanel/internal/web/templates/user/email_template.html:121
 msgid "Click here to login to your account"
@@ -19131,8 +19131,8 @@ msgid "Locale / Language"
 msgstr "ທ້ອງຖິ່ນ / ພາສາ"
 
 #: openpanel/internal/web/templates/user/locale.html:11
-msgid "Choose the language OpenPanel is shown in for your account."
-msgstr "ເລືອກພາສາທີ່ OpenPanel ສະແດງສຳລັບບັນຊີຂອງທ່ານ."
+msgid "Choose the language VietPanel is shown in for your account."
+msgstr "ເລືອກພາສາທີ່ VietPanel ສະແດງສຳລັບບັນຊີຂອງທ່ານ."
 
 #: openpanel/internal/web/templates/user/login.html:6
 msgid "Sign in to your account"

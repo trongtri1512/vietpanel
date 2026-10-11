@@ -1,6 +1,6 @@
 // This file implements POST /api/login and GET /login/sso/{token}: a way
 // for external integrations (e.g. the WHMCS module's "Login to Panel"
-// button) to open a real OpenAdmin browser session for an admin/reseller
+// button) to open a real VietAdmin browser session for an admin/reseller
 // user without posting credentials directly to the CSRF-protected /login
 // form, which auto-submitted cross-origin forms (Origin: null) can't get
 // past. POST /api/login checks credentials and hands back a one-time

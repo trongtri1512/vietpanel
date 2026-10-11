@@ -1,11 +1,11 @@
-# Nepali Translations for OpenPanel.
+# Nepali Translations for VietPanel.
 # Copyright (C) 2025 OPENPANEL
 # This file is distributed under the same license as the  project.
 # Stefan Pejčić <stefan@pejcic.rs>, 2025.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: OpenPanel\n"
+"Project-Id-Version: VietPanel\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
 "POT-Creation-Date: 2026-10-05 12:31+0200\n"
 "PO-Revision-Date: 2025-11-15 12:00+0300\n"
@@ -121,8 +121,8 @@ msgid "Password Reset Requested"
 msgstr "पासवर्ड रिसेट अनुरोध गरिएको छ"
 
 #: openpanel/internal/modules/account/forgotpassword.go:203
-msgid "OpenPanel [%(domain)s] - Password Reset Requested"
-msgstr "OpenPanel [%(domain)s] - पासवर्ड रिसेट अनुरोध गरियो"
+msgid "VietPanel [%(domain)s] - Password Reset Requested"
+msgstr "VietPanel [%(domain)s] - पासवर्ड रिसेट अनुरोध गरियो"
 
 #: openpanel/internal/modules/account/forgotpassword.go:321
 msgid "Reset link is invalid"
@@ -6035,10 +6035,10 @@ msgstr "टुर लिनुहोस्"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:377
 msgid ""
-"A guided walkthrough of the OpenPanel UI and pages. You can also start it "
+"A guided walkthrough of the VietPanel UI and pages. You can also start it "
 "anytime from the menu."
 msgstr ""
-"OpenPanel UI र पृष्ठहरूको निर्देशित परिचय। तपाईं यसलाई मेनुबाट जुनसुकै बेला "
+"VietPanel UI र पृष्ठहरूको निर्देशित परिचय। तपाईं यसलाई मेनुबाट जुनसुकै बेला "
 "सुरु गर्न सक्नुहुन्छ।"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:383
@@ -15750,10 +15750,10 @@ msgstr "कुनै WordPress स्थापना छैन"
 
 #: openpanel/internal/web/templates/manager/wp/list.html:344
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
 msgstr ""
-"OpenPanel मार्फत कुनै पनि WordPress साइटहरू व्यवस्थापन गरिएको छैन। नयाँ "
+"VietPanel मार्फत कुनै पनि WordPress साइटहरू व्यवस्थापन गरिएको छैन। नयाँ "
 "WordPress साइट इन्स्टल गर्नुहोस् वा अवस्थित स्थापनाहरू खोज्न स्क्यान "
 "गर्नुहोस्।"
 
@@ -17309,8 +17309,8 @@ msgid "Back to"
 msgstr "फिर्ता जानुहोस्"
 
 #: openpanel/internal/web/templates/partials/_impersonate.html:4
-msgid "OpenAdmin"
-msgstr "OpenAdmin"
+msgid "VietAdmin"
+msgstr "VietAdmin"
 
 #: openpanel/internal/web/templates/partials/_search.html:7
 msgid "Open search"
@@ -17637,15 +17637,15 @@ msgstr "एक्सटेन्सन"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
 msgid ""
-"Mounted into the PHP service by OpenPanel, it can't be installed or disabled"
+"Mounted into the PHP service by VietPanel, it can't be installed or disabled"
 " here."
 msgstr ""
-"OpenPanel द्वारा PHP सेवामा माउन्ट गरिएको, यहाँ स्थापना वा असक्षम गर्न "
+"VietPanel द्वारा PHP सेवामा माउन्ट गरिएको, यहाँ स्थापना वा असक्षम गर्न "
 "सकिँदैन।"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
-msgid "Provided by OpenPanel"
-msgstr "OpenPanel द्वारा प्रदान गरिएको"
+msgid "Provided by VietPanel"
+msgstr "VietPanel द्वारा प्रदान गरिएको"
 
 #: openpanel/internal/web/templates/php/extensions.html:82
 msgid "No extensions installed yet for this PHP version."
@@ -18335,8 +18335,8 @@ msgid "Enter IP addresses or CIDRs (one per line)"
 msgstr "IP ठेगाना वा CIDR हरू प्रविष्ट गर्नुहोस् (प्रति लाइन एक)"
 
 #: openpanel/internal/web/templates/system/license_error.html:17
-msgid "OpenPanel Enterprise license key is invalid!"
-msgstr "OpenPanel Enterprise इजाजतपत्र कुञ्जी अमान्य छ!"
+msgid "VietPanel Enterprise license key is invalid!"
+msgstr "VietPanel Enterprise इजाजतपत्र कुञ्जी अमान्य छ!"
 
 #: openpanel/internal/web/templates/system/license_error.html:21
 msgid "Verify License"
@@ -19212,8 +19212,8 @@ msgid "Password Reset requested from server:"
 msgstr "सर्भरबाट पासवर्ड रिसेट अनुरोध गरियो:"
 
 #: openpanel/internal/web/templates/user/email_template.html:82
-msgid "Password Reset requested from OpenPanel server:"
-msgstr "OpenPanel सर्भरबाट पासवर्ड रिसेटको अनुरोध गरिएको छ:"
+msgid "Password Reset requested from VietPanel server:"
+msgstr "VietPanel सर्भरबाट पासवर्ड रिसेटको अनुरोध गरिएको छ:"
 
 #: openpanel/internal/web/templates/user/email_template.html:121
 msgid "Click here to login to your account"
@@ -19308,8 +19308,8 @@ msgid "Locale / Language"
 msgstr "लोकेल / भाषा"
 
 #: openpanel/internal/web/templates/user/locale.html:11
-msgid "Choose the language OpenPanel is shown in for your account."
-msgstr "तपाईंको खाताका लागि OpenPanel कुन भाषामा देखाउने छान्नुहोस्।"
+msgid "Choose the language VietPanel is shown in for your account."
+msgstr "तपाईंको खाताका लागि VietPanel कुन भाषामा देखाउने छान्नुहोस्।"
 
 #: openpanel/internal/web/templates/user/login.html:6
 msgid "Sign in to your account"

@@ -615,12 +615,12 @@ info_openpanel() {
 
     # same check as 'vietcli admin'
     if [[ "${SRV[admin]}" == running ]]; then
-        row "OpenAdmin" "running${SRV[admin_url]:+ on ${SRV[admin_url]}}"
+        row "VietAdmin" "running${SRV[admin_url]:+ on ${SRV[admin_url]}}"
     elif [[ "${SRV[admin]}" == disabled ]]; then
-        row "OpenAdmin" "disabled"
+        row "VietAdmin" "disabled"
     else
-        row "OpenAdmin" "not running"
-        warn "OpenAdmin is not running but wasn't disabled, start it with 'vietcli admin on'."
+        row "VietAdmin" "not running"
+        warn "VietAdmin is not running but wasn't disabled, start it with 'vietcli admin on'."
     fi
 }
 
@@ -764,7 +764,7 @@ section_account() {
         can_send=0
     fi
     if ! systemctl is-active --quiet admin 2>/dev/null; then
-        warn "OpenAdmin is not running, notification emails can't be sent until it is."
+        warn "VietAdmin is not running, notification emails can't be sent until it is."
         can_send=0
     fi
     local smtp; smtp=$(panel_config mail_server)

@@ -48,7 +48,7 @@ func (a *App) checkLicenseStartup(ctx context.Context) bool {
 		return false
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "OpenAdmin-License-Check/1.0")
+	req.Header.Set("User-Agent", "VietAdmin-License-Check/1.0")
 
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Do(req)

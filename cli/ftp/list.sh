@@ -3,7 +3,7 @@
 # Script Name: ftp/add.sh
 # Description: List FTP sub-users for openpanel user.
 # Usage: vietcli ftp-list [OPENPANEL_USERNAME] [--json]
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 10.09.2024
 # Last Modified: 21.08.2026

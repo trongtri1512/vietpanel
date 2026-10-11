@@ -103,8 +103,8 @@ func GetVietPanelDomain(ctx context.Context, c *cache.Cache) string {
 	return v
 }
 
-// GetOpenAdminPort returns the port the separate "openadmin" service (which sends notification emails) listens on; left uncached since its only caller already runs in a background goroutine
-func GetOpenAdminPort() string {
+// GetVietAdminPort returns the port the separate "openadmin" service (which sends notification emails) listens on; left uncached since its only caller already runs in a background goroutine
+func GetVietAdminPort() string {
 	out, err := runOpencli("admin", "port")
 	if err != nil || out == "" {
 		return "2087"

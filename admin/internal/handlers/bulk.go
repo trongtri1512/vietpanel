@@ -254,7 +254,7 @@ func bulkItemList(results []BulkResult) string {
 }
 
 // bulkReplayHeader marks a replayed request, for handlers that render the page (and pop the flash) right after a POST instead of redirecting
-const bulkReplayHeader = "X-OpenAdmin-Bulk"
+const bulkReplayHeader = "X-VietAdmin-Bulk"
 
 // withoutSessionCache hides gorilla/sessions' per-request session cache, so a replayed handler loads its own copy of the session instead of adding its flashes to the real request's one
 type withoutSessionCache struct{ context.Context }

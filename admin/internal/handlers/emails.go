@@ -69,7 +69,7 @@ var (
 )
 
 // mailReportJinjaExtendsRe/BlockRe/EndblockRe strip the Jinja2 wrapper lines
-// still emitted by the mail-report generator, a holdover from OpenAdmin's
+// still emitted by the mail-report generator, a holdover from VietAdmin's
 // pre-Go, Flask-based UI where these files used to extend that app's own
 // base.html layout. That layout no longer exists, so left alone these three
 // lines would render as literal text at the top/bottom of the report; the
@@ -85,7 +85,7 @@ var (
 
 // mailReportDocTemplate wraps a stripped report fragment in a minimal
 // standalone document that pulls in the same Tailwind build and Alpine.js
-// bundle OpenAdmin's own chrome uses, plus the same dark-mode class toggle,
+// bundle VietAdmin's own chrome uses, plus the same dark-mode class toggle,
 // so the report (which was authored against those same classes) renders
 // correctly whether opened directly or embedded in an iframe.
 const mailReportDocTemplate = `<!doctype html>

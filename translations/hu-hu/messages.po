@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: OpenPanel\n"
+"Project-Id-Version: VietPanel\n"
 "Report-Msgid-Bugs-To: stefan@pejcic.rs\n"
 "POT-Creation-Date: 2026-10-05 12:31+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
@@ -120,8 +120,8 @@ msgid "Password Reset Requested"
 msgstr "Jelszó visszaállítása kérve"
 
 #: openpanel/internal/modules/account/forgotpassword.go:203
-msgid "OpenPanel [%(domain)s] - Password Reset Requested"
-msgstr "OpenPanel [%(domain)s] - Jelszó-visszaállítás kérve"
+msgid "VietPanel [%(domain)s] - Password Reset Requested"
+msgstr "VietPanel [%(domain)s] - Jelszó-visszaállítás kérve"
 
 #: openpanel/internal/modules/account/forgotpassword.go:321
 msgid "Reset link is invalid"
@@ -6150,10 +6150,10 @@ msgstr "Vegyen részt a bemutatón"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:377
 msgid ""
-"A guided walkthrough of the OpenPanel UI and pages. You can also start it "
+"A guided walkthrough of the VietPanel UI and pages. You can also start it "
 "anytime from the menu."
 msgstr ""
-"Vezetett bemutató az OpenPanel felületéről és oldalairól. Bármikor "
+"Vezetett bemutató az VietPanel felületéről és oldalairól. Bármikor "
 "elindíthatja a menüből is."
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:383
@@ -15960,10 +15960,10 @@ msgstr "No WordPress installációk"
 
 #: openpanel/internal/web/templates/manager/wp/list.html:344
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
 msgstr ""
-"Nincs WordPress oldalak kezelt OpenPanel. Telepíts egy új WordPress "
+"Nincs WordPress oldalak kezelt VietPanel. Telepíts egy új WordPress "
 "weboldalt vagy scan-özz a meglévő installációk kereséséhez."
 
 #: openpanel/internal/web/templates/manager/wp/list.html:346
@@ -17538,8 +17538,8 @@ msgid "Back to"
 msgstr "Vissza a"
 
 #: openpanel/internal/web/templates/partials/_impersonate.html:4
-msgid "OpenAdmin"
-msgstr "OpenAdmin"
+msgid "VietAdmin"
+msgstr "VietAdmin"
 
 #: openpanel/internal/web/templates/partials/_search.html:7
 msgid "Open search"
@@ -17870,15 +17870,15 @@ msgstr "kiterjesztés"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
 msgid ""
-"Mounted into the PHP service by OpenPanel, it can't be installed or disabled"
+"Mounted into the PHP service by VietPanel, it can't be installed or disabled"
 " here."
 msgstr ""
-"Az OpenPanel csatolja a PHP-szolgáltatásba, itt nem telepíthető és nem "
+"Az VietPanel csatolja a PHP-szolgáltatásba, itt nem telepíthető és nem "
 "tiltható le."
 
 #: openpanel/internal/web/templates/php/extensions.html:67
-msgid "Provided by OpenPanel"
-msgstr "Az OpenPanel biztosítja"
+msgid "Provided by VietPanel"
+msgstr "Az VietPanel biztosítja"
 
 #: openpanel/internal/web/templates/php/extensions.html:82
 msgid "No extensions installed yet for this PHP version."
@@ -18579,8 +18579,8 @@ msgid "Enter IP addresses or CIDRs (one per line)"
 msgstr "Adjon meg IP-címeket vagy CIDR-eket (soronként egyet)"
 
 #: openpanel/internal/web/templates/system/license_error.html:17
-msgid "OpenPanel Enterprise license key is invalid!"
-msgstr "Az OpenPanel Enterprise licenckulcs érvénytelen!"
+msgid "VietPanel Enterprise license key is invalid!"
+msgstr "Az VietPanel Enterprise licenckulcs érvénytelen!"
 
 #: openpanel/internal/web/templates/system/license_error.html:21
 msgid "Verify License"
@@ -19461,8 +19461,8 @@ msgid "Password Reset requested from server:"
 msgstr "Jelszó-visszaállítást kértek a szerverről:"
 
 #: openpanel/internal/web/templates/user/email_template.html:82
-msgid "Password Reset requested from OpenPanel server:"
-msgstr "A jelszó visszaállítása az OpenPanel szerverről:"
+msgid "Password Reset requested from VietPanel server:"
+msgstr "A jelszó visszaállítása az VietPanel szerverről:"
 
 #: openpanel/internal/web/templates/user/email_template.html:121
 msgid "Click here to login to your account"
@@ -19557,8 +19557,8 @@ msgid "Locale / Language"
 msgstr "Területi beállítás / Nyelv"
 
 #: openpanel/internal/web/templates/user/locale.html:11
-msgid "Choose the language OpenPanel is shown in for your account."
-msgstr "Válassza ki, milyen nyelven jelenjen meg az OpenPanel a fiókjában."
+msgid "Choose the language VietPanel is shown in for your account."
+msgstr "Válassza ki, milyen nyelven jelenjen meg az VietPanel a fiókjában."
 
 #: openpanel/internal/web/templates/user/login.html:6
 msgid "Sign in to your account"

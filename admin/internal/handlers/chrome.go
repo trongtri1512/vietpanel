@@ -147,11 +147,11 @@ func buildChrome(r *http.Request, title string) webtemplates.Chrome {
 		}
 		switch {
 		case openpanelRestart && openadminRestart:
-			restartMessages = []string{"Pending changes in both VietPanel and OpenAdmin. Restart both services."}
+			restartMessages = []string{"Pending changes in both VietPanel and VietAdmin. Restart both services."}
 		case openpanelRestart:
 			restartMessages = []string{"Pending changes for VietPanel UI. Restart the 'openpanel' container."}
 		case openadminRestart:
-			restartMessages = []string{"Pending changes for OpenAdmin. Restart the 'admin' service."}
+			restartMessages = []string{"Pending changes for VietAdmin. Restart the 'admin' service."}
 		}
 	}
 

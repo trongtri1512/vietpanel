@@ -15,7 +15,7 @@ import (
 type APISettingsGeneral struct {
 	// DevMode mirrors General.DevMode: read once at process startup and
 	// never refreshed afterward, so this endpoint keeps reporting (and
-	// comparing against) the old value until OpenAdmin actually restarts.
+	// comparing against) the old value until VietAdmin actually restarts.
 	DevMode bool
 }
 
@@ -116,7 +116,7 @@ func (g *APISettingsGeneral) handlePost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// The proxy is (re)applied on every POST -- to the submitted value, or
-	// back to "openpanel" when none was given -- and the OpenAdmin restart
+	// back to "openpanel" when none was given -- and the VietAdmin restart
 	// flag always ends up set below regardless of whether the proxy (or
 	// anything else) actually changed.
 	if body.OpenpanelProxy != "" && body.OpenpanelProxy != "openpanel" {

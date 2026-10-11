@@ -87,7 +87,7 @@
     </div>
     </a>
     {{else}}
-    <a href="https://my.openpanel.com/index.php?rp=/store/openpanel/enterprise-license" target="_blank" title="Managing more than 3 users is available on VietPanel Enterprise edition." style="text-decoration:none;">
+    <a href="https://github.com/trongtri1512/vietpanel/index.php?rp=/store/openpanel/enterprise-license" target="_blank" title="Managing more than 3 users is available on VietPanel Enterprise edition." style="text-decoration:none;">
     <div>
         <dt class="font-mono uppercase text-xs md:text-sm">Users</dt>
         <dd class="mt-1.5 flex items-center gap-2"><p class="text-lg font-semibold text-gray-900 dark:text-gray-50">{{.UserCount}}<span class="font-medium text-gray-400 dark:text-gray-600">/ 3</span></p></dd>
@@ -102,7 +102,7 @@
     </div>
     </a>
     {{else}}
-    <a href="https://my.openpanel.com/index.php?rp=/store/openpanel/enterprise-license" target="_blank" title="Managing more than 50 domains is available on VietPanel Enterprise edition." style="text-decoration:none;">
+    <a href="https://github.com/trongtri1512/vietpanel/index.php?rp=/store/openpanel/enterprise-license" target="_blank" title="Managing more than 50 domains is available on VietPanel Enterprise edition." style="text-decoration:none;">
     <div>
         <dt class="font-mono uppercase text-xs md:text-sm">Domains</dt>
         <dd class="mt-1.5 flex items-center gap-2"><p class="text-lg font-semibold text-gray-900 dark:text-gray-50">{{.DomainCount}}<span class="font-medium text-gray-400 dark:text-gray-600">/ 50</span></p></dd>
@@ -129,7 +129,7 @@
     </div>
     </a>
     {{else}}
-    <a href="https://my.openpanel.com/index.php?rp=/store/openpanel/enterprise-license" target="_blank" title="Managing email accounts is available on VietPanel Enterprise edition." style="text-decoration:none;">
+    <a href="https://github.com/trongtri1512/vietpanel/index.php?rp=/store/openpanel/enterprise-license" target="_blank" title="Managing email accounts is available on VietPanel Enterprise edition." style="text-decoration:none;">
     <div>
         <dt class="font-mono uppercase text-xs md:text-sm">Emails</dt>
         <dd class="mt-1.5 flex items-center gap-2"><p class="text-lg font-semibold text-gray-900 dark:text-gray-50">{{.MailCount}}<span class="font-medium text-gray-400 dark:text-gray-600">/ 0</span></p></dd>
@@ -264,7 +264,7 @@ document.addEventListener("DOMContentLoaded", function () {
     };
 
     const fetchAndProcessData = async () => {
-        const response = await fetch('https://api.github.com/repos/stefanpejcic/VietPanel/contents/website/blog');
+        const response = await fetch('https://api.github.com/repos/trongtri1512/vietpanel/contents/website/blog');
         const data = await response.json();
 
         const markdownFiles = data
@@ -275,7 +275,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const content = [];
         for (const file of markdownFiles) {
-            const fileUrl = `https://raw.githubusercontent.com/stefanpejcic/VietPanel/main/website/blog/${file.name}`;
+            const fileUrl = `https://raw.githubusercontent.com/trongtri1512/vietpanel/main/website/blog/${file.name}`;
             const info = await fetchRequiredLines(fileUrl);
             const dateStr = file.name.split('-').slice(0, 3).join('-');
             const formattedDate = new Date(dateStr).toLocaleDateString(undefined, {
@@ -296,7 +296,7 @@ const renderNewsItems = (items) => {
 
         if (image) {
             const imgLink = document.createElement('a');
-            imgLink.href = `https://openpanel.com/blog/${slug}`;
+            imgLink.href = `https://github.com/trongtri1512/vietpanel/blog/${slug}`;
             imgLink.target = '_blank';
             const imgElement = document.createElement('img');
             imgElement.src = image;
@@ -313,7 +313,7 @@ const renderNewsItems = (items) => {
         const titleElement = document.createElement('h3');
         titleElement.classList.add('text-lg', 'font-semibold', 'leading-tight');
         const titleLink = document.createElement('a');
-        titleLink.href = `https://openpanel.com/blog/${slug}`;
+        titleLink.href = `https://github.com/trongtri1512/vietpanel/blog/${slug}`;
         titleLink.target = '_blank';
         titleLink.classList.add('text-sm', 'font-medium', 'text-gray-900', 'dark:text-gray-50', 'hover:underline');
         titleLink.textContent = title;

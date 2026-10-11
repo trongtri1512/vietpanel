@@ -27,7 +27,7 @@ jobs:
           echo "$FILES" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      - name: Update Last Modified Date and OpenCLI Version
+      - name: Update Last Modified Date and VietCLI Version
         run: |
           if [ -z "$FILES" ]; then
             echo "No .sh files modified, skipping update."
@@ -51,7 +51,7 @@ jobs:
 
           # Update OPENCLI_VERSION in the opencli file
           if [ -f opencli ]; then
-            echo "Updating OpenCLI Version to $VERSION"
+            echo "Updating VietCLI Version to $VERSION"
             sed -i "s/^readonly OPENCLI_VERSION=\"[0-9.]*\"/readonly OPENCLI_VERSION=\"${VERSION}\"/" opencli
           fi
 

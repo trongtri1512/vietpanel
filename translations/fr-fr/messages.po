@@ -1,11 +1,11 @@
-# French translations for OpenPanel.
+# French translations for VietPanel.
 # Copyright (C) 2024 OPENPANEL
-# This file is distributed under the same license as the OpenPanel project.
+# This file is distributed under the same license as the VietPanel project.
 # Sébastien Couturier, 2024.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: OpenPanel\n"
+"Project-Id-Version: VietPanel\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
 "POT-Creation-Date: 2026-10-05 12:31+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
@@ -121,8 +121,8 @@ msgid "Password Reset Requested"
 msgstr "Réinitialisation du mot de passe demandée"
 
 #: openpanel/internal/modules/account/forgotpassword.go:203
-msgid "OpenPanel [%(domain)s] - Password Reset Requested"
-msgstr "OpenPanel [%(domain)s] - Réinitialisation du mot de passe demandée"
+msgid "VietPanel [%(domain)s] - Password Reset Requested"
+msgstr "VietPanel [%(domain)s] - Réinitialisation du mot de passe demandée"
 
 #: openpanel/internal/modules/account/forgotpassword.go:321
 msgid "Reset link is invalid"
@@ -6218,10 +6218,10 @@ msgstr "Faire la visite guidée"
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:377
 msgid ""
-"A guided walkthrough of the OpenPanel UI and pages. You can also start it "
+"A guided walkthrough of the VietPanel UI and pages. You can also start it "
 "anytime from the menu."
 msgstr ""
-"Une visite guidée de l'interface et des pages d'OpenPanel. Vous pouvez aussi"
+"Une visite guidée de l'interface et des pages d'VietPanel. Vous pouvez aussi"
 " la lancer à tout moment depuis le menu."
 
 #: openpanel/internal/web/templates/dashboard/onboarding.html:383
@@ -16164,10 +16164,10 @@ msgstr "Aucune installation WordPress"
 
 #: openpanel/internal/web/templates/manager/wp/list.html:344
 msgid ""
-"No WordPress sites managed via OpenPanel. Install a new WordPress site or "
+"No WordPress sites managed via VietPanel. Install a new WordPress site or "
 "scan to find existing installations."
 msgstr ""
-"Aucun site WordPress géré via OpenPanel. Installez un nouveau site WordPress"
+"Aucun site WordPress géré via VietPanel. Installez un nouveau site WordPress"
 " ou lancez une analyse pour trouver les installations existantes."
 
 #: openpanel/internal/web/templates/manager/wp/list.html:346
@@ -17768,8 +17768,8 @@ msgid "Back to"
 msgstr "Retour à"
 
 #: openpanel/internal/web/templates/partials/_impersonate.html:4
-msgid "OpenAdmin"
-msgstr "OpenAdmin"
+msgid "VietAdmin"
+msgstr "VietAdmin"
 
 #: openpanel/internal/web/templates/partials/_search.html:7
 msgid "Open search"
@@ -18101,15 +18101,15 @@ msgstr "Extension"
 
 #: openpanel/internal/web/templates/php/extensions.html:67
 msgid ""
-"Mounted into the PHP service by OpenPanel, it can't be installed or disabled"
+"Mounted into the PHP service by VietPanel, it can't be installed or disabled"
 " here."
 msgstr ""
-"Montée dans le service PHP par OpenPanel, elle ne peut pas être installée ni"
+"Montée dans le service PHP par VietPanel, elle ne peut pas être installée ni"
 " désactivée ici."
 
 #: openpanel/internal/web/templates/php/extensions.html:67
-msgid "Provided by OpenPanel"
-msgstr "Fournie par OpenPanel"
+msgid "Provided by VietPanel"
+msgstr "Fournie par VietPanel"
 
 #: openpanel/internal/web/templates/php/extensions.html:82
 msgid "No extensions installed yet for this PHP version."
@@ -18816,8 +18816,8 @@ msgid "Enter IP addresses or CIDRs (one per line)"
 msgstr "Saisissez des adresses IP ou des CIDR (un par ligne)"
 
 #: openpanel/internal/web/templates/system/license_error.html:17
-msgid "OpenPanel Enterprise license key is invalid!"
-msgstr "La clé de licence OpenPanel Enterprise n'est pas valide !"
+msgid "VietPanel Enterprise license key is invalid!"
+msgstr "La clé de licence VietPanel Enterprise n'est pas valide !"
 
 #: openpanel/internal/web/templates/system/license_error.html:21
 msgid "Verify License"
@@ -19707,9 +19707,9 @@ msgid "Password Reset requested from server:"
 msgstr "Réinitialisation du mot de passe demandée depuis le serveur :"
 
 #: openpanel/internal/web/templates/user/email_template.html:82
-msgid "Password Reset requested from OpenPanel server:"
+msgid "Password Reset requested from VietPanel server:"
 msgstr ""
-"Réinitialisation du mot de passe demandée depuis le serveur OpenPanel :"
+"Réinitialisation du mot de passe demandée depuis le serveur VietPanel :"
 
 #: openpanel/internal/web/templates/user/email_template.html:121
 msgid "Click here to login to your account"
@@ -19804,9 +19804,9 @@ msgid "Locale / Language"
 msgstr "Paramètres régionaux / Langue"
 
 #: openpanel/internal/web/templates/user/locale.html:11
-msgid "Choose the language OpenPanel is shown in for your account."
+msgid "Choose the language VietPanel is shown in for your account."
 msgstr ""
-"Choisissez la langue dans laquelle OpenPanel s'affiche pour votre compte."
+"Choisissez la langue dans laquelle VietPanel s'affiche pour votre compte."
 
 #: openpanel/internal/web/templates/user/login.html:6
 msgid "Sign in to your account"

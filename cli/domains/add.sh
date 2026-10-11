@@ -422,7 +422,7 @@ make_docroot_dirs() {
 
     mkdir -p "${dirs[@]}"
 
-	# https://github.com/stefanpejcic/VietPanel/discussions/1084
+	# https://github.com/stefanpejcic/OpenPanel/discussions/1084
 	[[ "$WEB_SERVER" == *litespeed* ]] && cp -f "/etc/openpanel/nginx/default_page.html" "/home/$context/docker-data/volumes/${context}_html_data/_data/$stripped/index.html" 
 
     timeout 3s chown -R "$context_uid:$context_uid" "${dirs[@]}" || true
@@ -560,7 +560,7 @@ create_caddy_domain_file() {
     # WAF rule engine
     local waf_value="Off"
 
-	# https://github.com/stefanpejcic/VietPanel/discussions/1107
+	# https://github.com/stefanpejcic/OpenPanel/discussions/1107
 	if [[ -f "/home/${context}/waf.disabled" ]]; then
 	    waf_value="Off"
 	elif grep -qi "waf" "$PANEL_CONFIG_FILE" 2>/dev/null; then

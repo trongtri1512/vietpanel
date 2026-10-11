@@ -3,7 +3,7 @@
 # Script Name: email/setup.sh
 # Description: Setup email addresses, forwarders, filters..
 # Usage: vietcli email-setup <COMMAND> <ATTRIBUTES>
-# Docs: https://docs.openpanel.com
+# Docs: https://github.com/trongtri1512/vietpanel
 # Author: Stefan Pejcic
 # Created: 18.08.2024
 # Last Modified: 30.09.2026
@@ -31,7 +31,7 @@
 
 if [ "$#" -lt 1 ]; then
     echo "Usage: vietcli email-setup <command> [<args>...]"
-    echo "Docs: https://openpanel.com/docs/articles/vietcli/email"
+    echo "Docs: https://github.com/trongtri1512/vietpanel/docs/articles/vietcli/email"
     exit 1
 fi
 

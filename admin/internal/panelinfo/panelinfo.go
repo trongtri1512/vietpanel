@@ -1,5 +1,5 @@
 // Package panelinfo answers questions about the VietPanel (user-facing,
-// port 2083) side of the install -- as opposed to OpenAdmin itself, which
+// port 2083) side of the install -- as opposed to VietAdmin itself, which
 // internal/bootstrap already covers. Used by the login page's "Switch to
 // VietPanel" link.
 package panelinfo

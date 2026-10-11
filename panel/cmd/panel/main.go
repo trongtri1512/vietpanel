@@ -27,7 +27,7 @@ const (
 	// also tlsCertPaths' fallback (startup.go) when `opencli port` can't be read
 	defaultAdminPort  = "2083"
 	defaultListenAddr = ":" + defaultAdminPort
-	// where OpenAdmin saves custom code (custom.css/js, in_header/in_footer.html), robots.txt and security.txt can go here too
+	// where VietAdmin saves custom code (custom.css/js, in_header/in_footer.html), robots.txt and security.txt can go here too
 	defaultStaticOverrideDir = "/etc/openpanel/openpanel/custom_code"
 )
 

@@ -315,7 +315,7 @@ while IFS= read -r -d '' config_file_path; do
 
     domain_id=$(get_domain_id "$domain_name")
     if ! [[ "$domain_id" =~ ^[0-9]+$ ]] && [[ "$domain_name" == www.* ]]; then
-        # https://github.com/stefanpejcic/VietPanel/issues/1124
+        # https://github.com/stefanpejcic/OpenPanel/issues/1124
         base_domain="${domain_name#www.}"
         domain_id=$(get_domain_id "$base_domain")
         [[ "$domain_id" =~ ^[0-9]+$ ]] && echo "  Domain $domain_name not added, but $base_domain is - linking site to $base_domain"

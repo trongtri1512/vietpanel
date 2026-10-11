@@ -156,7 +156,7 @@ func (u *Users) handleEditUser(w http.ResponseWriter, r *http.Request, username 
 }
 
 // updateUserReseller reassigns username's owner directly in MySQL (there is
-// no opencli command for this -- reseller ownership is an OpenAdmin-only
+// no opencli command for this -- reseller ownership is an VietAdmin-only
 // concept, not something opencli's user scripts know about). newReseller
 // "" or "root" clears ownership. Enforces the same reseller-must-exist and
 // account-limit checks as the target reseller's plan-assignment limits

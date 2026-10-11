@@ -139,7 +139,7 @@ get_current_domain() {
         sed -n "/$start_marker/,/$end_marker/p" "$CADDY_FILE" | sed -n 's/^\([0-9]\{1,3\}\(\.[0-9]\{1,3\}\)\{3\}\)[[:space:]]*{.*/\1/p' | head -n1
     }
 
-    # used to branch on /.dockerenv here, but OpenAdmin always runs natively on the host now, so just check both markers unconditionally
+    # used to branch on /.dockerenv here, but VietAdmin always runs natively on the host now, so just check both markers unconditionally
     domain=$(extract_domain "# START USERPANEL DOMAIN #" "# END USERPANEL DOMAIN #")
     if [[ -z "$domain" ]]; then
         domain=$(extract_domain "# START HOSTNAME DOMAIN #" "# END HOSTNAME DOMAIN #")
@@ -338,7 +338,7 @@ show_success_message() {
         display_hostname="$server_ip"
     fi
     
-    log_info "$display_hostname is now set for accessing the VietPanel and OpenAdmin interfaces."
+    log_info "$display_hostname is now set for accessing the VietPanel and VietAdmin interfaces."
 }
 
 update_domain() {

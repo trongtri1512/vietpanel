@@ -28,15 +28,14 @@ document.addEventListener("DOMContentLoaded", function () {
             if (response.response === "License is invalid" || response.error === "License key validation failed") {
                 alertHtml = `<div class="p-4 sm:p-6 lg:p-8">
                                 <div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md'>
-                                    <p><strong>License key is invalid.</strong> Please verify it on your 
-                                    <a href='https://my.openpanel.com/clientarea.php?action=products' class='text-blue-500 underline' target='_blank'>my.openpanel.com</a> account.</p>
+                                    <p><strong>License key is invalid.</strong> Please verify it with your license provider.</p>
                                 </div>
                              </div>`;
             } else {
                 alertHtml = `<div class="p-4 sm:p-6 lg:p-8">
                                 <div class='bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-md'>
                                     <p>License key saved successfully! 
-                                    <a href="#" id="restartOpenAdmin" class='text-blue-500 underline'>Click here to restart OpenAdmin</a> 
+                                    <a href="#" id="restartVietAdmin" class='text-blue-500 underline'>Click here to restart VietAdmin</a> 
                                     interface and apply Enterprise features (may take up to 10sec).</p>
                                 </div>
                             </div>`;
@@ -46,10 +45,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
             alertContainer.innerHTML = alertHtml;
 
-            const restartLink = document.getElementById("restartOpenAdmin");
+            const restartLink = document.getElementById("restartVietAdmin");
             if (restartLink) {
                 restartLink.replaceWith(restartLink.cloneNode(true));
-                document.getElementById("restartOpenAdmin").addEventListener("click", function (event) {
+                document.getElementById("restartVietAdmin").addEventListener("click", function (event) {
                     event.preventDefault();
                     fetch('/service/restart/admin', {
                         method: 'POST',
@@ -63,7 +62,7 @@ document.addEventListener("DOMContentLoaded", function () {
                             window.location.href = "/license";
                         }, 10000);
                     })
-                    .catch(error => console.error("Error restarting OpenAdmin:", error));
+                    .catch(error => console.error("Error restarting VietAdmin:", error));
                 });
             }
         })

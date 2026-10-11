@@ -1,7 +1,7 @@
-// Need Help? panel, renders the page's docs straight from the OpenPanel repo on GitHub
+// Need Help? panel, renders the page's docs straight from the VietPanel repo on GitHub
 window.OPPageHelp = (function () {
   const RAW = 'https://raw.githubusercontent.com/stefanpejcic/OpenPanel/refs/heads/main/website/docs/';
-  const SITE = 'https://openpanel.com';
+  const SITE = 'https://github.com/trongtri1512/vietpanel';
   const cache = {};
   let libs;
 
@@ -95,7 +95,7 @@ window.OPPageHelp = (function () {
       el.dataset.loaded = key;
     } catch (e) {
       delete cache[doc];
-      el.textContent = 'Could not load the documentation right now, use the link above to open it on openpanel.com.';
+      el.textContent = 'Could not load the documentation right now.';
     }
   }
 

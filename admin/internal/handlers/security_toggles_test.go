@@ -90,7 +90,7 @@ func TestDisableAdminFlashesOnPost(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !strings.Contains(string(body), "OpenAdmin is now disabled") {
+	if !strings.Contains(string(body), "VietAdmin is now disabled") {
 		t.Fatalf("expected the disabled flash, got %s", truncate(string(body)))
 	}
 }

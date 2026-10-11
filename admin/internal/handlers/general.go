@@ -23,7 +23,7 @@ type General struct {
 	// *intentional*) quirk: after this page's dev-mode toggle writes the
 	// new value via `opencli config update dev_mode ...`, both the page
 	// and the POST-comparison logic keep using the OLD value until
-	// OpenAdmin actually restarts (which the restart-flag mechanism
+	// VietAdmin actually restarts (which the restart-flag mechanism
 	// requests but doesn't perform inline).
 	DevMode bool
 }

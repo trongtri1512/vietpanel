@@ -1,10 +1,10 @@
-# OpenAdmin
+# VietAdmin
 
-OpenAdmin is the administrative interface for [**OpenPanel**](https://openpanel.com), providing server administrators with a fast, modern, and lightweight dashboard for managing servers, users, services, system settings, and platform configuration.
+VietAdmin is the administrative interface for [**VietPanel**](https://github.com/trongtri1512/vietpanel), providing server administrators with a fast, modern, and lightweight dashboard for managing servers, users, services, system settings, and platform configuration.
 
-![openadmin screenshot](https://openpanel.com/img/landing/openadmin-illustration-dark.svg)
+![openadmin screenshot](https://github.com/trongtri1512/vietpanellanding/openadmin-illustration-dark.svg)
 
-Written in **Go**, OpenAdmin is designed to be highly efficient with minimal resource consumption while delivering a modern web experience using **Tremor** UI templates. A typical idle installation uses **approximately 15 MB of RAM**, making it suitable for everything from small VPS instances to large production servers.
+Written in **Go**, VietAdmin is designed to be highly efficient with minimal resource consumption while delivering a modern web experience using **Tremor** UI templates. A typical idle installation uses **approximately 15 MB of RAM**, making it suitable for everything from small VPS instances to large production servers.
 
 The template is built using [tremor](https://tremor.so/), [tailwindcss](https://tailwindcss.com/) and [Alpine.js](https://alpinejs.dev/), providing a clean, responsive, and accessible administration experience.
 
@@ -22,19 +22,19 @@ The template is built using [tremor](https://tremor.so/), [tailwindcss](https://
 
 ## Requirements
 
-OpenAdmin has very few requirements:
+VietAdmin has very few requirements:
 
 * Linux operating system
 * AMD64 (x86_64) or ARM64 CPU
-* OpenPanel configuration from the [`openpanel-configuration` repository](https://github.com/stefanpejcic/openpanel-configuration)
+* VietPanel configuration from the [`openpanel-configuration` repository](https://github.com/stefanpejcic/openpanel-configuration)
 
 ## Installation
 
-OpenAdmin is installed as part of the **OpenPanel** installation process and is **not intended to be installed separately**.
+VietAdmin is installed as part of the **VietPanel** installation process and is **not intended to be installed separately**.
 
-To install OpenPanel (including OpenAdmin), run the official installer: https://openpanel.com/install
+To install VietPanel (including VietAdmin), run the official installer: https://github.com/trongtri1512/vietpanel
 
-The installer automatically installs, configures, and registers OpenAdmin with the required services and configuration.
+The installer automatically installs, configures, and registers VietAdmin with the required services and configuration.
 
 ## Building from Source
 
@@ -52,13 +52,13 @@ GOOS=linux GOARCH=arm64 go build -buildvcs=false -o openadmin-arm64 ./cmd/openad
 
 ## Updating
 
-OpenAdmin is updated through the standard OpenPanel update process, but can still be independently updated using:
+VietAdmin is updated through the standard VietPanel update process, but can still be independently updated using:
 
 ```
 opencli update --admin
 ```
 
-For source builds, pull the latest changes, rebuild the binary, and restart the OpenAdmin service:
+For source builds, pull the latest changes, rebuild the binary, and restart the VietAdmin service:
 
 ```
 systemctl restart admin
@@ -70,44 +70,44 @@ Contributions are welcome.
 
 You can contribute by:
 
-* [Reporting bugs](https://github.com/stefanpejcic/OpenPanel/issues/new?template=1_Bug_report.yaml&affected-versions=2.0.0&os=Ubuntu&title=Bug%20in%20OpenAdmin%20UI)
+* [Reporting bugs](https://github.com/stefanpejcic/OpenPanel/issues/new?template=1_Bug_report.yaml&affected-versions=2.0.0&os=Ubuntu&title=Bug%20in%20VietAdmin%20UI)
 * [Suggesting new features](https://github.com/stefanpejcic/OpenPanel/discussions/new?category=ideas)
 * [Improving documentation](https://github.com/stefanpejcic/OpenPanel/tree/main/website/docs/admin)
 * [Submitting pull requests](https://github.com/stefanpejcic/openadmin/pulls)
-* [Developing plugins and extensions](https://openpanel.com/docs/articles/dev-experience/custom-plugins/)
+* [Developing plugins and extensions](https://github.com/trongtri1512/vietpanel)
 
 Before submitting significant changes, please [open an issue](https://github.com/stefanpejcic/openadmin/issues/new/choose) to discuss your proposal.
 
-By contributing to OpenAdmin, you agree that your contributions may be distributed under the project's GPLv3 license.
+By contributing to VietAdmin, you agree that your contributions may be distributed under the project's GPLv3 license.
 
 ## Security
 
 If you discover a security vulnerability, please **do not** open a public GitHub issue.
 
-Instead, report it responsibly by contacting: **[info@openpanel.com](mailto:info@openpanel.com)**
+Instead, report it responsibly by contacting: **[github.com/trongtri1512/vietpanel/issues](https://github.com/trongtri1512/vietpanel/issues)**
 
 ## Support
 
 Community support is available through GitHub Issues.
 
-Commercial support, consulting, and enterprise services are available from OpenPanel, LLC. on https://my.openpanel.com
+Commercial support, consulting, and enterprise services are available from VietPanel, LLC. on https://github.com/trongtri1512/vietpanel
 
 ## License
 
-OpenAdmin is an open-source software licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)**.
+VietAdmin is an open-source software licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)**.
 
-Copyright (C) 2026 OpenPanel, LLC.
+Copyright (C) 2026 VietPanel, LLC.
 Original author: Stefan Pejcic
 
 ### Plugin Exception
 
-Independent plugins, extensions, themes, and integrations that interact with OpenAdmin through its documented APIs and extension mechanisms are **not required to be licensed under GPLv3**.
+Independent plugins, extensions, themes, and integrations that interact with VietAdmin through its documented APIs and extension mechanisms are **not required to be licensed under GPLv3**.
 
-However, modifications to the OpenAdmin core software must be licensed under GPLv3 when distributed.
+However, modifications to the VietAdmin core software must be licensed under GPLv3 when distributed.
 
 ### Commercial Licensing
 
-Organizations requiring rights beyond those granted by GPLv3—such as proprietary modifications, OEM redistribution, white-label deployments, or other commercial arrangements may obtain a separate commercial license from OpenPanel, LLC.
+Organizations requiring rights beyond those granted by GPLv3—such as proprietary modifications, OEM redistribution, white-label deployments, or other commercial arrangements may obtain a separate commercial license from VietPanel, LLC.
 
 See:
 
@@ -118,5 +118,5 @@ See:
 
 For commercial licensing inquiries:
 
-* Website: https://openpanel.com
-* Email: [info@openpanel.com](mailto:info@openpanel.com)
+* Website: https://github.com/trongtri1512/vietpanel
+* Issues: [github.com/trongtri1512/vietpanel/issues](https://github.com/trongtri1512/vietpanel/issues)

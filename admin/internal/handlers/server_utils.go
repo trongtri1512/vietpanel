@@ -258,7 +258,7 @@ func (s *ServerUtils) ServeDemoMode(w http.ResponseWriter, r *http.Request) {
 		if err := demoModeRun(); err != nil {
 			auth.AddFlash(w, r, s.Sessions, "Failed to enable demo mode: "+err.Error(), "error")
 		} else {
-			auth.AddFlash(w, r, s.Sessions, "Demo mode is enabled. Restart VietPanel and OpenAdmin services to apply.", "info")
+			auth.AddFlash(w, r, s.Sessions, "Demo mode is enabled. Restart VietPanel and VietAdmin services to apply.", "info")
 		}
 	}
 

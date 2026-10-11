@@ -232,7 +232,7 @@ document.getElementById('subtitle').textContent = `Error creating user: '${usern
             if (response.message && response.message.includes("consider purchasing the Enterprise version")) {
                 const updatedMessage = response.message.replace(
                     "consider purchasing the Enterprise version",
-                    '<a href="https://my.openpanel.com/index.php?rp=/store/openpanel/enterprise-license" target="_blank" rel="noopener">consider purchasing the Enterprise version</a>'
+                    '<a href="https://github.com/trongtri1512/vietpanel/index.php?rp=/store/openpanel/enterprise-license" target="_blank" rel="noopener">consider purchasing the Enterprise version</a>'
                 );
                 statusMessageDiv.innerHTML = updatedMessage;
                 createUserForm.classList.remove("hidden");
