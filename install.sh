@@ -241,6 +241,9 @@ log "6/9 redis (unix socket)"
 # Ubuntu's unit has PrivateTmp=true + restricted ReadWritePaths, so a socket under
 # /tmp needs a drop-in and the dir must be writable by the redis user.
 mkdir -p /tmp/redis && chown redis:redis /tmp/redis && chmod 775 /tmp/redis
+# Ensure /tmp/redis is recreated after reboot (tmpfs clears /tmp)
+echo 'd /tmp/redis 0775 redis redis -' > /etc/tmpfiles.d/redis.conf
+systemd-tmpfiles --create 2>/dev/null || true
 mkdir -p /etc/systemd/system/redis-server.service.d
 cat > /etc/systemd/system/redis-server.service.d/override.conf <<'EOF'
 [Service]
