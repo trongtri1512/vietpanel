@@ -1,8 +1,8 @@
 # VietPanel — Kế hoạch rebuild hosting control panel
 
 > Ngày lập: 2026-10-10
-> **Cập nhật 2026-10-10 — ĐỔI CHIẾN LƯỢC:** chuyển từ "clean-room viết mới" sang **fork VietPanel → rebrand thành VietPanel** (alignment ~99% theo yêu cầu). Toàn bộ codebase VietPanel (panel MIT + admin GPLv3 + cli) đã được copy, đổi import path và rebrand. Xem §6 về ràng buộc license **bắt buộc** phải tuân thủ.
-> Tham chiếu: VietPanel (openpanel.com) của Stefan Pejcic / VietPanel, LLC.
+> **Cập nhật 2026-10-10 — ĐỔI CHIẾN LƯỢC:** chuyển từ "clean-room viết mới" sang **fork OpenPanel → rebrand thành VietPanel** (alignment ~99% theo yêu cầu). Toàn bộ codebase OpenPanel (panel MIT + admin GPLv3 + cli) đã được copy, đổi import path và rebrand. Xem §6 về ràng buộc license **bắt buộc** phải tuân thủ.
+> Tham chiếu: OpenPanel (openpanel.com) của Stefan Pejcic / OpenPanel, LLC.
 
 ## 1. Mục tiêu & phạm vi
 
@@ -85,7 +85,7 @@ vietpanel/
 
 **🔵 FORK HOÀN THÀNH (2026-10-10) — chiến lược mới:**
 
-Toàn bộ VietPanel đã được fork → rebrand thành VietPanel. Kết quả:
+Toàn bộ OpenPanel đã được fork → rebrand thành VietPanel. Kết quả:
 
 | Thành phần | Kết quả | Build | Test |
 |---|---|---|---|
@@ -95,7 +95,7 @@ Toàn bộ VietPanel đã được fork → rebrand thành VietPanel. Kết qu�
 | `translations/` | 20 ngôn ngữ + `vi-vn` stub | — | — |
 
 - Import paths: `gist.github.com/stefanpejcic/openpanel`→`vietpanel/panel`, `openadmin`→`vietpanel/admin`.
-- Branding: VietPanel→VietPanel ở UI text (giữ copyright notice gốc — xem §6).
+- Branding: OpenPanel→VietPanel ở UI text (giữ copyright notice gốc — xem §6).
 - `go vet` clean cả 2. Backup branch: `backup/pre-openpanel-fork`.
 - **Còn tồn:** xem §6.4 (rủi ro license cli/ CC BY-NC-ND + admin GPLv3).
 
@@ -171,29 +171,30 @@ Cơ chế kỹ thuật (mô phỏng theo bản gốc):
 | Thành phần | Nguồn | License | Nghĩa vụ bắt buộc |
 |---|---|---|---|
 | `panel/` (user panel) | `openpanel/` | **MIT** (Copyright 2023-2026 Stefan Pejcic) | Giữ nguyên copyright notice + MIT text. Được quyền modify/rebrand/thương mại. ✅ Đã giữ trong `base.html`. |
-| `admin/` (admin panel) | `openadmin/` | **GPLv3** (Copyright 2026 VietPanel, LLC) | **Copyleft:** VietPanel admin **BẮT BUỘC** phải GPLv3, **public source**, giữ `LICENSE`/`COPYING`/`TRADEMARKS.md`, giữ copyright notices. ✅ `admin/LICENSE` còn nguyên. |
-| `cli/` | `opencli/` | **MÂU THUẪN**: `LICENSE.md` = CC BY-NC-ND 4.0, nhưng header từng file = MIT | ⚠️ **CC BY-NC-ND CẤM derivatives + CẤM thương mại.** Việc fork+rebrand `opencli`→`vietcli` có nguy cơ vi phạm. **PHẢI liên hệ VietPanel, LLC để xin phép TRƯỚC KHI phân phối.** |
+| `admin/` (admin panel) | `openadmin/` | **GPLv3** (Copyright 2026 OpenPanel, LLC) | **Copyleft:** VietPanel admin **BẮT BUỘC** phải GPLv3, **public source**, giữ `LICENSE`/`COPYING`/`TRADEMARKS.md`, giữ copyright notices. ✅ `admin/LICENSE` còn nguyên. |
+| `cli/` | `opencli/` | **MÂU THUẪN**: `LICENSE.md` = CC BY-NC-ND 4.0, nhưng header từng file = MIT | ⚠️ **CC BY-NC-ND CẤM derivatives + CẤM thương mại.** Việc fork+rebrand `opencli`→`vietcli` có nguy cơ vi phạm. **PHẢI liên hệ OpenPanel, LLC để xin phép TRƯỚC KHI phân phối.** |
 
 ### 6.2 Trademark (theo `admin/TRADEMARKS.md`)
 
-- GPL **KHÔNG** cấp quyền dùng tên/logo/brand "VietPanel"/"VietAdmin".
+- GPL **KHÔNG** cấp quyền dùng tên/logo/brand "OpenPanel"/"OpenAdmin".
 - → Việc rebrand sang "VietPanel"/"VietAdmin" là **BẮT BUỘC** (đúng), nhưng:
-  - Copyright notice vẫn phải ghi **VietPanel, LLC / Stefan Pejcic** (đã restore trong `login.html`, `cli/*`).
+  - Copyright notice vẫn phải ghi **OpenPanel, LLC / Stefan Pejcic** (đã restore trong `login.html`, `cli/*`).
   - Không được claim "Copyright VietPanel, LLC" trên code gốc.
+  - TRADEMARKS.md còn **bắt buộc** bản đã sửa phải tự nhận là fork, không phải release chính thức → footer `/login` đã thêm dòng "VietPanel is a modified fork of OpenPanel, not an official release."
 
 ### 6.3 Việc đã làm để tuân thủ
 
 - ✅ Giữ `admin/LICENSE`, `COPYING`, `COMMERCIAL-LICENSE.md`, `TRADEMARKS.md`.
 - ✅ Giữ MIT header trong `panel/internal/web/templates/base.html`.
-- ✅ Restore "VietPanel, LLC" trong 101 file `cli/*` + footer `admin/login.html` (sed rebrand đã làm sai).
+- ✅ Restore "OpenPanel, LLC" trong 101 file `cli/*` + footer `admin/login.html` (sed rebrand đã làm sai).
 - ✅ Chỉ đổi brand ở UI text/logo/title (nơi trademark cho phép), KHÔNG đổi copyright holder.
 
 ### 6.4 RỦI RO còn lại — cần quyết định
 
-- [ ] **`cli/` CC BY-NC-ND**: nếu VietPanel thương mại → **phải** xin license riêng từ VietPanel, LLC, hoặc viết lại CLI từ đầu (clean-room), hoặc bỏ CLI.
+- [ ] **`cli/` CC BY-NC-ND**: nếu VietPanel thương mại → **phải** xin license riêng từ OpenPanel, LLC, hoặc viết lại CLI từ đầu (clean-room), hoặc bỏ CLI.
 - [ ] **admin GPLv3**: nếu phân phối VietPanel admin (kể cả dạng SaaS có distribute binary) → phải mở source toàn bộ admin dưới GPLv3.
 - [ ] **panel MIT**: an toàn nhất, chỉ cần giữ notice.
-- [ ] Cân nhắc: tách repo, hoặc mua commercial license từ VietPanel, LLC (họ có bán — xem `COMMERCIAL-LICENSE.md`).
+- [ ] Cân nhắc: tách repo, hoặc mua commercial license từ OpenPanel, LLC (họ có bán — xem `COMMERCIAL-LICENSE.md`).
 
 ## 7. Môi trường dev
 

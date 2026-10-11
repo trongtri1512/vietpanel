@@ -90,14 +90,15 @@ Instead, report it responsibly by contacting: **[github.com/trongtri1512/vietpan
 
 Community support is available through GitHub Issues.
 
-Commercial support, consulting, and enterprise services are available from VietPanel, LLC. on https://github.com/trongtri1512/vietpanel
+VietPanel is a community fork of OpenAdmin/OpenPanel. It is not an official OpenPanel release, and OpenPanel, LLC. does not provide support for it.
 
 ## License
 
 VietAdmin is an open-source software licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)**.
 
-Copyright (C) 2026 VietPanel, LLC.
+Copyright (C) 2026 OpenPanel, LLC.
 Original author: Stefan Pejcic
+Modifications copyright (C) 2026 the VietPanel project, distributed under the same GPLv3 license.
 
 ### Plugin Exception
 
@@ -107,7 +108,7 @@ However, modifications to the VietAdmin core software must be licensed under GPL
 
 ### Commercial Licensing
 
-Organizations requiring rights beyond those granted by GPLv3—such as proprietary modifications, OEM redistribution, white-label deployments, or other commercial arrangements may obtain a separate commercial license from VietPanel, LLC.
+Organizations requiring rights beyond those granted by GPLv3—such as proprietary modifications, OEM redistribution, white-label deployments, or other commercial arrangements may obtain a separate commercial license from OpenPanel, LLC.
 
 See:
 
