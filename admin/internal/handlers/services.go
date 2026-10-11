@@ -65,10 +65,10 @@ func podmanForceRemoveContainer(name string) error {
 }
 
 func realControlService(serviceName, serviceType, action string) (bool, string) {
-	if serviceName == "admin" && action == "restart" {
+	if serviceName == "vietpanel-admin" && action == "restart" {
 		_ = os.Remove(bootstrap.RestartFlagPath)
-		_ = exec.Command("bash", "-c", "sleep 2 && systemctl restart admin").Start()
-		return true, "OpenAdmin restart scheduled"
+		_ = exec.Command("bash", "-c", "sleep 2 && systemctl restart vietpanel-admin").Start()
+		return true, "VietAdmin restart scheduled"
 	}
 
 	if serviceType != "docker" {
@@ -338,27 +338,13 @@ func serviceActionMessage(realName, container, action string, success bool, rawM
 		return "Successfully " + action + "ed service '" + realName + "'.", "success"
 	}
 	reason := strings.TrimSpace(rawMessage)
-	switch {
-	case realName == "openpanel":
-		cmdMap := map[string]string{
-			"start":   "cd /root && podman-compose up -d openpanel",
-			"stop":    "cd /root && podman-compose down openpanel",
-			"restart": "cd /root && podman-compose down openpanel && podman-compose up -d openpanel",
-		}
-		msg := "Failed to " + action + " service '" + realName + "'."
-		if reason != "" {
-			msg += " Reason: " + reason
-		}
-		return msg + " Try from terminal: '" + cmdMap[action] + "'", "error"
-	case container == "system":
-		msg := "Failed to " + action + " service '" + realName + "'."
-		if reason != "" {
-			msg += " Reason: " + reason
-		}
-		return msg + " Try from terminal: 'systemctl " + action + " " + realName + "'", "error"
-	default:
-		return "Failed to " + action + " service '" + realName + "': " + rawMessage, "error"
+	// VietPanel runs everything as systemd units (no podman/docker containers),
+	// so the fallback hint is always systemctl.
+	msg := "Failed to " + action + " service '" + realName + "'."
+	if reason != "" {
+		msg += " Reason: " + reason
 	}
+	return msg + " Try from terminal: 'systemctl " + action + " " + realName + "'", "error"
 }
 
 // pendingServiceActions tracks in-flight async start/stop/restart actions
@@ -560,7 +546,7 @@ func realManageService(serviceName, action string) (bool, string) {
 
 	svc, known := dockerServices[serviceName]
 	if !known {
-		if serviceName == "admin" && action == "restart" {
+		if serviceName == "vietpanel-admin" && action == "restart" {
 			_ = os.Remove(bootstrap.RestartFlagPath)
 		}
 		cmd := exec.Command("service", serviceName, action)

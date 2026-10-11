@@ -37,7 +37,16 @@ fi
 log "1/9 packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq git curl ca-certificates ufw redis-server caddy mysql-server sqlite3 >/dev/null
+apt-get install -y -qq git curl ca-certificates ufw redis-server caddy mysql-server sqlite3 \
+  php-fpm php-mysql php-curl php-gd php-mbstring php-xml php-zip php-intl php-bcmath \
+  php-imagick php-opcache php-cli nginx >/dev/null
+# Ubuntu 22.04 gives php8.1-fpm, Ubuntu 24.04 gives php8.3-fpm. Enable whatever
+# apt actually installed so user websites survive a server reboot.
+PHP_FPM_UNIT=$(systemctl list-unit-files --type=service --no-legend 'php*-fpm' 2>/dev/null | awk '{print $1; exit}')
+if [ -n "$PHP_FPM_UNIT" ]; then
+  systemctl enable --now "$PHP_FPM_UNIT"
+fi
+systemctl enable --now nginx
 
 log "2/9 go toolchain"
 if ! command -v go >/dev/null || ! go version | grep -qE 'go1\.(2[5-9]|[3-9][0-9])'; then
