@@ -61,10 +61,11 @@ done
 [[ ${#units[@]} -gt 0 ]] && systemctl restart "${units[@]}"
 
 log "done!"
-# the hostname= key is often unset; the Caddyfile marker block is what VietAdmin actually serves
-host=$(grep -oP '(?<=hostname=).*' /etc/openpanel/openpanel/conf/openpanel.config 2>/dev/null | head -1)
-[[ -z "$host" ]] && host=$(awk '/# START HOSTNAME DOMAIN #/{getline; print $1; exit}' /etc/caddy/Caddyfile 2>/dev/null)
-[[ -z "$host" ]] && host=your-domain
+# the hostname= key is often unset; the Caddyfile marker block is what VietAdmin actually serves.
+# sed/awk are used instead of grep because pipefail would turn "no match" into a script abort
+host="$(sed -n 's/^hostname=\(.*\)/\1/p' /etc/openpanel/openpanel/conf/openpanel.config 2>/dev/null | head -1)"
+[[ -n "$host" ]] || host="$(awk '/# START HOSTNAME DOMAIN #/{getline; print $1; exit}' /etc/caddy/Caddyfile 2>/dev/null)"
+[[ -n "$host" ]] || host="your-domain"
 echo ""
 echo "VietPanel rebuilt successfully."
 echo "  user panel : https://$host:2083"
