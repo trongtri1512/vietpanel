@@ -43,6 +43,15 @@ build panel genhash ./cmd/genhash
 build admin admin ./cmd/admin
 build license-server license-server .
 
+log "installing vietcli"
+# handlers shell out to /usr/local/vietcli, so a rebuilt binary with stale CLI
+# scripts is exactly as broken as a stale binary
+install -d /usr/local/vietcli
+cp -r cli/. /usr/local/vietcli/
+chmod +x /usr/local/vietcli/vietcli 2>/dev/null || true
+ln -sf /usr/local/vietcli/vietcli /usr/local/bin/vietcli
+ln -sf /usr/local/vietcli/vietcli /usr/local/bin/opencli
+
 log "restarting services"
 # vietpanel-license is optional and absent on systemd-only installs.
 units=()
@@ -52,7 +61,11 @@ done
 [[ ${#units[@]} -gt 0 ]] && systemctl restart "${units[@]}"
 
 log "done!"
+# the hostname= key is often unset; the Caddyfile marker block is what VietAdmin actually serves
+host=$(grep -oP '(?<=hostname=).*' /etc/openpanel/openpanel/conf/openpanel.config 2>/dev/null | head -1)
+[[ -z "$host" ]] && host=$(awk '/# START HOSTNAME DOMAIN #/{getline; print $1; exit}' /etc/caddy/Caddyfile 2>/dev/null)
+[[ -z "$host" ]] && host=your-domain
 echo ""
 echo "VietPanel rebuilt successfully."
-echo "  user panel : https://$(grep -oP '(?<=hostname=).*' /etc/openpanel/openpanel/conf/openpanel.config 2>/dev/null || echo 'your-domain'):2083"
-echo "  admin      : https://$(grep -oP '(?<=hostname=).*' /etc/openpanel/openpanel/conf/openpanel.config 2>/dev/null || echo 'your-domain'):2087"
+echo "  user panel : https://$host:2083"
+echo "  admin      : https://$host:2087"
