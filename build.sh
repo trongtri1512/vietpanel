@@ -18,17 +18,37 @@ fi
 export PATH=$PATH:/usr/local/go/bin
 
 log "pulling latest code"
+if [[ ! -d /opt/vietpanel/.git ]]; then
+  # A non-git copy here would silently rebuild from stale source, so refuse
+  # to reuse it and clone fresh instead.
+  if [[ -d /opt/vietpanel ]]; then
+    stale="/opt/vietpanel.stale.$(date +%Y%m%d%H%M)"
+    log "/opt/vietpanel is not a git checkout - moving it to $stale and cloning fresh"
+    mv /opt/vietpanel "$stale"
+  fi
+  git clone --depth 1 https://github.com/trongtri1512/vietpanel.git /opt/vietpanel
+fi
 cd /opt/vietpanel
-git pull origin main 2>/dev/null || true
+git fetch origin main && git reset --hard origin/main
+log "building at $(git log --oneline -1)"
 
 log "building binaries"
 mkdir -p /usr/local/vietpanel
-(cd panel && go build -o /usr/local/vietpanel/panel ./cmd/panel && go build -o /usr/local/vietpanel/genhash ./cmd/genhash)
-(cd admin && go build -o /usr/local/vietpanel/admin ./cmd/admin)
-(cd license-server && go build -o /usr/local/vietpanel/license-server .)
+# Build to .new then swap, so an interrupted build can't leave a truncated
+# binary for systemd to exec.
+build(){ (cd "$1" && go build -o "/usr/local/vietpanel/$2.new" $3) && mv "/usr/local/vietpanel/$2.new" "/usr/local/vietpanel/$2"; }
+build panel panel ./cmd/panel
+build panel genhash ./cmd/genhash
+build admin admin ./cmd/admin
+build license-server license-server .
 
 log "restarting services"
-systemctl restart vietpanel-panel vietpanel-admin vietpanel-license
+# vietpanel-license is optional and absent on systemd-only installs.
+units=()
+for u in vietpanel-panel vietpanel-admin vietpanel-license; do
+  systemctl list-unit-files "$u.service" --no-legend | grep -q . && units+=("$u")
+done
+[[ ${#units[@]} -gt 0 ]] && systemctl restart "${units[@]}"
 
 log "done!"
 echo ""
