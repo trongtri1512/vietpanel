@@ -7,6 +7,8 @@ log(){ echo -e "\n\033[1;34m[vietpanel-build]\033[0m $*"; }
 
 [[ "$EUID" -ne 0 ]] && { echo "run as root"; exit 1; }
 
+export PATH=$PATH:/usr/local/go/bin
+
 log "checking go toolchain"
 if ! command -v go >/dev/null || ! go version | grep -qE 'go1\.(2[5-9]|[3-9][0-9])'; then
   log "installing go 1.25"
@@ -15,7 +17,6 @@ if ! command -v go >/dev/null || ! go version | grep -qE 'go1\.(2[5-9]|[3-9][0-9
   curl -fsSL "https://go.dev/dl/go1.25.0.linux-${GOARCH}.tar.gz" -o /tmp/go.tgz
   rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz
 fi
-export PATH=$PATH:/usr/local/go/bin
 
 log "pulling latest code"
 if [[ ! -d /opt/vietpanel/.git ]]; then
