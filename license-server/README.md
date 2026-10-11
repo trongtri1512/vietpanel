@@ -6,7 +6,9 @@ panels validate keys against **your** infrastructure — no vendor phone-home.
 
 ## Features
 
-- `POST /enterprise/index.php` — validation endpoint the panel calls (XML response)
+- `POST /enterprise/index.php` — validation endpoint every VietPanel component calls, answering
+  the upstream WHMCS tags (`status`, `registeredname`, `companyname`, `email`, `productname`,
+  `regdate`, `nextduedate`, `billingcycle`, `validip`) so the admin `/license` page has real data
 - Web manager UI — login with `LICENSE_ADMIN_TOKEN`, issue / revoke keys, IP binding
 - JSON API — `POST|GET /api/keys` with `Authorization: Bearer $LICENSE_ADMIN_TOKEN`
 - Keys auto-bind to the first IP that validates; mismatches are denied
@@ -45,7 +47,9 @@ key=<issued-key>
 license_server_url=https://license.yourdomain.com/enterprise/index.php
 ```
 
-Issue a key from the web UI (or `curl -X POST $URL/api/keys -H "Authorization: Bearer $TOKEN" -d '{"plan":"enterprise"}'`), then restart the panel.
+Issue a key from the web UI (or `curl -X POST $URL/api/keys -H "Authorization: Bearer $TOKEN" -d '{"plan":"enterprise","owner":"Customer A","email":"ops@campa.com"}'`), then restart the panel.
+
+`license_server_url` is the single switch for the whole stack: the panel reads it at boot, VietAdmin overrides its built-in default with it (`admin/cmd/admin/main.go`), and `vietcli license` picks it up from the same block — so a key validates against your server everywhere instead of being checked against the vendor's.
 
 ## Env vars
 

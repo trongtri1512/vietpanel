@@ -113,13 +113,19 @@ func main() {
 	licenseKey := config.Openpanel().Get("LICENSE", "key", "")
 	licType := license.Type(licenseKey)
 
+	// a self-hosted license server lives in the same [LICENSE] block the panel reads, and the
+	// package default stays upstream's endpoint for installs that never configure one
+	if licenseServerURL := config.Openpanel().Get("LICENSE", "license_server_url", ""); licenseServerURL != "" {
+		license.APIURL = licenseServerURL
+	}
+
 	// nil checker means Community install, RequireEnterprise treats nil as not-licensed so it fails closed by default
 	var licenseChecker *license.Checker
 	if licType == "Enterprise" {
 		licenseChecker = license.NewChecker(licenseKey, publicIP)
 		licenseChecker.StartBackgroundRecheck()
 		if !licenseChecker.Valid() {
-			appLog.Println("Enterprise license key is set but could not be validated.")
+			appLog.Printf("Enterprise license key is set but could not be validated against %s.", license.APIURL)
 		}
 	}
 

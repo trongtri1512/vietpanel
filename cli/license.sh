@@ -30,7 +30,11 @@
 
 # Configuration
 readonly CONFIG_FILE_PATH='/etc/openpanel/openpanel/conf/openpanel.config'
-readonly WHMCS_URL="https://api.openpanel.com/enterprise/index.php"
+# [LICENSE] license_server_url decides who validates the key, so a self-hosted
+# license server works; upstream WHMCS is only the fallback when unset
+license_endpoint="$(awk -F= '/^license_server_url[ \t]*=/{gsub(/[ \t\r]/,"",$2); print $2; exit}' "$CONFIG_FILE_PATH" 2>/dev/null)"
+[[ -z "$license_endpoint" ]] && license_endpoint="https://api.openpanel.com/enterprise/index.php"
+readonly WHMCS_URL="$license_endpoint"
 readonly COMPOSE_FILE="/root/docker-compose.yml"
 readonly SERVICE="openpanel"
 
@@ -125,7 +129,7 @@ verify_license_api() {
     ip_address=$(get_public_ip)
     check_token=$(openssl rand -hex 16)
     
-    response=$(curl -sS --connect-timeout 1 --max-time 2 -X POST -d "licensekey=$license_key&ip=$ip_address&check_token=$check_token" "$WHMCS_URL")
+    response=$(curl -sS --connect-timeout 3 --max-time 10 -X POST -d "licensekey=$license_key&ip=$ip_address&check_token=$check_token" "$WHMCS_URL")
     echo "$response" | grep -oP '(?<=<status>).*?(?=</status>)'
 }
 
@@ -148,6 +152,9 @@ output_message() {
 
 manage_compose_volumes() {
     local action="${1:-disable}"
+
+    # a systemd install has no compose stack to mount extra volumes into
+    [[ ! -f "$COMPOSE_FILE" ]] && return 0
 
     VOLUMES=(
     "/root/.ssh/:/root/.ssh/:ro"
@@ -192,11 +199,10 @@ restart_services() {
         return 0
     fi
 
-    service admin restart > /dev/null
-    if podman ps -q -f name=openpanel | grep -q .; then
-        nohup bash -c "cd /root && podman-compose down openpanel && podman-compose up -d openpanel" &> /dev/null &
-        disown
-    fi
+    # both services run on the host and this script is usually a child of VietAdmin itself,
+    # so the restart is deferred to give the caller time to flush its HTTP response
+    nohup bash -c 'sleep 2; systemctl restart vietpanel-panel vietpanel-admin 2>/dev/null || { service admin restart >/dev/null 2>&1; service openpanel restart >/dev/null 2>&1; }' &> /dev/null &
+    disown
 
     echo "VietPanel and VietAdmin are restarted to apply Enterprise features."
 }
@@ -302,7 +308,7 @@ show_license_info() {
     ip_address=$(get_public_ip)
     check_token=$(openssl rand -hex 16)
     
-    response=$(curl -sS --connect-timeout 1 --max-time 2 -X POST -d "licensekey=$license_key&ip=$ip_address&check_token=$check_token" "$WHMCS_URL")
+    response=$(curl -sS --connect-timeout 3 --max-time 10 -X POST -d "licensekey=$license_key&ip=$ip_address&check_token=$check_token" "$WHMCS_URL")
     license_status=$(extract_xml_field "$response" "status")
     
     if [[ "$license_status" == "Active" ]]; then
@@ -353,7 +359,7 @@ delete_license() {
     toggle_email_modules "disable" > /dev/null
     pagespeed_api_key_control "remove" > /dev/null
     manage_compose_volumes
-    service admin restart
+    restart_services
 }
 
 # Main

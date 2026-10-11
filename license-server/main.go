@@ -1,12 +1,14 @@
 // Command license-server is VietPanel's self-hosted license validation + management service.
 //
-// Machine API (what the panel calls):
+// Machine API (what the panel, VietAdmin and vietcli call):
 //
-//	POST /enterprise/index.php   form licensekey+ip -> XML <status>Active|Invalid</status>
+//	POST /enterprise/index.php   form licensekey+ip -> WHMCS-shaped XML:
+//	  <status>Active|Invalid</status> plus registeredname, companyname, email,
+//	  productname, regdate, nextduedate, billingcycle and validip on success
 //
 // Management API (Bearer LICENSE_ADMIN_TOKEN):
 //
-//	POST /api/keys   {"plan":"enterprise","ip":"","note":""} -> created key
+//	POST /api/keys   {"plan":"enterprise","ip":"","note":"","owner":"","company":"","email":""} -> created key
 //	GET  /api/keys   -> all keys
 //
 // Web UI (session cookie login with LICENSE_ADMIN_TOKEN):
@@ -44,6 +46,9 @@ type Key struct {
 	Status    string    `json:"status"` // Active | Revoked
 	CreatedAt time.Time `json:"created_at"`
 	Note      string    `json:"note,omitempty"`
+	Owner     string    `json:"owner,omitempty"`
+	Company   string    `json:"company,omitempty"`
+	Email     string    `json:"email,omitempty"`
 }
 
 type Store struct {
@@ -109,22 +114,57 @@ func (s *Store) All() []*Key {
 
 // ------------------------------------------------------------ validation API
 
-// licenseResponse mirrors the tag/value XML the panel's parseLicenseResponse understands.
+// licenseResponse mirrors the flat <tag>value</tag> XML that the panel, VietAdmin and
+// `vietcli license info` all parse. The tag names are the upstream WHMCS contract, so a
+// self-hosted server has to answer every one of them or the /license page renders blanks.
 type licenseResponse struct {
-	Status string `xml:"status"`
-	Plan   string `xml:"plan,omitempty"`
+	Status         string `xml:"status"`
+	Plan           string `xml:"plan,omitempty"`
+	RegisteredName string `xml:"registeredname,omitempty"`
+	CompanyName    string `xml:"companyname,omitempty"`
+	Email          string `xml:"email,omitempty"`
+	ProductName    string `xml:"productname,omitempty"`
+	RegDate        string `xml:"regdate,omitempty"`
+	NextDueDate    string `xml:"nextduedate,omitempty"`
+	BillingCycle   string `xml:"billingcycle,omitempty"`
+	ValidIP        string `xml:"validip,omitempty"`
 }
 
-func writeXML(w http.ResponseWriter, status, plan string) {
+// customerDetails describes a plan the same way a billing system would, so the
+// admin UI has something honest to show for a key that was issued locally.
+func customerDetails(k *Key) licenseResponse {
+	r := licenseResponse{
+		Status:         "Active",
+		Plan:           k.Plan,
+		RegisteredName: k.Owner,
+		CompanyName:    k.Company,
+		Email:          k.Email,
+		RegDate:        k.CreatedAt.Format("2006-01-02"),
+		ValidIP:        k.IP,
+	}
+	switch k.Plan {
+	case "lifetime":
+		r.ProductName, r.BillingCycle, r.NextDueDate = "VietPanel Lifetime", "One-time", "Never"
+	case "noc":
+		r.ProductName, r.BillingCycle = "VietPanel NOC", "Monthly"
+		r.NextDueDate = k.CreatedAt.AddDate(0, 1, 0).Format("2006-01-02")
+	default:
+		r.ProductName, r.BillingCycle = "VietPanel Enterprise", "Annually"
+		r.NextDueDate = k.CreatedAt.AddDate(1, 0, 0).Format("2006-01-02")
+	}
+	return r
+}
+
+func writeXML(w http.ResponseWriter, resp licenseResponse) {
 	w.Header().Set("Content-Type", "application/xml")
-	body, _ := xml.Marshal(licenseResponse{Status: status, Plan: plan})
+	body, _ := xml.Marshal(resp)
 	fmt.Fprint(w, xml.Header+string(body))
 }
 
 func validateHandler(store *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
-			writeXML(w, "Invalid", "")
+			writeXML(w, licenseResponse{Status: "Invalid"})
 			return
 		}
 		licenseKey := strings.TrimSpace(r.Form.Get("licensekey"))
@@ -133,7 +173,7 @@ func validateHandler(store *Store) http.HandlerFunc {
 		k, ok := store.Get(licenseKey)
 		if !ok || k.Status != "Active" {
 			log.Printf("LICENSE - deny unknown/revoked key=%q ip=%q", licenseKey, ip)
-			writeXML(w, "Invalid", "")
+			writeXML(w, licenseResponse{Status: "Invalid"})
 			return
 		}
 		// bind key to first-seen IP; subsequent mismatches are denied
@@ -142,20 +182,23 @@ func validateHandler(store *Store) http.HandlerFunc {
 			_ = store.Put(k)
 		} else if ip != "" && k.IP != ip {
 			log.Printf("LICENSE - deny ip mismatch key=%q bound=%q got=%q", licenseKey, k.IP, ip)
-			writeXML(w, "Invalid", "")
+			writeXML(w, licenseResponse{Status: "Invalid"})
 			return
 		}
 		log.Printf("LICENSE - allow key=%q plan=%s ip=%q", licenseKey, k.Plan, ip)
-		writeXML(w, "Active", k.Plan)
+		writeXML(w, customerDetails(k))
 	}
 }
 
 // --------------------------------------------------------------- management
 
 type issueRequest struct {
-	Plan string `json:"plan"`
-	IP   string `json:"ip,omitempty"`
-	Note string `json:"note,omitempty"`
+	Plan    string `json:"plan"`
+	IP      string `json:"ip,omitempty"`
+	Note    string `json:"note,omitempty"`
+	Owner   string `json:"owner,omitempty"`
+	Company string `json:"company,omitempty"`
+	Email   string `json:"email,omitempty"`
 }
 
 func newKey(req issueRequest) *Key {
@@ -170,6 +213,9 @@ func newKey(req issueRequest) *Key {
 		Status:    "Active",
 		CreatedAt: time.Now().UTC(),
 		Note:      req.Note,
+		Owner:     strings.TrimSpace(req.Owner),
+		Company:   strings.TrimSpace(req.Company),
+		Email:     strings.TrimSpace(req.Email),
 	}
 }
 
@@ -310,9 +356,12 @@ func webIssue(store *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
 		k := newKey(issueRequest{
-			Plan: r.Form.Get("plan"),
-			IP:   r.Form.Get("ip"),
-			Note: r.Form.Get("note"),
+			Plan:    r.Form.Get("plan"),
+			IP:      r.Form.Get("ip"),
+			Note:    r.Form.Get("note"),
+			Owner:   r.Form.Get("owner"),
+			Company: r.Form.Get("company"),
+			Email:   r.Form.Get("email"),
 		})
 		_ = store.Put(k)
 		http.Redirect(w, r, "/", http.StatusFound)
