@@ -148,7 +148,10 @@ print("license key installed:", key)
 PY
 
 log "8/9 services + cli + admin"
-cp configuration/openadmin/config/admin.ini /etc/openpanel/openadmin/config/admin.ini
+# Copy the entire openadmin/config dir - admin panel reads admin.ini,
+# features.json (drives /settings/modules), notifications.ini, services.json,
+# shortcuts.json, log_paths.json, terms.md, etc. from here.
+cp -r configuration/openadmin/config/. /etc/openpanel/openadmin/config/
 head -c 32 /dev/urandom | base64 > /etc/openpanel/openadmin/secret.key
 chmod 600 /etc/openpanel/openadmin/secret.key
 
