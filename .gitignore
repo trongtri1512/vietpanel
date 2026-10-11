@@ -16,3 +16,12 @@ tests/**/.auth/
 # Go
 *.test
 !license-server/.env
+!license-server/.env.example
+
+# Shipped templates: install.sh copies configuration/ into /etc/openpanel/, and
+# cli/user/add.sh:501 dies without the compose .env, so these must be in the repo
+# even though their names match the generic secret-hygiene patterns above.
+!configuration/docker/compose/.env
+!configuration/docker/compose/1.0/.env
+!configuration/bind9/named.conf.local
+!configuration/skeleton/activity.log
