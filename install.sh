@@ -4,7 +4,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/trongtri1512/vietpanel/main/install.sh | bash -s -- \
 #        --domain vietpanel.trongtri.com --email you@example.com
 #
-# Installs: MySQL, Redis, Caddy, Go toolchain, VietPanel user panel (:2083),
+# Installs: MySQL, Redis, Caddy, Go toolchain, rootless podman runtime (podman +
+# podman-compose + shared image store, same model as upstream OpenPanel),
+# VietPanel user panel (:2083),
 # VietAdmin (:2087), self-hosted license-server (:2095), CLI (opencli/vietcli),
 # and wires TLS for --domain (and admin.--domain) via Caddy/Let's Encrypt.
 set -euo pipefail
@@ -56,6 +58,118 @@ if ! command -v mariadb >/dev/null 2>&1; then
     ln -sf "$(command -v mysql)" /usr/local/bin/mariadb
   fi
 fi
+
+# container runtime package set, mirrors upstream PODMAN_INSTALL.sh install_packages()
+if [[ -f /etc/needrestart/needrestart.conf ]]; then
+  sed -i "s/#\$nrconf{restart} = 'i';/\$nrconf{restart} = 'a';/g" /etc/needrestart/needrestart.conf
+fi
+echo 'APT::Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries
+apt-get install -y -qq apt-transport-https ca-certificates >/dev/null
+update-ca-certificates >/dev/null 2>&1 || true
+KERNEL_PKG="linux-image-amd64"
+if [[ "$ID" == "ubuntu" ]]; then KERNEL_PKG="linux-generic"; fi
+apt-get install -y -qq openssl cron tar dbus-user-session systemd dbus uidmap iptables \
+  podman default-mysql-client >/dev/null
+# upstream always installs a kernel metapackage, for vendor kernels that predate user
+# namespaces. On Ubuntu that drags in ~1GB of desktop/GPU/wireless firmware and replaces
+# the default boot entry, so skip it when a distro-supported flavour is already running.
+if ! uname -r | grep -qE -- '-(generic|cloud|virtual|lowlatency|aws|azure|gcp|kvm)'; then
+  apt-get install -y -qq "$KERNEL_PKG" >/dev/null 2>&1 \
+    || apt-get install -y -qq linux-image >/dev/null 2>&1 \
+    || echo "[vietpanel] warning: kernel metapackage ($KERNEL_PKG) install failed"
+fi
+# upstream treats these as warn-not-die: older releases may not package them
+apt-get install -y -qq systemd-container quota crun netavark aardvark-dns slirp4netns passt \
+  fuse-overlayfs >/dev/null \
+  || echo "[vietpanel] warning: some podman helper packages unavailable; podman may fall back to CNI/runc"
+# Debian 12 / Ubuntu 22.04 ship no podman-compose package: pip venv fallback (upstream :353-359)
+if ! apt-get install -y -qq podman-compose >/dev/null 2>&1 || ! command -v podman-compose >/dev/null 2>&1; then
+  apt-get install -y -qq python3-venv >/dev/null
+  if [[ ! -x /opt/podman-compose/bin/podman-compose ]]; then
+    python3 -m venv /opt/podman-compose
+    /opt/podman-compose/bin/pip install -q -U pip podman-compose
+    ln -sf /opt/podman-compose/bin/podman-compose /usr/local/bin/podman-compose
+  fi
+  hash -r
+fi
+if ! command -v podman >/dev/null 2>&1 || ! command -v podman-compose >/dev/null 2>&1; then
+  echo "FATAL: podman runtime packages missing after install"; exit 1
+fi
+
+log "1b/9 podman runtime"
+SHARED_STORE=/var/lib/containers/shared-storage
+
+# rootless podman is impossible with empty /etc/sub{uid,gid}; keep 100000-165535 free
+# because cli/user/add.sh:307-308 hands exactly that range to new accounts via usermod.
+touch /etc/subuid /etc/subgid
+grep -q '^root:' /etc/subuid || echo 'root:231072:65536' >> /etc/subuid
+grep -q '^root:' /etc/subgid || echo 'root:231072:65536' >> /etc/subgid
+
+# upstream runs `podman system reset -f` unconditionally (golden-image stale storage),
+# but that wipes storage - only reset when there are no images/containers to lose.
+if [[ -z "$(podman images -q 2>/dev/null || true)" && -z "$(podman ps -aq 2>/dev/null || true)" ]]; then
+  podman system reset -f >/dev/null 2>&1 || true
+  rm -rf /root/.local/share/containers/libpod
+  find /var/lib/containers/storage /run/containers/storage -mindepth 1 -delete 2>/dev/null || true
+fi
+install -d -Z /var/lib/containers 2>/dev/null || install -d /var/lib/containers
+
+mkdir -p /etc/containers/registries.conf.d
+echo 'unqualified-search-registries = ["docker.io"]' > /etc/containers/registries.conf.d/99-openpanel.conf
+
+# pasta is missing on some hosts; upstream guards this block the same way
+if command -v pasta >/dev/null 2>&1; then
+  mkdir -p /etc/containers/containers.conf.d
+  printf '[network]\ndefault_rootless_network_cmd = "pasta"\n' > /etc/containers/containers.conf.d/99-openpanel-net.conf
+fi
+
+mkdir -p /var/lib/containers/storage /run/containers/storage "$SHARED_STORE"
+# shared store must stay world-readable or rootless per-user podmans cannot use additionalimagestores
+chmod -R o+rX "$SHARED_STORE"
+find "$SHARED_STORE" -name '*.lock' -exec chmod o+rw {} \;
+
+cat > /etc/containers/storage.conf <<EOF
+[storage]
+driver = "overlay"
+graphroot = "/var/lib/containers/storage"
+runroot = "/run/containers/storage"
+
+[storage.options]
+additionalimagestores = [
+  "$SHARED_STORE"
+]
+
+[storage.options.overlay]
+ignore_chown_errors = "true"
+EOF
+
+# SELinux relabel; no-op on Ubuntu, kept for upstream parity
+if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null || true)" != "Disabled" ]] && command -v restorecon >/dev/null 2>&1; then
+  restorecon -RF /var/lib/containers/storage /run/containers/storage "$SHARED_STORE" >/dev/null 2>&1 || true
+fi
+
+if ! podman_info_err=$(podman info 2>&1 >/dev/null); then
+  if [[ "$podman_info_err" == *"graph driver"*"does not match"* || "$podman_info_err" == *"database configuration mismatch"* ]]; then
+    echo "[vietpanel] stale podman storage state - resetting and retrying"
+    podman system reset -f >/dev/null 2>&1 || true
+    rm -rf /var/lib/containers/storage/* /run/containers/storage/* 2>/dev/null || true
+    podman info >/dev/null 2>&1 || { echo "FATAL: podman failed to initialize"; exit 1; }
+  else
+    echo "FATAL: podman failed to initialize: $(tail -3 <<< "$podman_info_err")"; exit 1
+  fi
+fi
+
+# upstream enables podman.socket only AFTER storage.conf exists - keep that ordering
+systemctl enable --now podman.socket
+
+echo "[vietpanel] pulling shared images into $SHARED_STORE"
+podman --root "$SHARED_STORE" pull docker.io/library/alpine:latest >/dev/null \
+  || { echo "FATAL: failed to pull alpine into shared store"; exit 1; }
+podman --root "$SHARED_STORE" pull docker.io/ubuntu/bind9:latest >/dev/null 2>&1 \
+  || echo "[vietpanel] warning: bind9 image pull failed"
+chmod -R o+rX "$SHARED_STORE"
+find "$SHARED_STORE" -name '*.lock' -exec chmod o+rw {} \; 2>/dev/null || true
+if command -v restorecon >/dev/null 2>&1; then restorecon -R "$SHARED_STORE" >/dev/null 2>&1 || true; fi
 
 log "2/9 go toolchain"
 if ! command -v go >/dev/null || ! go version | grep -qE 'go1\.(2[5-9]|[3-9][0-9])'; then
@@ -123,6 +237,23 @@ systemctl is-active --quiet redis-server || { echo "FATAL: redis did not start";
 
 log "7/9 panel config + translations + license-server"
 mkdir -p /etc/openpanel/openpanel/conf /etc/openpanel/openadmin/config /var/lib/vietpanel
+# Ship the whole configuration tree to /etc/openpanel/ like upstream download_files() does.
+# The CLI reads its templates from here:
+#   nginx vhost tpl    cli/domains/add.sh:493  /etc/openpanel/nginx/vhosts/1.1/docker_<ws>_domain.conf
+#   caddy domain tpl   cli/domains/add.sh:547  /etc/openpanel/caddy/templates/domain.conf
+#   bind9 zone tpl     cli/domains/add.sh:613  /etc/openpanel/bind9/zone_template.txt
+#   per-user compose   cli/user/add.sh:494,501 /etc/openpanel/docker/compose/1.0/{docker-compose.yml,.env}
+#   per-user php.ini   cli/user/add.sh:582     /etc/openpanel/php/ini/
+#   per-user service cfgs (mysql/postgres/nginx/openresty/ols/apache/varnish/ofelia/
+#   backups) and skeleton: cli/user/add.sh:573-581,596
+cp -a configuration/. /etc/openpanel/
+mkdir -p /etc/openpanel/caddy/domains  # cli/domains/add.sh:546 writes <domain>.conf here
+# NOTE: caddy/templates/domain.conf uses coraza_waf directives that only the
+# coraza-patched caddy image from docker-compose parses; stock /usr/bin/caddy cannot.
+# live named config: the bind9 container mounts /etc/bind and cli/domains/* manage zones there
+install -d -m 755 /etc/bind
+cp -a configuration/bind9/. /etc/bind/
+mkdir -p /etc/bind/zones
 cp configuration/openpanel/conf/openpanel.config /etc/openpanel/openpanel/conf/openpanel.config
 cp -r translations /etc/openpanel/openpanel/translations
 # features/*.txt drive the sidebar + dashboard icons; core/service/websites/custom_code
